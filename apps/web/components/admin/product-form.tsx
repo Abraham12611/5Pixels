@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,24 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
+import { AssetUploader } from "./asset-uploader";
+
+export interface ProductAssetPreview {
+  publicUrl: string;
+  mimeType: string;
+}
 
 interface ProductFormProps {
   type: "filter" | "poster";
   initialData?: ProductCreateInput & { id?: string };
   categories: { id: string; slug: string; name: string }[];
   onSubmit: (data: ProductCreateInput) => Promise<{ id: string }>;
+  assetPreviews?: Partial<
+    Record<
+      "hero" | "poster" | "preview-video" | "preview-gif",
+      ProductAssetPreview
+    >
+  >;
   headerAction?: React.ReactNode;
 }
 
@@ -24,6 +36,7 @@ export function ProductForm({
   initialData,
   categories: categoryList,
   onSubmit,
+  assetPreviews,
   headerAction,
 }: ProductFormProps) {
   const router = useRouter();
@@ -36,6 +49,10 @@ export function ProductForm({
       long_description: "",
       public_status: "draft",
       visibility: "public",
+      hero_asset_id: undefined,
+      poster_asset_id: undefined,
+      preview_video_asset_id: undefined,
+      preview_gif_asset_id: undefined,
       credit_cost: 1,
       featured_rank: undefined,
       version: {
@@ -90,11 +107,23 @@ export function ProductForm({
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ProductCreateInput>({
     resolver: zodResolver(productCreateSchema),
     defaultValues,
   });
+
+  const [heroAssetId, posterAssetId, previewVideoAssetId, previewGifAssetId] =
+    useWatch({
+      control,
+      name: [
+        "hero_asset_id",
+        "poster_asset_id",
+        "preview_video_asset_id",
+        "preview_gif_asset_id",
+      ],
+    });
 
   const { fields, append, remove } = useFieldArray({
     control,
@@ -111,25 +140,29 @@ export function ProductForm({
   return (
     <form onSubmit={handleSubmit(submitHandler)} className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-cream-50">
+        <h1 className="text-cream-50 text-2xl font-bold">
           {initialData?.id ? `Edit ${title}` : `New ${title}`}
         </h1>
         <div className="flex items-center gap-3">
           {headerAction}
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Saving..." : initialData?.id ? "Save changes" : `Create ${title}`}
+            {isSubmitting
+              ? "Saving..."
+              : initialData?.id
+                ? "Save changes"
+                : `Create ${title}`}
           </Button>
         </div>
       </div>
 
-      <section className="rounded-2xl border border-cream-100/10 bg-charcoal-850 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-cream-50">Basic info</h2>
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">Basic info</h2>
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <Label htmlFor="name">Name</Label>
             <Input id="name" {...register("name")} className="mt-2" />
             {errors.name && (
-              <p className="mt-1 text-sm text-error">{errors.name.message}</p>
+              <p className="text-error mt-1 text-sm">{errors.name.message}</p>
             )}
           </div>
 
@@ -137,7 +170,7 @@ export function ProductForm({
             <Label htmlFor="slug">Slug</Label>
             <Input id="slug" {...register("slug")} className="mt-2" />
             {errors.slug && (
-              <p className="mt-1 text-sm text-error">{errors.slug.message}</p>
+              <p className="text-error mt-1 text-sm">{errors.slug.message}</p>
             )}
           </div>
 
@@ -196,7 +229,7 @@ export function ProductForm({
               className="mt-2"
             />
             {errors.credit_cost && (
-              <p className="mt-1 text-sm text-error">
+              <p className="text-error mt-1 text-sm">
                 {errors.credit_cost.message}
               </p>
             )}
@@ -222,8 +255,58 @@ export function ProductForm({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-cream-100/10 bg-charcoal-850 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-cream-50">
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">Media</h2>
+        <div className="grid gap-6 md:grid-cols-2">
+          <AssetUploader
+            role="hero"
+            label="Hero image"
+            value={heroAssetId}
+            initialPreviewUrl={assetPreviews?.hero?.publicUrl}
+            initialMimeType={assetPreviews?.hero?.mimeType}
+            onChange={(id) =>
+              setValue("hero_asset_id", id, { shouldDirty: true })
+            }
+            disabled={isSubmitting}
+          />
+          <AssetUploader
+            role="poster"
+            label="Poster image"
+            value={posterAssetId}
+            initialPreviewUrl={assetPreviews?.poster?.publicUrl}
+            initialMimeType={assetPreviews?.poster?.mimeType}
+            onChange={(id) =>
+              setValue("poster_asset_id", id, { shouldDirty: true })
+            }
+            disabled={isSubmitting}
+          />
+          <AssetUploader
+            role="preview-video"
+            label="Preview video"
+            value={previewVideoAssetId}
+            initialPreviewUrl={assetPreviews?.["preview-video"]?.publicUrl}
+            initialMimeType={assetPreviews?.["preview-video"]?.mimeType}
+            onChange={(id) =>
+              setValue("preview_video_asset_id", id, { shouldDirty: true })
+            }
+            disabled={isSubmitting}
+          />
+          <AssetUploader
+            role="preview-gif"
+            label="Preview GIF"
+            value={previewGifAssetId}
+            initialPreviewUrl={assetPreviews?.["preview-gif"]?.publicUrl}
+            initialMimeType={assetPreviews?.["preview-gif"]?.mimeType}
+            onChange={(id) =>
+              setValue("preview_gif_asset_id", id, { shouldDirty: true })
+            }
+            disabled={isSubmitting}
+          />
+        </div>
+      </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
           {type === "filter" ? "Filter settings" : "Poster settings"}
         </h2>
 
@@ -239,7 +322,7 @@ export function ProductForm({
                 className="mt-2"
               />
               {errors.filter_config?.style_archetype && (
-                <p className="mt-1 text-sm text-error">
+                <p className="text-error mt-1 text-sm">
                   {errors.filter_config.style_archetype.message}
                 </p>
               )}
@@ -274,7 +357,7 @@ export function ProductForm({
                 <option value="landscape">Landscape</option>
               </Select>
               {errors.poster_config?.layout_template && (
-                <p className="mt-1 text-sm text-error">
+                <p className="text-error mt-1 text-sm">
                   {errors.poster_config.layout_template.message}
                 </p>
               )}
@@ -296,8 +379,8 @@ export function ProductForm({
         )}
       </section>
 
-      <section className="rounded-2xl border border-cream-100/10 bg-charcoal-850 p-6">
-        <h2 className="mb-4 text-lg font-semibold text-cream-50">AI recipe</h2>
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">AI recipe</h2>
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <Label htmlFor="version.provider_strategy.primary_provider">
@@ -311,7 +394,9 @@ export function ProductForm({
             />
           </div>
           <div>
-            <Label htmlFor="version.provider_strategy.primary_model">Model</Label>
+            <Label htmlFor="version.provider_strategy.primary_model">
+              Model
+            </Label>
             <Input
               id="version.provider_strategy.primary_model"
               {...register("version.provider_strategy.primary_model")}
@@ -330,7 +415,7 @@ export function ProductForm({
             className="mt-2"
           />
           {errors.version?.private_instruction_template && (
-            <p className="mt-1 text-sm text-error">
+            <p className="text-error mt-1 text-sm">
               {errors.version.private_instruction_template.message}
             </p>
           )}
@@ -347,9 +432,9 @@ export function ProductForm({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-cream-100/10 bg-charcoal-850 p-6">
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-cream-50">User controls</h2>
+          <h2 className="text-cream-50 text-lg font-semibold">User controls</h2>
           <Button
             type="button"
             variant="secondary"
@@ -378,7 +463,7 @@ export function ProductForm({
           {fields.map((field, index) => (
             <div
               key={field.id}
-              className="rounded-xl border border-cream-100/10 bg-charcoal-800 p-4"
+              className="border-cream-100/10 bg-charcoal-800 rounded-xl border p-4"
             >
               <div className="grid gap-4 md:grid-cols-5">
                 <div className="md:col-span-2">
