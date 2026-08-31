@@ -1,0 +1,34 @@
+{
+  "project": "5Pixels",
+  "generated_files": [
+    "00_README_MASTER_INDEX.md",
+    "01_PRODUCT_OVERVIEW_AND_PRINCIPLES.md",
+    "02_UI_UX_BIBLE_AND_DESIGN_SYSTEM.md",
+    "03_SITEMAP_INFORMATION_ARCHITECTURE.md",
+    "04_LANDING_PAGE_SPEC.md",
+    "05_PRESET_SYSTEM_AND_CONTENT_MODEL.md",
+    "06_DATA_SCHEMA_AND_DATABASE_MODEL.md",
+    "07_BACKEND_API_AND_SYSTEM_ARCHITECTURE.md",
+    "08_AI_GENERATION_PIPELINE_AND_MODEL_ROUTING.md",
+    "09_AUTH_BILLING_CREDITS_AND_ENTITLEMENTS.md",
+    "10_SAFETY_PRIVACY_SECURITY_AND_RETENTION.md",
+    "11_ADMIN_CONSOLE_AND_PRESET_STUDIO.md",
+    "12_ANALYTICS_EXPERIMENTATION_AND_QUALITY.md",
+    "13_BUILD_PHASES_AND_IMPLEMENTATION_ROADMAP.md",
+    "14_ENGINEERING_STANDARDS_AND_REPO_STRUCTURE.md",
+    "15_CONTENT_ASSET_AND_MEDIA_GUIDE.md",
+    "16_USER_FLOWS_AND_ACCEPTANCE_CRITERIA.md",
+    "17_DECISION_LOG_AND_OPEN_QUESTIONS.md"
+  ],
+  "core_decisions": [
+    "Preset-first; no user free-form prompts in V1",
+    "Private server-side preset instructions",
+    "Vivid lime + black/charcoal + warm off-white brand direction",
+    "Curated Presets landing cards use MP4/GIF before-after previews, not sliders",
+    "Versioned presets",
+    "Provider-agnostic AI routing",
+    "Async generation jobs",
+    "Credit ledger",
+    "Admin Preset Studio required"
+  ]
+}

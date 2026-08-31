@@ -1,0 +1,27 @@
+{
+  "name": "5pixels",
+  "version": "0.1.0",
+  "private": true,
+  "description": "5Pixels — curated AI image transformation platform",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "pnpm -r format",
+    "format:check": "pnpm -r format:check"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp"]
+  }
+}

@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Brand palette from 02_UI_UX_BIBLE_AND_DESIGN_SYSTEM.md */
+  --color-ink-950: #080a08;
+  --color-ink-900: #0d100e;
+  --color-charcoal-850: #141714;
+  --color-charcoal-800: #191d19;
+  --color-charcoal-700: #242924;
+
+  --color-cream-50: #f7f2e8;
+  --color-cream-100: #eee7da;
+  --color-text-primary: #f7f2e8;
+  --color-text-secondary: #a6aaa4;
+  --color-text-muted: #777d77;
+
+  --color-lime-500: #82ea3a;
+  --color-lime-400: #96f04c;
+  --color-lime-300: #b2f878;
+  --color-lime-700: #4f9f20;
+
+  --color-warning: #f5c84c;
+  --color-error: #ff5b55;
+  --color-success: #55d982;
+
+  --color-background: var(--color-ink-950);
+  --color-foreground: var(--color-text-primary);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background-color: var(--color-ink-950);
+  color: var(--color-text-primary);
+}
+
+body {
+  background-color: var(--color-ink-950);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+}
+
+/* Minimal accessibility helpers */
+:focus-visible {
+  outline: 2px solid var(--color-lime-500);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
