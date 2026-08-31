@@ -16,6 +16,7 @@ interface ProductFormProps {
   initialData?: ProductCreateInput & { id?: string };
   categories: { id: string; slug: string; name: string }[];
   onSubmit: (data: ProductCreateInput) => Promise<{ id: string }>;
+  headerAction?: React.ReactNode;
 }
 
 export function ProductForm({
@@ -23,6 +24,7 @@ export function ProductForm({
   initialData,
   categories: categoryList,
   onSubmit,
+  headerAction,
 }: ProductFormProps) {
   const router = useRouter();
   const defaultValues = useMemo<ProductCreateInput>(
@@ -112,9 +114,12 @@ export function ProductForm({
         <h1 className="text-2xl font-bold text-cream-50">
           {initialData?.id ? `Edit ${title}` : `New ${title}`}
         </h1>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Saving..." : initialData?.id ? "Save changes" : `Create ${title}`}
-        </Button>
+        <div className="flex items-center gap-3">
+          {headerAction}
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Saving..." : initialData?.id ? "Save changes" : `Create ${title}`}
+          </Button>
+        </div>
       </div>
 
       <section className="rounded-2xl border border-cream-100/10 bg-charcoal-850 p-6">

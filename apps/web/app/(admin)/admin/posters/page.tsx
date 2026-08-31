@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/db/admin";
-import { getProducts } from "@/lib/db/products";
+import { duplicateProduct, getProducts } from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
+import { DuplicateButton } from "@/components/admin/duplicate-button";
 import Link from "next/link";
 
 export default async function PostersPage() {
@@ -34,6 +35,7 @@ export default async function PostersPage() {
                   <span className="rounded-full bg-charcoal-700 px-3 py-1 text-xs text-cream-100">
                     {poster.public_status}
                   </span>
+                  <DuplicateButton productId={poster.id} action={duplicateProduct} listHref="/admin/posters" />
                   <Button asChild variant="secondary">
                     <Link href={`/admin/posters/${poster.id}`}>Edit</Link>
                   </Button>

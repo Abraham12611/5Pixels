@@ -1,7 +1,8 @@
 import { requireAdmin } from "@/lib/db/admin";
 import { getCategories } from "@/lib/db/categories";
-import { getProductById, updateProduct } from "@/lib/db/products";
+import { getProductById, publishProductVersion, updateProduct } from "@/lib/db/products";
 import { ProductForm } from "./product-form";
+import { PublishButton } from "./publish-button";
 import { notFound } from "next/navigation";
 import type { ProductCreateInput } from "@5pixels/shared";
 
@@ -109,6 +110,13 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           await updateProduct(id, data);
           return { id };
         }}
+        headerAction={
+          <PublishButton
+            productId={id}
+            versionId={version?.id}
+            action={publishProductVersion}
+          />
+        }
       />
     </main>
   );
