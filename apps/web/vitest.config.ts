@@ -12,6 +12,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      "@5pixels/shared": path.resolve(__dirname, "../../packages/shared/src/index.ts"),
     },
   },
 });
