@@ -3,6 +3,12 @@
 import { createClient } from "@/lib/supabase/server";
 import type { ProductCreateInput } from "@5pixels/shared";
 import { logAdminAction } from "./audit";
+import { requireAdminOrOwner } from "./admin";
+import {
+  publishProductVersionSchema,
+  rollbackProductVersionSchema,
+  productStatusTransitionSchema,
+} from "@/lib/validation/admin-actions";
 
 export async function getProducts(type: "filter" | "poster") {
   const supabase = await createClient();
@@ -64,6 +70,8 @@ export async function getProductAssetPreviews(
 }
 
 export async function createProduct(input: ProductCreateInput) {
+  await requireAdminOrOwner();
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -135,6 +143,8 @@ export async function createProduct(input: ProductCreateInput) {
 }
 
 export async function updateProduct(id: string, input: ProductCreateInput) {
+  await requireAdminOrOwner();
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -161,6 +171,25 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
   if (productError) throw productError;
 
   if (version.id) {
+    // Active versions are immutable. Cloning creates a new draft so edits never
+    // mutate a published recipe.
+    let effectiveVersionId = version.id;
+    const existingVersion = Array.isArray(before.product_versions)
+      ? before.product_versions.find((v: { id: string }) => v.id === version.id)
+      : null;
+
+    if (existingVersion?.state === "active") {
+      const { data: cloned, error: cloneError } = await supabase
+        .rpc("clone_version_as_draft", {
+          p_source_version_id: version.id,
+        })
+        .single();
+
+      if (cloneError) throw cloneError;
+      effectiveVersionId =
+        (cloned as { id: string } | null)?.id ?? effectiveVersionId;
+    }
+
     const { error: versionError } = await supabase
       .from("product_versions")
       .update({
@@ -173,7 +202,7 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
         safety_config: version.safety_config,
         credit_cost: version.credit_cost,
       })
-      .eq("id", version.id);
+      .eq("id", effectiveVersionId);
 
     if (versionError) throw versionError;
   }
@@ -212,43 +241,73 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
 
 export async function publishProductVersion(
   productId: string,
-  versionId: string
+  versionId: string,
+  overrideReason?: string
 ) {
+  await requireAdminOrOwner();
+  const input = publishProductVersionSchema.parse({
+    productId,
+    versionId,
+    overrideReason,
+  });
+
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Unauthorized");
-
-  // Retire current active version.
-  await supabase
-    .from("product_versions")
-    .update({ state: "retired", retired_at: new Date().toISOString() })
-    .eq("product_id", productId)
-    .eq("state", "active");
-
-  // Publish new version.
-  const { error } = await supabase
-    .from("product_versions")
-    .update({ state: "active", published_at: new Date().toISOString() })
-    .eq("id", versionId);
+  const { error } = await supabase.rpc("publish_product_version", {
+    p_product_id: input.productId,
+    p_version_id: input.versionId,
+    p_override_reason: input.overrideReason ?? null,
+  });
 
   if (error) throw error;
+}
 
-  await supabase
-    .from("products")
-    .update({ public_status: "active" })
-    .eq("id", productId);
-
-  await logAdminAction({
-    action: "product_version.publish",
-    entityType: "product_version",
-    entityId: versionId,
-    after: { product_id: productId, version_id: versionId },
+export async function rollbackProductVersion(
+  productId: string,
+  targetVersionId: string,
+  reason?: string
+) {
+  await requireAdminOrOwner();
+  const input = rollbackProductVersionSchema.parse({
+    productId,
+    targetVersionId,
+    reason,
   });
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("rollback_product_version", {
+    p_product_id: input.productId,
+    p_target_version_id: input.targetVersionId,
+    p_reason: input.reason ?? null,
+  });
+
+  if (error) throw error;
+}
+
+export async function transitionProductStatus(
+  productId: string,
+  newStatus: string,
+  reason?: string
+) {
+  await requireAdminOrOwner();
+  const input = productStatusTransitionSchema.parse({
+    productId,
+    newStatus,
+    reason,
+  });
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("transition_product_status", {
+    p_product_id: input.productId,
+    p_new_status: input.newStatus,
+    p_reason: input.reason ?? null,
+  });
+
+  if (error) throw error;
 }
 
 export async function duplicateProduct(id: string) {
+  await requireAdminOrOwner();
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -349,4 +408,29 @@ export async function duplicateProduct(id: string) {
   });
 
   return product;
+}
+
+/**
+ * Select the version an admin should be editing: the current draft if one exists,
+ * otherwise the active (published) version. Retired versions are only selectable
+ * explicitly via rollback.
+ */
+export async function selectEditableVersion(
+  versions: Array<{ id: string; state: string; version_number: number }>
+) {
+  const ordered = [...versions].sort((a, b) => {
+    const stateRank = (state: string) =>
+      ({ draft: 0, testing: 1, active: 2, retired: 3 })[state] ?? 4;
+    const rankDiff = stateRank(a.state) - stateRank(b.state);
+    if (rankDiff !== 0) return rankDiff;
+    return b.version_number - a.version_number;
+  });
+
+  const draft = ordered.find((v) => v.state === "draft");
+  if (draft) return draft;
+
+  const testing = ordered.find((v) => v.state === "testing");
+  if (testing) return testing;
+
+  return ordered.find((v) => v.state === "active") ?? ordered[0] ?? null;
 }

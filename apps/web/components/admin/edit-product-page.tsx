@@ -4,12 +4,18 @@ import {
   getProductAssetPreviews,
   getProductById,
   publishProductVersion,
+  rollbackProductVersion,
+  transitionProductStatus,
   updateProduct,
+  selectEditableVersion,
 } from "@/lib/db/products";
 import { ProductForm } from "./product-form";
 import { PublishButton } from "./publish-button";
+import { ProductActions } from "./product-actions";
+import { VersionRollback } from "./version-rollback";
 import { notFound } from "next/navigation";
 import type { ProductCreateInput } from "@5pixels/shared";
+import { validatePublishGates } from "@/lib/validation/publish-gates";
 
 interface EditProductPageProps {
   id: string;
@@ -17,7 +23,7 @@ interface EditProductPageProps {
 }
 
 export async function EditProductPage({ id, type }: EditProductPageProps) {
-  await requireAdmin();
+  const { profile } = await requireAdmin();
   const product = await getProductById(id);
   if (!product || product.type !== type) notFound();
 
@@ -31,9 +37,22 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     ]),
   ]);
 
-  const version = Array.isArray(product.product_versions)
-    ? product.product_versions[0]
+  const versions = Array.isArray(product.product_versions)
+    ? product.product_versions
+    : [];
+  const selectedVersion = await selectEditableVersion(
+    versions.map((v: Record<string, unknown>) => ({
+      id: String(v.id),
+      state: String(v.state),
+      version_number: Number(v.version_number),
+    }))
+  );
+  const version = selectedVersion
+    ? (versions.find(
+        (v: Record<string, unknown>) => v.id === selectedVersion.id
+      ) as Record<string, unknown> | undefined)
     : null;
+
   const fields = Array.isArray(product.product_fields)
     ? product.product_fields
     : [];
@@ -61,21 +80,41 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     featured_rank: product.featured_rank ?? undefined,
     credit_cost: version?.credit_cost ?? product.credit_cost ?? 0,
     version: {
-      id: version?.id,
-      version_number: version?.version_number ?? 1,
-      state: version?.state ?? "draft",
-      private_instruction_template: version?.private_instruction_template ?? "",
+      id: version?.id as string | undefined,
+      version_number: (version?.version_number as number) ?? 1,
+      state:
+        (version?.state as ProductCreateInput["version"]["state"]) ?? "draft",
+      private_instruction_template:
+        (version?.private_instruction_template as string) ?? "",
       private_negative_instruction:
-        version?.private_negative_instruction ?? undefined,
-      provider_strategy: version?.provider_strategy ?? {
+        (version?.private_negative_instruction as string | undefined) ??
+        undefined,
+      provider_strategy: (version?.provider_strategy as
+        ProductCreateInput["version"]["provider_strategy"] | undefined) ?? {
         primary_provider: "",
         primary_model: "",
       },
-      model_config: version?.model_config ?? {},
-      input_validation_config: version?.input_validation_config ?? {},
-      post_process_config: version?.post_process_config ?? {},
-      safety_config: version?.safety_config ?? {},
-      credit_cost: version?.credit_cost ?? 1,
+      model_config:
+        (version?.model_config as
+          ProductCreateInput["version"]["model_config"] | undefined) ?? {},
+      input_validation_config:
+        (version?.input_validation_config as
+          | ProductCreateInput["version"]["input_validation_config"]
+          | undefined) ?? {},
+      post_process_config: (version?.post_process_config as
+        ProductCreateInput["version"]["post_process_config"] | undefined) ?? {
+        crop: false,
+        format: "webp",
+        quality: 90,
+        metadata_stripped: true,
+      },
+      safety_config: (version?.safety_config as
+        ProductCreateInput["version"]["safety_config"] | undefined) ?? {
+        allowed_nsfw: false,
+        block_public_figures: true,
+        block_minors: true,
+      },
+      credit_cost: (version?.credit_cost as number) ?? 1,
     },
     fields: fields.map(
       (f: {
@@ -125,8 +164,66 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         : undefined,
   };
 
+  const gateResult = validatePublishGates(
+    {
+      id: product.id,
+      type: product.type,
+      slug: product.slug,
+      name: product.name,
+      public_status: product.public_status,
+      hero_asset_id: product.hero_asset_id ?? undefined,
+      poster_asset_id: product.poster_asset_id ?? undefined,
+      metadata,
+    },
+    {
+      id: version?.id as string | undefined,
+      product_id: product.id,
+      version_number: (version?.version_number as number) ?? 1,
+      state: (version?.state as string) ?? "draft",
+      provider_strategy: (version?.provider_strategy as Record<
+        string,
+        string
+      >) ?? {
+        primary_provider: "",
+        primary_model: "",
+      },
+      credit_cost: (version?.credit_cost as number) ?? 0,
+      safety_config: (version?.safety_config as Record<string, unknown>) ?? {},
+    },
+    initialData.fields
+  );
+
+  const activeVersion = versions.find(
+    (v: Record<string, unknown>) => v.state === "active"
+  );
+
   return (
     <main className="p-8">
+      <div className="border-cream-100/10 bg-charcoal-850 mb-6 flex items-center justify-between rounded-2xl border p-4">
+        <div className="space-y-1">
+          <p className="text-text-secondary text-sm">
+            Current status:
+            <span className="bg-charcoal-700 text-cream-100 ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
+              {product.public_status}
+            </span>
+          </p>
+          <p className="text-text-secondary text-sm">
+            Editing version:
+            <span className="text-cream-50 ml-1 font-medium">
+              v{initialData.version.version_number}
+            </span>
+            <span className="bg-charcoal-700 text-cream-100 ml-2 rounded-full px-2 py-0.5 text-xs font-medium">
+              {initialData.version.state}
+            </span>
+          </p>
+        </div>
+        <ProductActions
+          productId={id}
+          status={product.public_status}
+          action={transitionProductStatus}
+        />
+      </div>
+
       <ProductForm
         type={type}
         initialData={initialData}
@@ -151,11 +248,30 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           return { id };
         }}
         headerAction={
-          <PublishButton
-            productId={id}
-            versionId={version?.id}
-            action={publishProductVersion}
-          />
+          <div className="flex items-center gap-3">
+            {activeVersion && (
+              <VersionRollback
+                productId={id}
+                activeVersionId={activeVersion.id as string}
+                versions={versions.map((v: Record<string, unknown>) => ({
+                  id: String(v.id),
+                  version_number: Number(v.version_number),
+                  state: String(v.state),
+                  published_at: v.published_at
+                    ? new Date(String(v.published_at)).toISOString()
+                    : null,
+                }))}
+                action={rollbackProductVersion}
+              />
+            )}
+            <PublishButton
+              productId={id}
+              versionId={initialData.version.id}
+              isOwner={!!profile.is_owner}
+              gateFailures={gateResult.ok ? [] : gateResult.failures}
+              action={publishProductVersion}
+            />
+          </div>
         }
       />
     </main>

@@ -1,7 +1,12 @@
 import { requireAdmin } from "@/lib/db/admin";
-import { duplicateProduct, getProducts } from "@/lib/db/products";
+import {
+  duplicateProduct,
+  getProducts,
+  transitionProductStatus,
+} from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
 import { DuplicateButton } from "@/components/admin/duplicate-button";
+import { ProductActions } from "@/components/admin/product-actions";
 import Link from "next/link";
 
 export default async function FiltersPage() {
@@ -11,31 +16,43 @@ export default async function FiltersPage() {
   return (
     <main className="p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-cream-50">Filters</h1>
+        <h1 className="text-cream-50 text-3xl font-bold">Filters</h1>
         <Button asChild>
           <Link href="/admin/filters/new">New filter</Link>
         </Button>
       </div>
-      <p className="mt-2 text-text-secondary">
+      <p className="text-text-secondary mt-2">
         Manage style and transformation presets.
       </p>
 
-      <div className="mt-8 rounded-2xl border border-cream-100/10 bg-charcoal-850">
+      <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border">
         {filters.length === 0 ? (
-          <p className="p-6 text-text-secondary">No filters yet.</p>
+          <p className="text-text-secondary p-6">No filters yet.</p>
         ) : (
-          <ul className="divide-y divide-cream-100/10">
+          <ul className="divide-cream-100/10 divide-y">
             {filters.map((filter) => (
-              <li key={filter.id} className="flex items-center justify-between p-4">
+              <li
+                key={filter.id}
+                className="flex items-center justify-between p-4"
+              >
                 <div>
-                  <p className="font-semibold text-cream-50">{filter.name}</p>
-                  <p className="text-sm text-text-muted">{filter.slug}</p>
+                  <p className="text-cream-50 font-semibold">{filter.name}</p>
+                  <p className="text-text-muted text-sm">{filter.slug}</p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="rounded-full bg-charcoal-700 px-3 py-1 text-xs text-cream-100">
+                  <span className="bg-charcoal-700 text-cream-100 rounded-full px-3 py-1 text-xs">
                     {filter.public_status}
                   </span>
-                  <DuplicateButton productId={filter.id} action={duplicateProduct} listHref="/admin/filters" />
+                  <ProductActions
+                    productId={filter.id}
+                    status={filter.public_status}
+                    action={transitionProductStatus}
+                  />
+                  <DuplicateButton
+                    productId={filter.id}
+                    action={duplicateProduct}
+                    listHref="/admin/filters"
+                  />
                   <Button asChild variant="secondary">
                     <Link href={`/admin/filters/${filter.id}`}>Edit</Link>
                   </Button>
