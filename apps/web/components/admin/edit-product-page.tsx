@@ -1,6 +1,11 @@
 import { requireAdmin } from "@/lib/db/admin";
 import { getCategories } from "@/lib/db/categories";
-import { getProductById, publishProductVersion, updateProduct } from "@/lib/db/products";
+import {
+  getProductAssetPreviews,
+  getProductById,
+  publishProductVersion,
+  updateProduct,
+} from "@/lib/db/products";
 import { ProductForm } from "./product-form";
 import { PublishButton } from "./publish-button";
 import { notFound } from "next/navigation";
@@ -16,7 +21,15 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const product = await getProductById(id);
   if (!product || product.type !== type) notFound();
 
-  const categories = await getCategories();
+  const [categories, assetPreviewById] = await Promise.all([
+    getCategories(),
+    getProductAssetPreviews([
+      product.hero_asset_id,
+      product.poster_asset_id,
+      product.preview_video_asset_id,
+      product.preview_gif_asset_id,
+    ]),
+  ]);
 
   const version = Array.isArray(product.product_versions)
     ? product.product_versions[0]
@@ -64,18 +77,31 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       safety_config: version?.safety_config ?? {},
       credit_cost: version?.credit_cost ?? 1,
     },
-    fields: fields.map((f: { id: string; field_key: string; label: string; help_text: string | null; field_type: string; required: boolean; sort_order: number; config: unknown; validation: unknown; active: boolean }) => ({
-      id: f.id,
-      field_key: f.field_key,
-      label: f.label,
-      help_text: f.help_text ?? undefined,
-      field_type: f.field_type,
-      required: f.required,
-      sort_order: f.sort_order,
-      config: f.config ?? {},
-      validation: f.validation ?? {},
-      active: f.active,
-    })),
+    fields: fields.map(
+      (f: {
+        id: string;
+        field_key: string;
+        label: string;
+        help_text: string | null;
+        field_type: string;
+        required: boolean;
+        sort_order: number;
+        config: unknown;
+        validation: unknown;
+        active: boolean;
+      }) => ({
+        id: f.id,
+        field_key: f.field_key,
+        label: f.label,
+        help_text: f.help_text ?? undefined,
+        field_type: f.field_type,
+        required: f.required,
+        sort_order: f.sort_order,
+        config: f.config ?? {},
+        validation: f.validation ?? {},
+        active: f.active,
+      })
+    ),
     filter_config:
       product.type === "filter"
         ? (metadata.filter_config ?? {
@@ -105,6 +131,20 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         type={type}
         initialData={initialData}
         categories={categories}
+        assetPreviews={{
+          hero: product.hero_asset_id
+            ? assetPreviewById[product.hero_asset_id]
+            : undefined,
+          poster: product.poster_asset_id
+            ? assetPreviewById[product.poster_asset_id]
+            : undefined,
+          "preview-video": product.preview_video_asset_id
+            ? assetPreviewById[product.preview_video_asset_id]
+            : undefined,
+          "preview-gif": product.preview_gif_asset_id
+            ? assetPreviewById[product.preview_gif_asset_id]
+            : undefined,
+        }}
         onSubmit={async (data) => {
           "use server";
           await updateProduct(id, data);

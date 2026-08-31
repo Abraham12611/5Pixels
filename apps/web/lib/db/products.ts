@@ -35,6 +35,34 @@ export async function getProductById(id: string) {
   return data;
 }
 
+export async function getProductAssetPreviews(
+  assetIds: Array<string | null | undefined>
+) {
+  const ids = [...new Set(assetIds.filter((id): id is string => Boolean(id)))];
+  if (ids.length === 0) return {};
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("assets")
+    .select("id, bucket, storage_key, mime_type, visibility")
+    .in("id", ids)
+    .eq("bucket", "preset-media")
+    .eq("visibility", "public");
+  if (error) throw error;
+
+  return Object.fromEntries(
+    (data ?? []).map((asset) => [
+      asset.id,
+      {
+        publicUrl: supabase.storage
+          .from(asset.bucket)
+          .getPublicUrl(asset.storage_key).data.publicUrl,
+        mimeType: asset.mime_type,
+      },
+    ])
+  );
+}
+
 export async function createProduct(input: ProductCreateInput) {
   const supabase = await createClient();
   const {
@@ -42,7 +70,8 @@ export async function createProduct(input: ProductCreateInput) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { version, fields, filter_config, poster_config, ...productData } = input;
+  const { version, fields, filter_config, poster_config, ...productData } =
+    input;
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -58,20 +87,22 @@ export async function createProduct(input: ProductCreateInput) {
 
   if (productError) throw productError;
 
-  const { error: versionError } = await supabase.from("product_versions").insert({
-    product_id: product.id,
-    version_number: version.version_number,
-    state: "draft",
-    private_instruction_template: version.private_instruction_template,
-    private_negative_instruction: version.private_negative_instruction,
-    provider_strategy: version.provider_strategy,
-    model_config: version.model_config,
-    input_validation_config: version.input_validation_config,
-    post_process_config: version.post_process_config,
-    safety_config: version.safety_config,
-    credit_cost: version.credit_cost,
-    created_by_admin_id: user.id,
-  });
+  const { error: versionError } = await supabase
+    .from("product_versions")
+    .insert({
+      product_id: product.id,
+      version_number: version.version_number,
+      state: "draft",
+      private_instruction_template: version.private_instruction_template,
+      private_negative_instruction: version.private_negative_instruction,
+      provider_strategy: version.provider_strategy,
+      model_config: version.model_config,
+      input_validation_config: version.input_validation_config,
+      post_process_config: version.post_process_config,
+      safety_config: version.safety_config,
+      credit_cost: version.credit_cost,
+      created_by_admin_id: user.id,
+    });
 
   if (versionError) throw versionError;
 
@@ -111,7 +142,8 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
   if (!user) throw new Error("Unauthorized");
 
   const before = await getProductById(id);
-  const { version, fields, filter_config, poster_config, ...productData } = input;
+  const { version, fields, filter_config, poster_config, ...productData } =
+    input;
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -178,7 +210,10 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
   return product;
 }
 
-export async function publishProductVersion(productId: string, versionId: string) {
+export async function publishProductVersion(
+  productId: string,
+  versionId: string
+) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -239,6 +274,10 @@ export async function duplicateProduct(id: string) {
       visibility: original.visibility,
       likeness_level: original.likeness_level,
       featured_rank: original.featured_rank,
+      hero_asset_id: original.hero_asset_id,
+      poster_asset_id: original.poster_asset_id,
+      preview_video_asset_id: original.preview_video_asset_id,
+      preview_gif_asset_id: original.preview_gif_asset_id,
       metadata: original.metadata,
     })
     .select()
@@ -255,8 +294,10 @@ export async function duplicateProduct(id: string) {
       product_id: product.id,
       version_number: 1,
       state: "draft",
-      private_instruction_template: originalVersion.private_instruction_template,
-      private_negative_instruction: originalVersion.private_negative_instruction,
+      private_instruction_template:
+        originalVersion.private_instruction_template,
+      private_negative_instruction:
+        originalVersion.private_negative_instruction,
       provider_strategy: originalVersion.provider_strategy,
       model_config: originalVersion.model_config,
       input_validation_config: originalVersion.input_validation_config,
@@ -273,18 +314,30 @@ export async function duplicateProduct(id: string) {
 
   if (originalFields.length > 0) {
     await supabase.from("product_fields").insert(
-      originalFields.map((field: { field_key: string; label: string; help_text: string | null; field_type: string; required: boolean; sort_order: number; config: unknown; validation: unknown; active: boolean }) => ({
-        product_id: product.id,
-        field_key: field.field_key,
-        label: field.label,
-        help_text: field.help_text,
-        field_type: field.field_type,
-        required: field.required,
-        sort_order: field.sort_order,
-        config: field.config,
-        validation: field.validation,
-        active: field.active,
-      }))
+      originalFields.map(
+        (field: {
+          field_key: string;
+          label: string;
+          help_text: string | null;
+          field_type: string;
+          required: boolean;
+          sort_order: number;
+          config: unknown;
+          validation: unknown;
+          active: boolean;
+        }) => ({
+          product_id: product.id,
+          field_key: field.field_key,
+          label: field.label,
+          help_text: field.help_text,
+          field_type: field.field_type,
+          required: field.required,
+          sort_order: field.sort_order,
+          config: field.config,
+          validation: field.validation,
+          active: field.active,
+        })
+      )
     );
   }
 
