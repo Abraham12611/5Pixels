@@ -1,11 +1,24 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
-export async function middleware(request: NextRequest) {
+const authRoutes = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/update-password",
+];
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const { supabaseResponse, user, supabase } = await updateSession(request);
 
-  // Protect all admin routes.
+  if (user) {
+    const isAuthRoute = authRoutes.some((route) => pathname === route);
+    if (isAuthRoute) {
+      return NextResponse.redirect(new URL("/app", request.url));
+    }
+  }
+
   if (pathname.startsWith("/admin")) {
     if (!user) {
       return NextResponse.redirect(new URL("/login", request.url));
@@ -20,6 +33,10 @@ export async function middleware(request: NextRequest) {
     if (!profile?.is_admin) {
       return NextResponse.redirect(new URL("/app", request.url));
     }
+  }
+
+  if (pathname.startsWith("/app") && !user) {
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
   return supabaseResponse;
