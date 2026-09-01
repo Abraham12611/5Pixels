@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  categoryFormSchema,
+  categoryUpdateSchema,
   productStatusTransitionSchema,
   publishProductVersionSchema,
   rollbackProductVersionSchema,
@@ -125,6 +127,82 @@ describe("productStatusTransitionSchema", () => {
       productId: "not-a-uuid",
       newStatus: "active",
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("categoryFormSchema", () => {
+  it("accepts a valid category", () => {
+    const result = categoryFormSchema.safeParse({
+      name: "Cinematic",
+      slug: "cinematic",
+      description: "Dramatic lighting and color grading.",
+      sort_order: 1,
+      is_active: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("trims name and slug", () => {
+    const result = categoryFormSchema.safeParse({
+      name: "  Cinematic  ",
+      slug: "  cinematic  ",
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error("expected success");
+    expect(result.data.name).toBe("Cinematic");
+    expect(result.data.slug).toBe("cinematic");
+  });
+
+  it("rejects an empty name", () => {
+    const result = categoryFormSchema.safeParse({
+      name: "   ",
+      slug: "cinematic",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ["uppercase", "Cinematic"],
+    ["spaces", "cinematic look"],
+    ["underscore", "cinematic_look"],
+  ])("rejects slug with %s", (_, slug) => {
+    const result = categoryFormSchema.safeParse({
+      name: "Cinematic",
+      slug,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a negative sort_order", () => {
+    const result = categoryFormSchema.safeParse({
+      name: "Cinematic",
+      slug: "cinematic",
+      sort_order: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("defaults sort_order and is_active", () => {
+    const result = categoryFormSchema.safeParse({
+      name: "Cinematic",
+      slug: "cinematic",
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error("expected success");
+    expect(result.data.sort_order).toBe(0);
+    expect(result.data.is_active).toBe(true);
+  });
+});
+
+describe("categoryUpdateSchema", () => {
+  it("accepts a partial update", () => {
+    const result = categoryUpdateSchema.safeParse({ name: "Updated" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an invalid slug in a partial update", () => {
+    const result = categoryUpdateSchema.safeParse({ slug: "Invalid Slug" });
     expect(result.success).toBe(false);
   });
 });

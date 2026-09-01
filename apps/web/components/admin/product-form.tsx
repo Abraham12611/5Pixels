@@ -11,7 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AssetUploader } from "./asset-uploader";
+import { normalizeEmptyCategory } from "@/lib/utils/category";
 
 export interface ProductAssetPreview {
   publicUrl: string;
@@ -241,10 +243,20 @@ export function ProductForm({
           </div>
 
           <div>
-            <Label htmlFor="category_id">Category</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="category_id">Category</Label>
+              <Link
+                href="/admin/categories"
+                className="text-text-secondary hover:text-cream-50 text-xs"
+              >
+                Manage categories
+              </Link>
+            </div>
             <Select
               id="category_id"
-              {...register("category_id")}
+              {...register("category_id", {
+                setValueAs: normalizeEmptyCategory,
+              })}
               className="mt-2"
             >
               <option value="">No category</option>
@@ -254,6 +266,11 @@ export function ProductForm({
                 </option>
               ))}
             </Select>
+            {errors.category_id && (
+              <p className="text-error mt-1 text-sm">
+                {errors.category_id.message}
+              </p>
+            )}
           </div>
 
           <div>
