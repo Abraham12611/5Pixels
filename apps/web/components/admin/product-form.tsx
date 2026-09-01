@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
+import type { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,8 @@ export interface ProductAssetPreview {
   publicUrl: string;
   mimeType: string;
 }
+
+type ProductFormInput = z.input<typeof productCreateSchema>;
 
 interface ProductFormProps {
   type: "filter" | "poster";
@@ -109,7 +112,7 @@ export function ProductForm({
     control,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<ProductCreateInput>({
+  } = useForm<ProductFormInput, unknown, ProductCreateInput>({
     resolver: zodResolver(productCreateSchema),
     defaultValues,
   });

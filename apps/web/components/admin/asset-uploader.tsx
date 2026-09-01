@@ -14,6 +14,30 @@ import {
   finalizeAdminAssetUpload,
 } from "@/app/(admin)/admin/asset-upload-actions";
 
+const PREPARE_TIMEOUT_MS = 20_000;
+const UPLOAD_TIMEOUT_MS = 180_000;
+const FINALIZE_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
 interface AssetUploaderProps {
   role: AdminAssetRole;
   label: string;
@@ -43,41 +67,56 @@ export function AssetUploader({
 
   const upload = async (file: File) => {
     setError(undefined);
+    let localUrl: string | undefined;
     try {
       validateAdminUpload(role, file);
       setBusy(true);
-      setStatus("Preparing upload…");
-      const localUrl = URL.createObjectURL(file);
+      setStatus("Preparing secure upload…");
+      localUrl = URL.createObjectURL(file);
       setPreviewUrl(localUrl);
       setMimeType(file.type);
-      const signed = await createAdminAssetUpload({
-        role,
-        name: file.name,
-        mimeType: file.type,
-        bytes: file.size,
-      });
-      setStatus("Uploading…");
+      const signed = await withTimeout(
+        createAdminAssetUpload({
+          role,
+          name: file.name,
+          mimeType: file.type,
+          bytes: file.size,
+        }),
+        PREPARE_TIMEOUT_MS,
+        "Upload authorization timed out. Please try again."
+      );
+      setStatus(`Uploading ${(file.size / 1024 / 1024).toFixed(1)} MB…`);
       const supabase = createClient();
-      const { error: uploadError } = await supabase.storage
-        .from("preset-media")
-        .uploadToSignedUrl(signed.path, signed.token, file, {
-          contentType: file.type,
-          upsert: false,
-        });
-      if (uploadError) throw uploadError;
-      setStatus("Verifying upload…");
-      const asset = await finalizeAdminAssetUpload(role, signed.path);
+      const result = await withTimeout(
+        supabase.storage
+          .from("preset-media")
+          .uploadToSignedUrl(signed.path, signed.token, file, {
+            contentType: file.type,
+            upsert: false,
+          }),
+        UPLOAD_TIMEOUT_MS,
+        "Upload timed out after 3 minutes. Check your connection and try again."
+      );
+      if (result.error) throw result.error;
+      setStatus("Upload received. Saving asset…");
+      const asset = await withTimeout(
+        finalizeAdminAssetUpload(role, signed.path),
+        FINALIZE_TIMEOUT_MS,
+        "Asset verification timed out. Please refresh before trying again."
+      );
       onChange(asset.id);
       setPreviewUrl(asset.publicUrl);
       setMimeType(asset.mimeType);
       setStatus("Upload complete");
-      URL.revokeObjectURL(localUrl);
     } catch (uploadError) {
       setError(
         uploadError instanceof Error ? uploadError.message : "Upload failed"
       );
+      setPreviewUrl(initialPreviewUrl);
+      setMimeType(initialMimeType);
       setStatus(undefined);
     } finally {
+      if (localUrl) URL.revokeObjectURL(localUrl);
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
     }
