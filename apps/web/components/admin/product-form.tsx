@@ -1,20 +1,51 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
+import type { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AssetUploader } from "./asset-uploader";
+import { normalizeEmptyCategory } from "@/lib/utils/category";
 
 export interface ProductAssetPreview {
   publicUrl: string;
   mimeType: string;
+}
+
+type ProductFormInput = z.input<typeof productCreateSchema>;
+
+const SAVE_TIMEOUT_MS = 45_000;
+
+function saveWithTimeout<T>(promise: Promise<T>) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(
+      () =>
+        reject(
+          new Error(
+            "Saving is taking longer than expected. Check the product list before retrying."
+          )
+        ),
+      SAVE_TIMEOUT_MS
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 interface ProductFormProps {
@@ -40,6 +71,8 @@ export function ProductForm({
   headerAction,
 }: ProductFormProps) {
   const router = useRouter();
+  const [submitError, setSubmitError] = useState<string>();
+  const [submitSuccess, setSubmitSuccess] = useState(false);
   const defaultValues = useMemo<ProductCreateInput>(
     () => ({
       type,
@@ -109,7 +142,7 @@ export function ProductForm({
     control,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<ProductCreateInput>({
+  } = useForm<ProductFormInput, unknown, ProductCreateInput>({
     resolver: zodResolver(productCreateSchema),
     defaultValues,
   });
@@ -131,14 +164,32 @@ export function ProductForm({
   });
 
   const submitHandler = async (data: ProductCreateInput) => {
-    const product = await onSubmit(data);
-    router.push(`/admin/${type}s/${product.id}`);
+    setSubmitError(undefined);
+    setSubmitSuccess(false);
+    try {
+      const product = await saveWithTimeout(onSubmit(data));
+      setSubmitSuccess(true);
+      router.push(`/admin/${type}s/${product.id}`);
+      router.refresh();
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : `Unable to save ${type}. Please try again.`
+      );
+    }
   };
 
   const title = type === "filter" ? "Filter" : "Poster";
 
   return (
-    <form onSubmit={handleSubmit(submitHandler)} className="space-y-8">
+    <form
+      onSubmit={handleSubmit(submitHandler, () => {
+        setSubmitSuccess(false);
+        setSubmitError("Please correct the highlighted fields before saving.");
+      })}
+      className="space-y-8"
+    >
       <div className="flex items-center justify-between">
         <h1 className="text-cream-50 text-2xl font-bold">
           {initialData?.id ? `Edit ${title}` : `New ${title}`}
@@ -154,6 +205,23 @@ export function ProductForm({
           </Button>
         </div>
       </div>
+
+      {submitError && (
+        <div
+          role="alert"
+          className="border-error/30 bg-error/10 text-error rounded-xl border px-4 py-3 text-sm"
+        >
+          {submitError}
+        </div>
+      )}
+      {submitSuccess && (
+        <div
+          role="status"
+          className="rounded-xl border border-lime-500/30 bg-lime-500/10 px-4 py-3 text-sm text-lime-400"
+        >
+          {title} saved successfully. Opening the editor…
+        </div>
+      )}
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
         <h2 className="text-cream-50 mb-4 text-lg font-semibold">Basic info</h2>
@@ -175,10 +243,20 @@ export function ProductForm({
           </div>
 
           <div>
-            <Label htmlFor="category_id">Category</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="category_id">Category</Label>
+              <Link
+                href="/admin/categories"
+                className="text-text-secondary hover:text-cream-50 text-xs"
+              >
+                Manage categories
+              </Link>
+            </div>
             <Select
               id="category_id"
-              {...register("category_id")}
+              {...register("category_id", {
+                setValueAs: normalizeEmptyCategory,
+              })}
               className="mt-2"
             >
               <option value="">No category</option>
@@ -188,6 +266,11 @@ export function ProductForm({
                 </option>
               ))}
             </Select>
+            {errors.category_id && (
+              <p className="text-error mt-1 text-sm">
+                {errors.category_id.message}
+              </p>
+            )}
           </div>
 
           <div>

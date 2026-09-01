@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { productCreateSchema } from "@5pixels/shared";
+import { zodResolver } from "@hookform/resolvers/zod";
 
 describe("productCreateSchema", () => {
   it("accepts a valid filter", () => {
@@ -62,6 +63,21 @@ describe("productCreateSchema", () => {
       expect(result.data.preview_video_asset_id).toBe(assetId);
       expect(result.data.preview_gif_asset_id).toBe(assetId);
     }
+  });
+
+  it("returns field errors through the React Hook Form resolver", async () => {
+    const resolver = zodResolver(productCreateSchema);
+    const result = await resolver(
+      {} as Parameters<typeof resolver>[0],
+      undefined,
+      {
+        fields: {},
+        shouldUseNativeValidation: false,
+      }
+    );
+
+    expect(result.errors.name?.message).toBeDefined();
+    expect(result.errors.slug?.message).toBeDefined();
   });
 
   it("rejects a poster without a layout", () => {
