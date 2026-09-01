@@ -1,38 +1,119 @@
-import { getPublicProducts } from "@/lib/db/explore";
+import { createClient } from "@/lib/supabase/server";
+import {
+  getActiveCategories,
+  getPublicProducts,
+  getUserFavoriteProductIds,
+} from "@/lib/db/explore";
+import { parseCatalogSearchParams } from "@/lib/catalog/filters";
+import { CatalogFilters } from "@/components/consumer/catalog-filters";
+import { ProductCard } from "@/components/consumer/product-card";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { SearchX } from "lucide-react";
 
-export default async function ExplorePage() {
-  const products = await getPublicProducts();
+export default async function ExplorePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const filters = parseCatalogSearchParams(params);
+
+  const currentQuery = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    currentQuery.set(key, Array.isArray(value) ? value[0] : value);
+  }
+  const returnPath = `/explore${currentQuery.toString() ? `?${currentQuery.toString()}` : ""}`;
+
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const isAuthenticated = Boolean(userData.user);
+
+  const [{ data: products, error }, categories, favoriteIds] =
+    await Promise.all([
+      getPublicProducts(
+        filters.type ?? undefined,
+        filters.category ?? undefined
+      ),
+      getActiveCategories(),
+      isAuthenticated ? getUserFavoriteProductIds() : Promise.resolve([]),
+    ]);
+
+  const favoriteIdSet = new Set(favoriteIds);
+
+  if (error) {
+    // Surface a generic message through the route error boundary; the real
+    // error is logged server-side.
+    throw new Error(error);
+  }
 
   return (
-    <main className="flex flex-1 flex-col px-6 py-12">
-      <h1 className="text-4xl font-bold text-cream-50">Explore looks</h1>
-      <p className="mt-2 text-text-secondary">
-        Browse curated Filters and Posters.
-      </p>
-
-      <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {products.map((product) => (
-          <a
-            key={product.id}
-            href={`/presets/${product.slug}`}
-            className="group rounded-2xl border border-cream-100/10 bg-charcoal-850 p-4 transition hover:border-lime-500/30"
-          >
-            <div className="aspect-[4/5] rounded-xl bg-charcoal-800" />
-            <div className="mt-4 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-cream-50">{product.name}</p>
-                <p className="text-sm capitalize text-lime-400">{product.type}</p>
-              </div>
-              <span className="rounded-full bg-charcoal-700 px-3 py-1 text-xs text-cream-100">
-                {Array.isArray(product.product_versions) &&
-                product.product_versions[0]
-                  ? `${product.product_versions[0].credit_cost} cr`
-                  : "Free"}
-              </span>
-            </div>
-          </a>
-        ))}
+    <main className="flex flex-1 flex-col px-4 py-10 sm:px-6 lg:py-12">
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
+            Explore looks
+          </h1>
+          <p className="text-text-secondary mt-2">
+            Browse curated Filters and Posters. Pick one, upload your photo, and
+            we handle the rest.
+          </p>
+        </div>
+        <Link
+          href="/app/favorites"
+          className="text-sm font-medium text-lime-400 hover:underline"
+        >
+          View your favorites →
+        </Link>
       </div>
+
+      {filters.errors.length > 0 && (
+        <div
+          role="alert"
+          className="border-error/30 bg-error/10 text-error mb-6 rounded-xl border px-4 py-3 text-sm"
+        >
+          {filters.errors.join(" ")}
+        </div>
+      )}
+
+      <CatalogFilters
+        categories={categories}
+        activeType={filters.type}
+        activeCategory={filters.category}
+      />
+
+      {products.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
+          <SearchX className="text-text-muted h-12 w-12" aria-hidden />
+          <h2 className="text-cream-50 mt-4 text-xl font-semibold">
+            No presets match your filters
+          </h2>
+          <p className="text-text-secondary mt-2 max-w-md">
+            Try changing the category or type above, or come back later for new
+            looks.
+          </p>
+          <Button asChild variant="secondary" className="mt-6">
+            <Link href="/explore">Clear filters</Link>
+          </Button>
+        </div>
+      ) : (
+        <section
+          aria-label="Catalog presets"
+          className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        >
+          {products.map((product, index) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+              isAuthenticated={isAuthenticated}
+              initialIsFavorite={favoriteIdSet.has(product.id)}
+              returnPath={returnPath}
+              priority={index < 4}
+            />
+          ))}
+        </section>
+      )}
     </main>
   );
 }
