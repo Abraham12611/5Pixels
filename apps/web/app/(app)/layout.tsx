@@ -6,6 +6,7 @@ const nav = [
   { href: "/app", label: "Home" },
   { href: "/explore", label: "Explore" },
   { href: "/app/favorites", label: "Favorites" },
+  { href: "/app/generations", label: "History" },
 ];
 
 export default async function AppLayout({

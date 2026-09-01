@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getUserCreditBalance } from "@/lib/generation/balance";
 import { Button } from "@/components/ui/button";
-import { SignOutButton } from "./sign-out-button";
+import { getUserCreditBalance } from "@/lib/generation/balance";
 import type { SafeGeneration } from "@/lib/generation/types";
 
 function formatDate(iso: string): string {
@@ -14,7 +13,7 @@ function formatDate(iso: string): string {
   }
 }
 
-export default async function AppHomePage() {
+export default async function GenerationsHistoryPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -38,24 +37,18 @@ export default async function AppHomePage() {
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-cream-50 text-3xl font-bold">App home</h1>
+            <h1 className="text-cream-50 text-3xl font-bold">
+              Generation history
+            </h1>
             <p className="text-text-secondary mt-1">
               Credits:{" "}
               <span className="text-cream-50 font-medium">{balanceResult}</span>
             </p>
           </div>
-          <SignOutButton />
-        </div>
-
-        <div className="mb-8">
-          <Button asChild>
-            <Link href="/explore">Explore presets</Link>
+          <Button asChild variant="secondary">
+            <Link href="/explore">New generation</Link>
           </Button>
         </div>
-
-        <h2 className="text-cream-50 mb-4 text-xl font-semibold">
-          Recent generations
-        </h2>
 
         {generations.length === 0 ? (
           <p className="text-text-secondary">
