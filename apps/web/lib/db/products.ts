@@ -78,8 +78,14 @@ export async function createProduct(input: ProductCreateInput) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const { version, fields, filter_config, poster_config, ...productData } =
-    input;
+  const {
+    version,
+    fields,
+    filter_config,
+    poster_config,
+    credit_cost,
+    ...productData
+  } = input;
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -108,7 +114,7 @@ export async function createProduct(input: ProductCreateInput) {
       input_validation_config: version.input_validation_config,
       post_process_config: version.post_process_config,
       safety_config: version.safety_config,
-      credit_cost: version.credit_cost,
+      credit_cost,
       created_by_admin_id: user.id,
     });
 
@@ -152,8 +158,14 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
   if (!user) throw new Error("Unauthorized");
 
   const before = await getProductById(id);
-  const { version, fields, filter_config, poster_config, ...productData } =
-    input;
+  const {
+    version,
+    fields,
+    filter_config,
+    poster_config,
+    credit_cost,
+    ...productData
+  } = input;
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -200,7 +212,7 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
         input_validation_config: version.input_validation_config,
         post_process_config: version.post_process_config,
         safety_config: version.safety_config,
-        credit_cost: version.credit_cost,
+        credit_cost,
       })
       .eq("id", effectiveVersionId);
 
