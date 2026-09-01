@@ -122,7 +122,12 @@ export async function createAndSubmitGeneration(
     }
   );
 
-  if (createError || !createData || (createData as unknown[]).length === 0) {
+  if (
+    createError ||
+    !Array.isArray(createData) ||
+    createData.length === 0 ||
+    !createData[0]
+  ) {
     const logMessage =
       createError?.message ?? "create_generation returned no data";
     console.error(
@@ -132,7 +137,7 @@ export async function createAndSubmitGeneration(
     return { error: userFacingError() };
   }
 
-  const row = (createData as unknown[])[0] as {
+  const row = createData[0] as unknown as {
     generation_id: string;
     status: string;
     processing_token: string | null;
@@ -146,99 +151,95 @@ export async function createAndSubmitGeneration(
 
   await setProcessingTokenCookie(row.generation_id, row.processing_token);
 
+  let failureCode: string | null = null;
+  let failureStage: string | null = null;
+
   try {
     const recipe = await getPrivateRecipe(
       input.productId,
       input.productVersionId
     );
     if (!recipe) {
-      await supabase.rpc("fail_generation_refund", {
-        p_generation_id: row.generation_id,
-        p_token: row.processing_token,
-        p_failure_code: "recipe_unavailable",
-        p_failure_stage: "configuration",
-      });
-      redirect(`/app/generations/${row.generation_id}`);
-    }
+      failureCode = "recipe_unavailable";
+      failureStage = "configuration";
+    } else if (recipe.product_type === "poster") {
+      failureCode = "poster_not_implemented";
+      failureStage = "post_processing";
+    } else {
+      const endpoint = getProviderEndpoint(recipe.provider_strategy);
+      if (!endpoint) {
+        failureCode = "missing_provider_endpoint";
+        failureStage = "configuration";
+      } else {
+        const sourceUrl = await import("./upload").then((m) =>
+          m.getSignedSourceUrlByAssetId(input.sourceAssetId)
+        );
 
-    if (recipe.product_type === "poster") {
-      await supabase.rpc("fail_generation_refund", {
-        p_generation_id: row.generation_id,
-        p_token: row.processing_token,
-        p_failure_code: "poster_not_implemented",
-        p_failure_stage: "post_processing",
-      });
-      redirect(`/app/generations/${row.generation_id}`);
-    }
+        const prompt = compilePrompt(
+          recipe.private_instruction_template,
+          input.options
+        );
 
-    const endpoint = getProviderEndpoint(recipe.provider_strategy);
-    if (!endpoint) {
-      await supabase.rpc("fail_generation_refund", {
-        p_generation_id: row.generation_id,
-        p_token: row.processing_token,
-        p_failure_code: "missing_provider_endpoint",
-        p_failure_stage: "configuration",
-      });
-      redirect(`/app/generations/${row.generation_id}`);
-    }
+        const provider = createFalAdapter();
+        const submitResult = await provider.submit({
+          endpoint,
+          prompt,
+          negativePrompt: recipe.private_negative_instruction ?? undefined,
+          sourceImageUrl: sourceUrl,
+          options: input.options,
+          modelConfig: recipe.model_config,
+        });
 
-    const sourceUrl = await import("./upload").then((m) =>
-      m.getSignedSourceUrlByAssetId(input.sourceAssetId)
-    );
+        const { error: attachError } = await supabase.rpc(
+          "attach_provider_request",
+          {
+            p_generation_id: row.generation_id,
+            p_token: row.processing_token,
+            p_provider_request_id: submitResult.requestId,
+            p_provider_endpoint: endpoint,
+          }
+        );
 
-    const prompt = compilePrompt(
-      recipe.private_instruction_template,
-      input.options
-    );
-
-    const provider = createFalAdapter();
-    const submitResult = await provider.submit({
-      endpoint,
-      prompt,
-      negativePrompt: recipe.private_negative_instruction ?? undefined,
-      sourceImageUrl: sourceUrl,
-      options: input.options,
-      modelConfig: recipe.model_config,
-    });
-
-    const { error: attachError } = await supabase.rpc(
-      "attach_provider_request",
-      {
-        p_generation_id: row.generation_id,
-        p_token: row.processing_token,
-        p_provider_request_id: submitResult.requestId,
-        p_provider_endpoint: endpoint,
+        if (attachError) {
+          console.error(
+            "[createAndSubmitGeneration] attach_provider_request failed",
+            attachError.message
+          );
+        }
       }
-    );
-
-    if (attachError) {
-      console.error(
-        "[createAndSubmitGeneration] attach_provider_request failed",
-        attachError.message
-      );
     }
-
-    redirect(`/app/generations/${row.generation_id}`);
   } catch (error) {
     console.error(
       "[createAndSubmitGeneration] submission error",
       error instanceof Error ? error.message : String(error)
     );
+    if (!failureCode) {
+      failureCode = "submit_failed";
+      failureStage = "provider_submit";
+    }
+  }
 
+  if (failureCode) {
     try {
-      await supabase.rpc("fail_generation_refund", {
+      const { error: failError } = await supabase.rpc("fail_generation_refund", {
         p_generation_id: row.generation_id,
         p_token: row.processing_token,
-        p_failure_code: "submit_failed",
-        p_failure_stage: "provider_submit",
+        p_failure_code: failureCode,
+        p_failure_stage: failureStage,
       });
+      if (failError) {
+        console.error(
+          "[createAndSubmitGeneration] fail_generation_refund failed",
+          failError.message
+        );
+      }
     } catch (refundError) {
       console.error(
         "[createAndSubmitGeneration] refund after submit failed",
         refundError instanceof Error ? refundError.message : String(refundError)
       );
     }
-
-    return { error: userFacingError() };
   }
+
+  redirect(`/app/generations/${row.generation_id}`);
 }

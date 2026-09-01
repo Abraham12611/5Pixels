@@ -139,6 +139,13 @@ export function CreateGenerationForm({
       }
       // On success the server action redirects. On idempotent retry it also redirects.
     } catch (err) {
+      if (
+        err instanceof Error &&
+        ((err as { digest?: string }).digest === "NEXT_REDIRECT" ||
+          err.message === "NEXT_REDIRECT")
+      ) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Something went wrong.";
       setError(message);
