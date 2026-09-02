@@ -107,8 +107,8 @@ BEGIN
   END IF;
 
   -- One-time processing token returned only on creation.
-  v_token := encode(gen_random_bytes(32), 'hex');
-  v_token_hash := encode(digest(v_token::bytea, 'sha256'), 'hex');
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  v_token_hash := encode(extensions.digest(v_token::bytea, 'sha256'), 'hex');
 
   -- Create the generation row first so the ledger reservation can reference it.
   INSERT INTO public.generations (
@@ -130,7 +130,7 @@ BEGIN
     p_source_asset_id,
     'created',
     p_options,
-    encode(digest(p_options::text::bytea, 'sha256'), 'hex'),
+    encode(extensions.digest(p_options::text::bytea, 'sha256'), 'hex'),
     p_idempotency_key,
     v_token_hash,
     v_credit_cost

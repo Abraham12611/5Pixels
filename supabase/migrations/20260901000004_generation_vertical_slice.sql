@@ -480,8 +480,8 @@ BEGIN
   END IF;
 
   -- One-time processing token returned only on creation.
-  v_token := encode(gen_random_bytes(32), 'hex');
-  v_token_hash := encode(digest(v_token::bytea, 'sha256'), 'hex');
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  v_token_hash := encode(extensions.digest(v_token::bytea, 'sha256'), 'hex');
 
   -- Create the generation row first so the ledger reservation can reference it.
   INSERT INTO public.generations (
@@ -503,7 +503,7 @@ BEGIN
     p_source_asset_id,
     'created',
     p_options,
-    encode(digest(p_options::text::bytea, 'sha256'), 'hex'),
+    encode(extensions.digest(p_options::text::bytea, 'sha256'), 'hex'),
     p_idempotency_key,
     v_token_hash,
     v_credit_cost
@@ -567,7 +567,7 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = 'P0001';
   END IF;
 
-  v_token_hash := encode(digest(p_token::bytea, 'sha256'), 'hex');
+  v_token_hash := encode(extensions.digest(p_token::bytea, 'sha256'), 'hex');
 
   SELECT id, status, processing_token_hash, user_id INTO v_record
   FROM public.generations
@@ -630,7 +630,7 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = 'P0001';
   END IF;
 
-  v_token_hash := encode(digest(p_token::bytea, 'sha256'), 'hex');
+  v_token_hash := encode(extensions.digest(p_token::bytea, 'sha256'), 'hex');
 
   SELECT * INTO v_record
   FROM public.generations
@@ -719,7 +719,7 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = 'P0001';
   END IF;
 
-  v_token_hash := encode(digest(p_token::bytea, 'sha256'), 'hex');
+  v_token_hash := encode(extensions.digest(p_token::bytea, 'sha256'), 'hex');
 
   SELECT * INTO v_record
   FROM public.generations
