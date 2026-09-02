@@ -196,9 +196,9 @@ BEGIN
 
   v_token_hash := encode(extensions.digest(p_token::bytea, 'sha256'), 'hex');
 
-  SELECT id, status, processing_token_hash, user_id INTO v_record
-  FROM public.generations
-  WHERE id = p_generation_id
+  SELECT g.id, g.status, g.processing_token_hash, g.user_id INTO v_record
+  FROM public.generations g
+  WHERE g.id = p_generation_id
   FOR UPDATE;
 
   IF v_record IS NULL OR v_record.user_id <> v_user_id THEN
