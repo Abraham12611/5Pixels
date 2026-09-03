@@ -446,3 +446,109 @@ export async function selectEditableVersion(
 
   return ordered.find((v) => v.state === "active") ?? ordered[0] ?? null;
 }
+
+const REFERENCE_ROLES = [
+  "style_reference",
+  "composition_reference",
+  "layout_reference",
+] as const;
+
+export async function attachReferenceAsset(input: {
+  productId: string;
+  assetId: string;
+  role: string;
+  internalOnly: boolean;
+}) {
+  await requireAdminOrOwner();
+  if (!REFERENCE_ROLES.includes(input.role as (typeof REFERENCE_ROLES)[number])) {
+    throw new Error("Invalid reference role");
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("product_assets")
+    .insert({
+      product_id: input.productId,
+      asset_id: input.assetId,
+      role: input.role,
+      internal_only: input.internalOnly,
+      sort_order: 0,
+    })
+    .select("id, role, asset_id, sort_order, internal_only")
+    .single();
+
+  if (error) throw error;
+
+  await logAdminAction({
+    action: "product.attach_reference",
+    entityType: "product",
+    entityId: input.productId,
+    after: { asset_id: input.assetId, role: input.role },
+  });
+
+  return data;
+}
+
+export async function detachReferenceAsset(productAssetId: string) {
+  await requireAdminOrOwner();
+
+  const supabase = await createClient();
+  const { data: existing, error: findError } = await supabase
+    .from("product_assets")
+    .select("id, product_id, asset_id, role")
+    .eq("id", productAssetId)
+    .single();
+
+  if (findError || !existing) throw new Error("Reference asset not found");
+
+  const { error } = await supabase
+    .from("product_assets")
+    .delete()
+    .eq("id", productAssetId);
+
+  if (error) throw error;
+
+  await logAdminAction({
+    action: "product.detach_reference",
+    entityType: "product",
+    entityId: existing.product_id as string,
+    before: existing,
+  });
+}
+
+export async function getProductReferenceAssets(productId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("product_assets")
+    .select(
+      `id, role, asset_id, sort_order, internal_only,
+      assets!inner(id, bucket, storage_key, mime_type, visibility)`
+    )
+    .eq("product_id", productId)
+    .in("role", [...REFERENCE_ROLES])
+    .order("sort_order", { ascending: true });
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => {
+    const asset = row.assets as unknown as {
+      id: string;
+      bucket: string;
+      storage_key: string;
+      mime_type: string;
+      visibility: string;
+    };
+    const publicUrl = supabase.storage
+      .from(asset.bucket)
+      .getPublicUrl(asset.storage_key).data.publicUrl;
+    return {
+      id: row.id as string,
+      role: row.role as string,
+      asset_id: row.asset_id as string,
+      sort_order: row.sort_order as number,
+      internal_only: row.internal_only as boolean,
+      public_url: publicUrl,
+      mime_type: asset.mime_type,
+    };
+  });
+}

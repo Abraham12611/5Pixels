@@ -3,6 +3,9 @@ import { getCategories } from "@/lib/db/categories";
 import {
   getProductAssetPreviews,
   getProductById,
+  getProductReferenceAssets,
+  attachReferenceAsset,
+  detachReferenceAsset,
   publishProductVersion,
   rollbackProductVersion,
   transitionProductStatus,
@@ -13,6 +16,8 @@ import { ProductForm } from "./product-form";
 import { PublishButton } from "./publish-button";
 import { ProductActions } from "./product-actions";
 import { VersionRollback } from "./version-rollback";
+import { VersionList, type VersionSummary } from "./version-list";
+import { ReferenceAssetManager } from "./reference-asset-manager";
 import { notFound } from "next/navigation";
 import type { ProductCreateInput } from "@5pixels/shared";
 import { validatePublishGates } from "@/lib/validation/publish-gates";
@@ -27,7 +32,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const product = await getProductById(id);
   if (!product || product.type !== type) notFound();
 
-  const [categories, assetPreviewById] = await Promise.all([
+  const [categories, assetPreviewById, referenceAssets] = await Promise.all([
     getCategories(),
     getProductAssetPreviews([
       product.hero_asset_id,
@@ -35,6 +40,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       product.preview_video_asset_id,
       product.preview_gif_asset_id,
     ]),
+    getProductReferenceAssets(id),
   ]);
 
   const versions = Array.isArray(product.product_versions)
@@ -197,6 +203,32 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     (v: Record<string, unknown>) => v.state === "active"
   );
 
+  const versionSummaries: VersionSummary[] = versions.map(
+    (v: Record<string, unknown>) => ({
+      id: String(v.id),
+      version_number: Number(v.version_number),
+      state: String(v.state),
+      published_at: v.published_at
+        ? new Date(String(v.published_at)).toISOString()
+        : null,
+      credit_cost: Number(v.credit_cost ?? 0),
+      provider_strategy: (v.provider_strategy as VersionSummary["provider_strategy"]) ?? {
+        primary_provider: "",
+        primary_model: "",
+      },
+      private_instruction_template: String(
+        v.private_instruction_template ?? ""
+      ),
+      private_negative_instruction: (v.private_negative_instruction as string | null) ?? null,
+      model_config: (v.model_config as Record<string, unknown>) ?? {},
+      input_validation_config:
+        (v.input_validation_config as Record<string, unknown>) ?? {},
+      post_process_config:
+        (v.post_process_config as Record<string, unknown>) ?? {},
+      safety_config: (v.safety_config as Record<string, unknown>) ?? {},
+    })
+  );
+
   return (
     <main className="p-8">
       <div className="border-cream-100/10 bg-charcoal-850 mb-6 flex items-center justify-between rounded-2xl border p-4">
@@ -223,6 +255,19 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           action={transitionProductStatus}
         />
       </div>
+
+      {versionSummaries.length > 0 && (
+        <div className="border-cream-100/10 bg-charcoal-850 mb-6 rounded-2xl border p-6">
+          <VersionList
+            versions={versionSummaries}
+            selectedVersionId={initialData.version.id}
+            onSelect={() => {
+              // Version switching is handled via the edit form save flow.
+              // The list is primarily for visibility and diff comparison.
+            }}
+          />
+        </div>
+      )}
 
       <ProductForm
         type={type}
@@ -274,6 +319,16 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           </div>
         }
       />
+
+      <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
+        <ReferenceAssetManager
+          productId={id}
+          versionId={initialData.version.id}
+          initialAssets={referenceAssets}
+          onAttach={attachReferenceAsset}
+          onDetach={detachReferenceAsset}
+        />
+      </div>
     </main>
   );
 }

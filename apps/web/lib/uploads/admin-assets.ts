@@ -3,6 +3,9 @@ export const ADMIN_ASSET_ROLES = [
   "poster",
   "preview-video",
   "preview-gif",
+  "style-reference",
+  "composition-reference",
+  "layout-reference",
 ] as const;
 
 export type AdminAssetRole = (typeof ADMIN_ASSET_ROLES)[number];
@@ -14,6 +17,9 @@ const roleMimeTypes: Record<AdminAssetRole, readonly string[]> = {
   poster: ["image/jpeg", "image/png", "image/webp"],
   "preview-video": ["video/mp4", "video/webm"],
   "preview-gif": ["image/gif"],
+  "style-reference": ["image/jpeg", "image/png", "image/webp"],
+  "composition-reference": ["image/jpeg", "image/png", "image/webp"],
+  "layout-reference": ["image/jpeg", "image/png", "image/webp"],
 };
 
 const mimeExtensions: Record<string, string> = {

@@ -22,6 +22,7 @@ export const productFieldConfigSchema = z.object({
       })
     )
     .optional(),
+  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
   min: z.number().optional(),
   max: z.number().optional(),
   step: z.number().optional(),

@@ -3,6 +3,12 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createFalAdapter } from "@/lib/ai/fal";
+import {
+  getProviderEndpoint,
+  getFallbackEndpoint,
+  isRetryableSubmitError,
+  type ProviderStrategy,
+} from "@/lib/ai/provider-routing";
 import { compilePrompt } from "@/lib/ai/prompt";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -32,7 +38,7 @@ interface PrivateRecipe {
   product_type: "filter" | "poster";
   private_instruction_template: string;
   private_negative_instruction: string | null;
-  provider_strategy: { primary_provider: string; primary_model?: string };
+  provider_strategy: ProviderStrategy;
   model_config: Record<string, unknown>;
   post_process_config: Record<string, unknown>;
 }
@@ -72,24 +78,6 @@ async function getPrivateRecipe(
   }
 
   return data as unknown as PrivateRecipe;
-}
-
-function getProviderEndpoint(
-  providerStrategy: Record<string, unknown>
-): string | null {
-  const primary = providerStrategy.primary_provider;
-  const model = providerStrategy.primary_model;
-  if (typeof primary !== "string") return null;
-  if (primary === "fal.ai" && model === "flux-pro") {
-    return "fal-ai/flux/dev/image-to-image";
-  }
-  if (typeof model === "string" && model.startsWith("fal-ai/")) {
-    return model;
-  }
-  if (primary === "fal-ai" && typeof model === "string" && model.length > 0) {
-    return `fal-ai/${model}`;
-  }
-  return null;
 }
 
 function userFacingError(): string {
@@ -162,11 +150,10 @@ export async function createAndSubmitGeneration(
     if (!recipe) {
       failureCode = "recipe_unavailable";
       failureStage = "configuration";
-    } else if (recipe.product_type === "poster") {
-      failureCode = "poster_not_implemented";
-      failureStage = "post_processing";
     } else {
       const endpoint = getProviderEndpoint(recipe.provider_strategy);
+      const fallbackEndpoint = getFallbackEndpoint(recipe.provider_strategy);
+
       if (!endpoint) {
         failureCode = "missing_provider_endpoint";
         failureStage = "configuration";
@@ -181,14 +168,37 @@ export async function createAndSubmitGeneration(
         );
 
         const provider = createFalAdapter();
-        const submitResult = await provider.submit({
-          endpoint,
-          prompt,
-          negativePrompt: recipe.private_negative_instruction ?? undefined,
-          sourceImageUrl: sourceUrl,
-          options: input.options,
-          modelConfig: recipe.model_config,
-        });
+        let submitResult;
+        let usedEndpoint = endpoint;
+
+        try {
+          submitResult = await provider.submit({
+            endpoint,
+            prompt,
+            negativePrompt: recipe.private_negative_instruction ?? undefined,
+            sourceImageUrl: sourceUrl,
+            options: input.options,
+            modelConfig: recipe.model_config,
+          });
+        } catch (primaryError) {
+          if (fallbackEndpoint && isRetryableSubmitError(primaryError)) {
+            console.error(
+              "[createAndSubmitGeneration] primary provider failed, trying fallback",
+              primaryError instanceof Error ? primaryError.message : String(primaryError)
+            );
+            usedEndpoint = fallbackEndpoint;
+            submitResult = await provider.submit({
+              endpoint: fallbackEndpoint,
+              prompt,
+              negativePrompt: recipe.private_negative_instruction ?? undefined,
+              sourceImageUrl: sourceUrl,
+              options: input.options,
+              modelConfig: recipe.model_config,
+            });
+          } else {
+            throw primaryError;
+          }
+        }
 
         const { error: attachError } = await supabase.rpc(
           "attach_provider_request",
@@ -196,7 +206,7 @@ export async function createAndSubmitGeneration(
             p_generation_id: row.generation_id,
             p_token: row.processing_token,
             p_provider_request_id: submitResult.requestId,
-            p_provider_endpoint: endpoint,
+            p_provider_endpoint: usedEndpoint,
           }
         );
 
