@@ -11,6 +11,7 @@ export interface PublicProductSummary {
   category_slug: string | null;
   category_name: string | null;
   featured_rank: number | null;
+  version_id: string | null;
   version_number: number | null;
   credit_cost: number;
   metadata: Record<string, unknown> | null;

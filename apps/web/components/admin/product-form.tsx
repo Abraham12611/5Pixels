@@ -473,7 +473,7 @@ export function ProductForm({
               id="version.provider_strategy.primary_provider"
               {...register("version.provider_strategy.primary_provider")}
               className="mt-2"
-              placeholder="e.g. fal.ai"
+              placeholder="e.g. fal-ai"
             />
           </div>
           <div>
@@ -484,7 +484,7 @@ export function ProductForm({
               id="version.provider_strategy.primary_model"
               {...register("version.provider_strategy.primary_model")}
               className="mt-2"
-              placeholder="e.g. flux-pro"
+              placeholder="e.g. flux/dev/image-to-image"
             />
           </div>
         </div>
