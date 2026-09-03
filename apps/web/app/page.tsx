@@ -1,29 +1,61 @@
-export default function Home() {
+import { createClient } from "@/lib/supabase/server";
+import { getPublicProducts, getActiveCategories } from "@/lib/db/explore";
+import { LandingPage } from "@/components/marketing/landing-page";
+
+export default async function HomePage() {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const isAuthenticated = Boolean(userData.user);
+
+  const [{ data: products }, categories] = await Promise.all([
+    getPublicProducts(),
+    getActiveCategories(),
+  ]);
+
+  // Pick curated products: first 8 active public products.
+  const curated = products.slice(0, 8);
+
+  // Spotlight products by category if present.
+  const portraitCategory = categories?.find(
+    (c) =>
+      c.slug.toLowerCase().includes("portrait") ||
+      c.name.toLowerCase().includes("portrait")
+  );
+  const cinematicCategory = categories.find(
+    (c) =>
+      c.slug.toLowerCase().includes("cinematic") ||
+      c.name.toLowerCase().includes("cinematic")
+  );
+  const coverCategory = categories.find(
+    (c) =>
+      c.slug.toLowerCase().includes("cover") ||
+      c.name.toLowerCase().includes("cover") ||
+      c.slug.toLowerCase().includes("poster") ||
+      c.name.toLowerCase().includes("poster")
+  );
+
+  const [portraitProducts, cinematicProducts, coverProducts] = await Promise.all(
+    [
+      portraitCategory
+        ? getPublicProducts(undefined, portraitCategory.slug)
+        : Promise.resolve({ data: [] }),
+      cinematicCategory
+        ? getPublicProducts(undefined, cinematicCategory.slug)
+        : Promise.resolve({ data: [] }),
+      coverCategory
+        ? getPublicProducts(undefined, coverCategory.slug)
+        : Promise.resolve({ data: [] }),
+    ]
+  );
+
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-      <p className="text-lime-400 text-sm font-medium uppercase tracking-wider">
-        5Pixels
-      </p>
-      <h1 className="mt-4 max-w-2xl text-5xl font-bold leading-tight text-cream-50 md:text-7xl">
-        Pick the look. Upload your photo. We handle the rest.
-      </h1>
-      <p className="mt-6 max-w-lg text-lg text-text-secondary">
-        Curated AI transformations for portraits, posters, and everything in between. No prompt engineering required.
-      </p>
-      <div className="mt-10 flex flex-col gap-4 sm:flex-row">
-        <a
-          href="/explore"
-          className="inline-flex items-center justify-center rounded-full bg-lime-500 px-8 py-3 font-semibold text-ink-950 transition hover:bg-lime-400"
-        >
-          Explore looks
-        </a>
-        <a
-          href="/app"
-          className="inline-flex items-center justify-center rounded-full border border-cream-100/20 bg-charcoal-800 px-8 py-3 font-semibold text-cream-50 transition hover:bg-charcoal-700"
-        >
-          Open app
-        </a>
-      </div>
-    </main>
+    <LandingPage
+      isAuthenticated={isAuthenticated}
+      categories={categories}
+      curatedProducts={curated}
+      portraitProducts={portraitProducts.data.slice(0, 6)}
+      cinematicProducts={cinematicProducts.data.slice(0, 6)}
+      coverProducts={coverProducts.data.slice(0, 6)}
+    />
   );
 }
