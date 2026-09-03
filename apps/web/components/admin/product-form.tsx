@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useFieldArray, useForm, useWatch } from "react-hook-form";
+import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
 import type { z } from "zod";
@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AssetUploader } from "./asset-uploader";
+import { FieldEditor } from "./field-editor";
 import { normalizeEmptyCategory } from "@/lib/utils/category";
 
 export interface ProductAssetPreview {
@@ -136,16 +137,17 @@ export function ProductForm({
     [initialData, type]
   );
 
+  const methods = useForm<ProductFormInput, unknown, ProductCreateInput>({
+    resolver: zodResolver(productCreateSchema),
+    defaultValues,
+  });
   const {
     register,
     handleSubmit,
     control,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<ProductFormInput, unknown, ProductCreateInput>({
-    resolver: zodResolver(productCreateSchema),
-    defaultValues,
-  });
+  } = methods;
 
   const [heroAssetId, posterAssetId, previewVideoAssetId, previewGifAssetId] =
     useWatch({
@@ -157,11 +159,6 @@ export function ProductForm({
         "preview_gif_asset_id",
       ],
     });
-
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "fields",
-  });
 
   const submitHandler = async (data: ProductCreateInput) => {
     setSubmitError(undefined);
@@ -183,6 +180,7 @@ export function ProductForm({
   const title = type === "filter" ? "Filter" : "Poster";
 
   return (
+    <FormProvider {...methods}>
     <form
       onSubmit={handleSubmit(submitHandler, () => {
         setSubmitSuccess(false);
@@ -467,7 +465,7 @@ export function ProductForm({
         <div className="grid gap-6 md:grid-cols-2">
           <div>
             <Label htmlFor="version.provider_strategy.primary_provider">
-              Provider
+              Primary provider
             </Label>
             <Input
               id="version.provider_strategy.primary_provider"
@@ -478,13 +476,35 @@ export function ProductForm({
           </div>
           <div>
             <Label htmlFor="version.provider_strategy.primary_model">
-              Model
+              Primary model
             </Label>
             <Input
               id="version.provider_strategy.primary_model"
               {...register("version.provider_strategy.primary_model")}
               className="mt-2"
               placeholder="e.g. flux/dev/image-to-image"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.provider_strategy.fallback_provider">
+              Fallback provider (optional)
+            </Label>
+            <Input
+              id="version.provider_strategy.fallback_provider"
+              {...register("version.provider_strategy.fallback_provider")}
+              className="mt-2"
+              placeholder="e.g. fal-ai"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.provider_strategy.fallback_model">
+              Fallback model (optional)
+            </Label>
+            <Input
+              id="version.provider_strategy.fallback_model"
+              {...register("version.provider_strategy.fallback_model")}
+              className="mt-2"
+              placeholder="e.g. flux-pro/image-to-image"
             />
           </div>
         </div>
@@ -516,90 +536,240 @@ export function ProductForm({
       </section>
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-cream-50 text-lg font-semibold">User controls</h2>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() =>
-              append({
-                field_key: `field_${fields.length + 1}`,
-                label: "New field",
-                field_type: "short_text",
-                required: false,
-                sort_order: fields.length,
-                config: {},
-                validation: {},
-                active: true,
-              })
-            }
-          >
-            Add field
-          </Button>
-        </div>
-
-        {fields.length === 0 && (
-          <p className="text-text-secondary">No fields configured.</p>
-        )}
-
-        <div className="space-y-4">
-          {fields.map((field, index) => (
-            <div
-              key={field.id}
-              className="border-cream-100/10 bg-charcoal-800 rounded-xl border p-4"
-            >
-              <div className="grid gap-4 md:grid-cols-5">
-                <div className="md:col-span-2">
-                  <Label htmlFor={`fields.${index}.label`}>Label</Label>
-                  <Input
-                    id={`fields.${index}.label`}
-                    {...register(`fields.${index}.label`)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`fields.${index}.field_key`}>Key</Label>
-                  <Input
-                    id={`fields.${index}.field_key`}
-                    {...register(`fields.${index}.field_key`)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor={`fields.${index}.field_type`}>Type</Label>
-                  <Select
-                    id={`fields.${index}.field_type`}
-                    {...register(`fields.${index}.field_type`)}
-                    className="mt-1"
-                  >
-                    <option value="short_text">Short text</option>
-                    <option value="select">Select</option>
-                    <option value="radio">Radio</option>
-                    <option value="toggle">Toggle</option>
-                    <option value="color">Color</option>
-                    <option value="aspect_ratio">Aspect ratio</option>
-                    <option value="intensity">Intensity</option>
-                    <option value="layout">Layout</option>
-                    <option value="background">Background</option>
-                    <option value="wardrobe">Wardrobe</option>
-                    <option value="era">Era</option>
-                    <option value="mood">Mood</option>
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="danger"
-                    onClick={() => remove(index)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
+          Model parameters
+        </h2>
+        <div className="grid gap-6 md:grid-cols-4">
+          <div>
+            <Label htmlFor="version.model_config.width">Width</Label>
+            <Input
+              id="version.model_config.width"
+              type="number"
+              {...register("version.model_config.width", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.model_config.height">Height</Label>
+            <Input
+              id="version.model_config.height"
+              type="number"
+              {...register("version.model_config.height", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.model_config.guidance_scale">
+              Guidance scale
+            </Label>
+            <Input
+              id="version.model_config.guidance_scale"
+              type="number"
+              step="any"
+              {...register("version.model_config.guidance_scale", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.model_config.num_inference_steps">
+              Inference steps
+            </Label>
+            <Input
+              id="version.model_config.num_inference_steps"
+              type="number"
+              {...register("version.model_config.num_inference_steps", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
         </div>
       </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
+          Input compatibility
+        </h2>
+        <div className="grid gap-6 md:grid-cols-4">
+          <div>
+            <Label htmlFor="version.input_validation_config.min_width">
+              Min width (px)
+            </Label>
+            <Input
+              id="version.input_validation_config.min_width"
+              type="number"
+              {...register("version.input_validation_config.min_width", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.input_validation_config.min_height">
+              Min height (px)
+            </Label>
+            <Input
+              id="version.input_validation_config.min_height"
+              type="number"
+              {...register("version.input_validation_config.min_height", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.input_validation_config.max_people_count">
+              Max people
+            </Label>
+            <Input
+              id="version.input_validation_config.max_people_count"
+              type="number"
+              {...register("version.input_validation_config.max_people_count", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.input_validation_config.max_face_count">
+              Max faces
+            </Label>
+            <Input
+              id="version.input_validation_config.max_face_count"
+              type="number"
+              {...register("version.input_validation_config.max_face_count", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
+          Post-processing
+        </h2>
+        <div className="grid gap-6 md:grid-cols-4">
+          <div>
+            <Label htmlFor="version.post_process_config.resize_width">
+              Resize width
+            </Label>
+            <Input
+              id="version.post_process_config.resize_width"
+              type="number"
+              {...register("version.post_process_config.resize_width", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.post_process_config.resize_height">
+              Resize height
+            </Label>
+            <Input
+              id="version.post_process_config.resize_height"
+              type="number"
+              {...register("version.post_process_config.resize_height", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <Label htmlFor="version.post_process_config.format">
+              Output format
+            </Label>
+            <Select
+              id="version.post_process_config.format"
+              {...register("version.post_process_config.format")}
+              className="mt-2"
+            >
+              <option value="webp">WebP</option>
+              <option value="png">PNG</option>
+              <option value="jpeg">JPEG</option>
+              <option value="jpg">JPG</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="version.post_process_config.quality">
+              Quality (1–100)
+            </Label>
+            <Input
+              id="version.post_process_config.quality"
+              type="number"
+              min={1}
+              max={100}
+              {...register("version.post_process_config.quality", {
+                valueAsNumber: true,
+              })}
+              className="mt-2"
+            />
+          </div>
+        </div>
+        <div className="mt-4 flex gap-6">
+          <label className="text-cream-50 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              {...register("version.post_process_config.crop")}
+              className="h-4 w-4 rounded text-lime-500"
+            />
+            Crop to target size
+          </label>
+          <label className="text-cream-50 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              {...register("version.post_process_config.metadata_stripped")}
+              className="h-4 w-4 rounded text-lime-500"
+            />
+            Strip metadata
+          </label>
+        </div>
+      </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
+          Safety config
+        </h2>
+        <div className="flex flex-wrap gap-6">
+          <label className="text-cream-50 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              {...register("version.safety_config.allowed_nsfw")}
+              className="h-4 w-4 rounded text-lime-500"
+            />
+            Allow NSFW
+          </label>
+          <label className="text-cream-50 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              {...register("version.safety_config.block_public_figures")}
+              className="h-4 w-4 rounded text-lime-500"
+            />
+            Block public figures
+          </label>
+          <label className="text-cream-50 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              {...register("version.safety_config.block_minors")}
+              className="h-4 w-4 rounded text-lime-500"
+            />
+            Block minors
+          </label>
+        </div>
+      </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <FieldEditor />
+      </section>
     </form>
+    </FormProvider>
   );
 }

@@ -76,12 +76,6 @@ export function CreateGenerationForm({
       setError("Preset is not available for generation.");
       return;
     }
-    if (isPoster) {
-      setError(
-        "Poster generation with deterministic text rendering is not supported yet."
-      );
-      return;
-    }
     if (!canAfford) {
       setError(
         `This preset costs ${product.credit_cost} credits. Your balance is ${initialBalance}.`
@@ -203,7 +197,7 @@ export function CreateGenerationForm({
           </div>
           <Button
             type="submit"
-            disabled={loading || !file || isPoster}
+            disabled={loading || !file}
             className="w-full sm:w-auto"
           >
             {loading ? progress || "Creating..." : "Create generation"}
@@ -211,7 +205,7 @@ export function CreateGenerationForm({
         </div>
         {isPoster && (
           <p className="text-text-secondary mt-3 text-sm">
-            Posters with exact text generation are coming soon.
+            Poster generation includes deterministic text rendering.
           </p>
         )}
       </section>

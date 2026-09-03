@@ -231,14 +231,16 @@ export async function getSignedAssetUrl(
 
 export async function uploadOutputImage(
   userId: string,
-  buffer: ArrayBuffer,
+  buffer: ArrayBuffer | Buffer,
   contentType: string
 ): Promise<{ path: string }> {
   const path = buildOutputPath(userId, contentType);
   const service = createServiceClient();
+  const uploadData =
+    buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : buffer;
   const { error } = await service.storage
     .from(USER_ASSET_BUCKET)
-    .upload(path, new Uint8Array(buffer), { contentType });
+    .upload(path, uploadData, { contentType });
   if (error) {
     console.error("[uploadOutputImage] upload failed", error.message);
     throw new Error("Unable to save generated image");

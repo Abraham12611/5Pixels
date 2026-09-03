@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { createFalAdapter } from "@/lib/ai/fal";
+import { postProcessImage, composePoster, type PostProcessConfig } from "@/lib/ai/post-process";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createOutputAsset, uploadOutputImage } from "@/lib/generation/upload";
@@ -103,6 +104,122 @@ async function getProviderRow(
   };
 }
 
+async function getPostProcessConfig(
+  generationId: string
+): Promise<PostProcessConfig | null> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("generations")
+    .select(
+      `product_version_id,
+      product_versions!inner(post_process_config)`
+    )
+    .eq("id", generationId)
+    .single();
+  if (error || !data) {
+    console.error("[poll] post-process config lookup failed", error?.message);
+    return null;
+  }
+  const versionData = data.product_versions as unknown as {
+    post_process_config: PostProcessConfig;
+  } | null;
+  return versionData?.post_process_config ?? null;
+}
+
+async function getPosterConfig(
+  generationId: string
+): Promise<{
+  isPoster: boolean;
+  posterConfig: Record<string, unknown> | null;
+  requestedOptions: Record<string, unknown>;
+} | null> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("generations")
+    .select(
+      `requested_options,
+      products!inner(type, metadata)`
+    )
+    .eq("id", generationId)
+    .single();
+  if (error || !data) {
+    console.error("[poll] poster config lookup failed", error?.message);
+    return null;
+  }
+  const productData = data.products as unknown as {
+    type: string;
+    metadata: { poster_config?: Record<string, unknown> };
+  };
+  const isPoster = productData.type === "poster";
+  return {
+    isPoster,
+    posterConfig: isPoster ? productData.metadata.poster_config ?? null : null,
+    requestedOptions: (data.requested_options as Record<string, unknown>) ?? {},
+  };
+}
+
+interface PosterOverlayConfig {
+  text: string;
+  position: "top" | "center" | "bottom";
+  size: "small" | "medium" | "large";
+  color: string;
+  alignment: "left" | "center" | "right";
+  fontFamily?: string;
+}
+
+function buildPosterOverlays(
+  posterConfig: Record<string, unknown>,
+  requestedOptions: Record<string, unknown>
+): PosterOverlayConfig[] {
+  const textFields = Array.isArray(posterConfig.text_fields)
+    ? (posterConfig.text_fields as Array<{
+        key: string;
+        label: string;
+        default_value?: string;
+        required?: boolean;
+      }>)
+    : [];
+
+  const textLayerConfig = (posterConfig.text_layer_config ?? {}) as {
+    position?: string;
+    size?: string;
+    color?: string;
+    alignment?: string;
+  };
+
+  const position = (textLayerConfig.position ?? "bottom") as
+    | "top"
+    | "center"
+    | "bottom";
+  const size = (textLayerConfig.size ?? "medium") as
+    | "small"
+    | "medium"
+    | "large";
+  const color = textLayerConfig.color ?? "#F7F2E8";
+  const alignment = (textLayerConfig.alignment ?? "center") as
+    | "left"
+    | "center"
+    | "right";
+
+  const overlays: PosterOverlayConfig[] = [];
+  for (const field of textFields) {
+    const value =
+      (requestedOptions[field.key] as string | undefined) ??
+      field.default_value;
+    if (value && value.trim().length > 0) {
+      overlays.push({
+        text: value,
+        position,
+        size,
+        color,
+        alignment,
+      });
+    }
+  }
+
+  return overlays;
+}
+
 function isTerminalStatus(status: string): boolean {
   return ["completed", "failed", "cancelled", "blocked"].includes(status);
 }
@@ -201,16 +318,63 @@ export async function pollGenerationStatus(
 
   try {
     const download = await provider.downloadImage(statusResult.imageUrl);
+
+    // For posters, compose deterministic text overlays onto the AI-generated
+    // background before post-processing.
+    const posterInfo = await getPosterConfig(generationId);
+    let imageBuffer: ArrayBuffer | Buffer = download.buffer;
+
+    if (posterInfo?.isPoster && posterInfo.posterConfig) {
+      try {
+        const overlays = buildPosterOverlays(
+          posterInfo.posterConfig,
+          posterInfo.requestedOptions
+        );
+        if (overlays.length > 0) {
+          const composed = await composePoster({
+            imageBuffer: download.buffer,
+            overlays,
+          });
+          imageBuffer = composed.buffer;
+        }
+      } catch (composeError) {
+        console.error(
+          "[poll] poster compose failed, using raw image",
+          composeError instanceof Error ? composeError.message : String(composeError)
+        );
+      }
+    }
+
+    // Apply post-processing if configured.
+    const postProcessConfig = await getPostProcessConfig(generationId);
+    let outputBuffer: ArrayBuffer | Buffer = imageBuffer;
+    let outputContentType = download.contentType;
+    let outputSize = download.size;
+
+    if (postProcessConfig) {
+      try {
+        const result = await postProcessImage(imageBuffer, postProcessConfig);
+        outputBuffer = result.buffer;
+        outputContentType = result.contentType;
+        outputSize = result.buffer.byteLength;
+      } catch (ppError) {
+        console.error(
+          "[poll] post-processing failed, using raw output",
+          ppError instanceof Error ? ppError.message : String(ppError)
+        );
+      }
+    }
+
     const { path } = await uploadOutputImage(
       user.id,
-      download.buffer,
-      download.contentType
+      outputBuffer,
+      outputContentType
     );
     const outputAssetId = await createOutputAsset(
       user.id,
       path,
-      download.contentType,
-      download.size
+      outputContentType,
+      outputSize
     );
 
     const { error: completeError } = await supabase.rpc("complete_generation", {
