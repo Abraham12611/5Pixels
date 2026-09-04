@@ -1,5 +1,12 @@
 export type ProductType = "filter" | "poster";
 
+export interface OutputSizeOption {
+  name: string;
+  width: number;
+  height: number;
+  is_default?: boolean;
+}
+
 export interface PublicProductSummary {
   id: string;
   slug: string;
@@ -14,6 +21,7 @@ export interface PublicProductSummary {
   version_id: string | null;
   version_number: number | null;
   credit_cost: number;
+  output_sizes: OutputSizeOption[];
   metadata: Record<string, unknown> | null;
   hero_asset_id: string | null;
   poster_asset_id: string | null;

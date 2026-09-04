@@ -99,6 +99,22 @@ export async function createAndSubmitGeneration(
     return { error: "Please sign in to continue." };
   }
 
+  if (!input.outputSize || input.outputSize.width * input.outputSize.height > 4_000_000) {
+    return { error: "Invalid output size." };
+  }
+
+  // Load the private recipe before reserving credits so we know the planned
+  // provider endpoint and can compute the dynamic cost up front.
+  const recipe = await getPrivateRecipe(input.productId, input.productVersionId);
+  if (!recipe) {
+    return { error: userFacingError() };
+  }
+
+  const endpoint = getProviderEndpoint(recipe.provider_strategy);
+  if (!endpoint) {
+    return { error: userFacingError() };
+  }
+
   const { data: createData, error: createError } = await supabase.rpc(
     "create_generation",
     {
@@ -107,6 +123,9 @@ export async function createAndSubmitGeneration(
       p_source_asset_id: input.sourceAssetId,
       p_options: input.options,
       p_idempotency_key: input.idempotencyKey,
+      p_provider_endpoint: endpoint,
+      p_output_width: input.outputSize.width,
+      p_output_height: input.outputSize.height,
     }
   );
 
@@ -143,80 +162,74 @@ export async function createAndSubmitGeneration(
   let failureStage: string | null = null;
 
   try {
-    const recipe = await getPrivateRecipe(
-      input.productId,
-      input.productVersionId
+    const fallbackEndpoint = getFallbackEndpoint(recipe.provider_strategy);
+    const sourceUrl = await import("./upload").then((m) =>
+      m.getSignedSourceUrlByAssetId(input.sourceAssetId)
     );
-    if (!recipe) {
-      failureCode = "recipe_unavailable";
-      failureStage = "configuration";
-    } else {
-      const endpoint = getProviderEndpoint(recipe.provider_strategy);
-      const fallbackEndpoint = getFallbackEndpoint(recipe.provider_strategy);
 
-      if (!endpoint) {
-        failureCode = "missing_provider_endpoint";
-        failureStage = "configuration";
+    const prompt = compilePrompt(
+      recipe.private_instruction_template,
+      input.options
+    );
+
+    const modelConfig: Record<string, unknown> = {
+      ...recipe.model_config,
+      width: input.outputSize.width,
+      height: input.outputSize.height,
+      image_size: {
+        width: input.outputSize.width,
+        height: input.outputSize.height,
+      },
+    };
+
+    const provider = createFalAdapter();
+    let submitResult;
+    let usedEndpoint = endpoint;
+
+    try {
+      submitResult = await provider.submit({
+        endpoint,
+        prompt,
+        negativePrompt: recipe.private_negative_instruction ?? undefined,
+        sourceImageUrl: sourceUrl,
+        options: input.options,
+        modelConfig,
+      });
+    } catch (primaryError) {
+      if (fallbackEndpoint && isRetryableSubmitError(primaryError)) {
+        console.error(
+          "[createAndSubmitGeneration] primary provider failed, trying fallback",
+          primaryError instanceof Error ? primaryError.message : String(primaryError)
+        );
+        usedEndpoint = fallbackEndpoint;
+        submitResult = await provider.submit({
+          endpoint: fallbackEndpoint,
+          prompt,
+          negativePrompt: recipe.private_negative_instruction ?? undefined,
+          sourceImageUrl: sourceUrl,
+          options: input.options,
+          modelConfig,
+        });
       } else {
-        const sourceUrl = await import("./upload").then((m) =>
-          m.getSignedSourceUrlByAssetId(input.sourceAssetId)
-        );
-
-        const prompt = compilePrompt(
-          recipe.private_instruction_template,
-          input.options
-        );
-
-        const provider = createFalAdapter();
-        let submitResult;
-        let usedEndpoint = endpoint;
-
-        try {
-          submitResult = await provider.submit({
-            endpoint,
-            prompt,
-            negativePrompt: recipe.private_negative_instruction ?? undefined,
-            sourceImageUrl: sourceUrl,
-            options: input.options,
-            modelConfig: recipe.model_config,
-          });
-        } catch (primaryError) {
-          if (fallbackEndpoint && isRetryableSubmitError(primaryError)) {
-            console.error(
-              "[createAndSubmitGeneration] primary provider failed, trying fallback",
-              primaryError instanceof Error ? primaryError.message : String(primaryError)
-            );
-            usedEndpoint = fallbackEndpoint;
-            submitResult = await provider.submit({
-              endpoint: fallbackEndpoint,
-              prompt,
-              negativePrompt: recipe.private_negative_instruction ?? undefined,
-              sourceImageUrl: sourceUrl,
-              options: input.options,
-              modelConfig: recipe.model_config,
-            });
-          } else {
-            throw primaryError;
-          }
-        }
-
-        const { error: attachError } = await supabase.rpc(
-          "attach_provider_request",
-          {
-            p_generation_id: row.generation_id,
-            p_token: row.processing_token,
-            p_provider_request_id: submitResult.requestId,
-            p_provider_endpoint: usedEndpoint,
-          }
-        );
-
-        if (attachError) {
-          console.error(
-            "[createAndSubmitGeneration] attach_provider_request failed",
-            attachError.message
-          );
-        }
+        throw primaryError;
       }
+    }
+
+    const { error: attachError } = await supabase.rpc(
+      "attach_provider_request",
+      {
+        p_generation_id: row.generation_id,
+        p_token: row.processing_token,
+        p_provider_request_id: submitResult.requestId,
+        p_provider_endpoint: usedEndpoint,
+      }
+    );
+
+    if (attachError) {
+      console.error(
+        "[createAndSubmitGeneration] attach_provider_request failed",
+        attachError.message
+      );
     }
   } catch (error) {
     console.error(

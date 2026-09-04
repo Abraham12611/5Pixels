@@ -19,6 +19,7 @@ export interface ProviderStatusResult {
   status: ProviderJobStatus;
   imageUrl?: string;
   logs?: unknown[];
+  computeSeconds?: number;
   error?: string;
 }
 

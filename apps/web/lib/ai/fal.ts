@@ -171,7 +171,11 @@ export function createFalAdapter(): ImageProviderAdapter {
           };
         }
 
-        return { status: "completed", imageUrl, logs };
+        const computeSeconds =
+          (statusResult as unknown as { metrics?: { inference_time?: number | null } }).metrics
+            ?.inference_time ?? undefined;
+
+        return { status: "completed", imageUrl, logs, computeSeconds };
       } catch (error) {
         // Network/transient errors remain retryable; do not leak provider text
         // and do not trigger an immediate refund.

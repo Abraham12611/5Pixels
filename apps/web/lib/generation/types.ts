@@ -1,10 +1,11 @@
-import type { PublicProductField } from "@/types/catalog";
+import type { PublicProductField, OutputSizeOption } from "@/types/catalog";
 
 export interface CreateGenerationInput {
   productId: string;
   productVersionId: string;
   sourceAssetId: string;
   options: Record<string, unknown>;
+  outputSize: OutputSizeOption;
   idempotencyKey: string;
 }
 

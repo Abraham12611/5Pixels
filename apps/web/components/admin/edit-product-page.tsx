@@ -103,6 +103,9 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       model_config:
         (version?.model_config as
           ProductCreateInput["version"]["model_config"] | undefined) ?? {},
+      output_sizes:
+        (version?.output_sizes as
+          ProductCreateInput["version"]["output_sizes"] | undefined) ?? [],
       input_validation_config:
         (version?.input_validation_config as
           | ProductCreateInput["version"]["input_validation_config"]

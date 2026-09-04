@@ -252,7 +252,9 @@ export async function createOutputAsset(
   userId: string,
   path: string,
   contentType: string,
-  size: number
+  size: number,
+  width?: number,
+  height?: number
 ): Promise<string> {
   const service = createServiceClient();
   const { data: asset, error } = await service
@@ -264,6 +266,8 @@ export async function createOutputAsset(
       bucket: USER_ASSET_BUCKET,
       media_type: "image",
       mime_type: contentType,
+      width,
+      height,
       bytes: size,
       visibility: "private",
       source_type: "generation_output",
