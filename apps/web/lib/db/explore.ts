@@ -9,7 +9,16 @@ const GENERIC_ERROR = "Unable to load the catalog. Please try again.";
 export interface CatalogResult<T> {
   data: T;
   error?: string;
+  totalCount?: number;
 }
+
+export type CatalogSort =
+  | "featured"
+  | "newest"
+  | "name_asc"
+  | "name_desc"
+  | "credits_asc"
+  | "credits_desc";
 
 /**
  * Fetch public-safe product summaries for the consumer catalog.
@@ -21,13 +30,21 @@ export interface CatalogResult<T> {
 export async function getPublicProducts(
   type?: "filter" | "poster",
   categorySlug?: string,
-  productIds?: string[]
+  productIds?: string[],
+  search?: string,
+  sort: CatalogSort = "featured",
+  page = 1,
+  pageSize = 24
 ): Promise<CatalogResult<PublicProductSummary[]>> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_public_catalog", {
     p_type: type ?? null,
     p_category_slug: categorySlug ?? null,
     p_product_ids: productIds?.length ? productIds : null,
+    p_search: search?.trim() || null,
+    p_sort: sort,
+    p_page: page,
+    p_page_size: pageSize,
   });
 
   if (error) {
@@ -35,7 +52,11 @@ export async function getPublicProducts(
     return { data: [], error: GENERIC_ERROR };
   }
 
-  return { data: (data ?? []) as PublicProductSummary[] };
+  const typedData = (data ?? []) as (PublicProductSummary & { total_count?: number })[];
+  const totalCount = typedData.length > 0 ? (typedData[0].total_count ?? 0) : 0;
+  const products = typedData.map(({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_number, credit_cost, metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets }) => ({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_number, credit_cost, metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets }));
+
+  return { data: products as PublicProductSummary[], totalCount };
 }
 
 export async function getPublicProductBySlug(
