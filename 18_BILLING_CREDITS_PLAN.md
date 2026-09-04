@@ -1,8 +1,10 @@
 # 5Pixels Billing & Dynamic Credits Implementation Plan
 
-**Status:** Proposed plan — pending approval before engineering begins.
+**Status:** Approved plan — implementation in progress (PR A).
 
 This document defines the architecture for 5Pixels paid plans, credits, and dynamic per-generation pricing. It is written to protect margins across 600+ Fal AI image models while keeping the user-facing model simple: **1 credit = $0.01 USD of retail purchasing power**.
+
+Payment processing is handled by **Dodo Payments**, which acts as the Merchant of Record (MoR) for global tax, compliance, invoicing, and local payment methods.
 
 ---
 
@@ -15,11 +17,12 @@ This document defines the architecture for 5Pixels paid plans, credits, and dyna
 - Support weekly trials, monthly subscriptions, and one-time extra-credit top-ups.
 - Make the credit ledger the single source of truth; never mutate a balance column directly.
 - Support reservation/hold at generation start and final sync on completion or failure.
+- Use Dodo Payments for checkout, subscriptions, webhooks, and tax/invoicing.
 
 ### 1.2 Non-Goals
 - This plan does not cover profit reporting dashboards (Phase 10).
 - It does not cover promotional coupons or referral credits.
-- It assumes Stripe as the payment provider.
+- It does not cover premium-preset entitlement gating (planned for a later phase; see section 9).
 
 ---
 
@@ -33,8 +36,9 @@ This document defines the architecture for 5Pixels paid plans, credits, and dyna
 
 Rules:
 - Only users with **no prior paid invoice or active subscription** can purchase.
-- After the 7-day period, unused credits expire unless converted to a monthly plan.
+- After the 7-day period, unused credits **expire**. No rollover.
 - One purchase per user, ever.
+- Implemented as Dodo **one-time payment** products.
 
 ### 2.2 Monthly Core Plans (auto-renewing)
 | Plan | Price | Credits / month | Markup | Tier role |
@@ -46,8 +50,9 @@ Rules:
 
 Rules:
 - Auto-renew monthly unless cancelled.
-- Credits reset at period start (no rollover in V1; consider rollover later).
+- Credits **reset at period start** (no rollover in V1; consider rollover later).
 - Cancel at period end.
+- Implemented as Dodo **subscription** products.
 
 ### 2.3 Extra Credits (one-time top-ups)
 | Field | Value |
@@ -57,14 +62,22 @@ Rules:
 | Markup | **1.5x** |
 | Eligibility | Only active monthly subscribers ($20+ plans) |
 | Expiry | None |
+| Type | Dodo **one-time payment** product, variable amount |
 
 ### 2.4 Free Credits Removal
 - Remove the “Free credits when you join” and “Starter credits” copy from:
   - `components/marketing/sign-up-cta.tsx`
   - `components/marketing/pricing-teaser.tsx`
 - Do not automatically insert a ledger `allocation` on signup.
-- New users start with **0 credits** and must choose a weekly trial or monthly plan.
-- If any existing rows in `credit_ledger` are tied to a signup credit grant, leave them in place (grandfather) but stop granting new ones.
+- New users start with **0 credits** and must buy a plan or trial.
+- **Grandfather existing free credits:** any existing `allocation` rows remain untouched.
+
+### 2.5 Output Dimensions & Rounding Strategy
+- Users select from a **curated output-size list per preset** (e.g. square, portrait, landscape, poster A4, social 1080×1350) rather than arbitrary dimensions.
+- The **maximum allowed output size** is **4 megapixels** to cap worst-case Fal costs.
+- The credit hold at generation start uses the **selected output size**.
+- The final debit uses the **actual output dimensions** returned by Fal, capped at the selected-size estimate (no surprises for the user).
+- Credit values are stored as `NUMERIC(12,4)` and displayed with **2 decimals**. Reservations are `ceil`-ed to 2 decimals so the user never sees micro-fractions.
 
 ---
 
@@ -80,7 +93,7 @@ quantity =
   (width × height) / 1,000,000         if unit = "megapixel"
   min(actual_compute_seconds, 15)      if unit = "compute seconds" or "seconds"
 
-Credits Deducted = ceil( (Raw Cost × 1.10) / 0.01 × markup )
+Credits Deducted = ceil( (Raw Cost × 1.10) / 0.01 × markup , 2 decimals)
 ```
 
 ### 3.2 Variable Breakdown
@@ -88,13 +101,13 @@ Credits Deducted = ceil( (Raw Cost × 1.10) / 0.01 × markup )
 | Variable | Meaning |
 | --- | --- |
 | **Raw Fal AI Cost** | Provider price per unit multiplied by the quantity the request consumed. |
-| **Safety Buffer (1.10)** | 10% pad for Stripe fees (~3.5%), partially-billed failed/timed-out requests, hosting, and margin leakage. |
-| **Plan Markup Multiplier** | Consumption speed discount tied to the plan the user is on. Higher-tier plans burn credits slower, improving perceived value while preserving our margin. |
+| **Safety Buffer (1.10)** | 10% pad for Dodo fees, partially-billed failed/timed-out requests, and hosting margin leakage. |
+| **Plan Markup Multiplier** | Consumption speed tied to the active plan. Higher-tier plans burn credits slower while preserving our margin. |
 | **$0.01** | Fixed internal credit dollar value. |
 
 ### 3.3 Markup Multiplier Schedule
 
-| Plan | Proposed Markup | Rationale |
+| Plan | Markup | Rationale |
 | --- | --- | --- |
 | Weekly $5 | **4.0x** | Aggressive margin on low-commitment, high-churn trial users. |
 | Weekly $10 | **3.5x** | Same as above, slightly better unit economics. |
@@ -106,9 +119,9 @@ Credits Deducted = ceil( (Raw Cost × 1.10) / 0.01 × markup )
 
 ### 3.4 Precision
 - The existing `credit_ledger.amount`, `generations.credit_cost`, and `product_versions.credit_cost` columns are `INT`.
-- Dynamic credits frequently produce fractional values (e.g. `3.3` credits).
-- **Decision required:** migrate these columns to `NUMERIC(12,4)` and display credits with **two decimal places**.
-- UI should round user-facing balances to 2 decimals; internal calculations keep 4 decimals.
+- Dynamic credits require fractional values, so these columns migrate to `NUMERIC(12,4)`.
+- User-facing balances and costs display with 2 decimals.
+- Internal calculations keep 4 decimals to avoid rounding drift.
 
 ---
 
@@ -133,6 +146,8 @@ can_repurchase BOOLEAN DEFAULT false   -- false for weekly trial, true for month
 sort_order INT DEFAULT 0
 is_active BOOLEAN DEFAULT true
 metadata JSONB DEFAULT '{}'
+-- metadata.dodo_product_id and metadata.dodo_product_slug should be set
+-- after products are created in the Dodo dashboard.
 ```
 
 #### `subscriptions`
@@ -149,8 +164,8 @@ ended_at TIMESTAMPTZ
 current_period_start TIMESTAMPTZ
 current_period_end TIMESTAMPTZ
 cancel_at_period_end BOOLEAN DEFAULT false
-stripe_subscription_id TEXT
-stripe_customer_id TEXT
+dodo_subscription_id TEXT
+dodo_customer_id TEXT
 metadata JSONB DEFAULT '{}'
 ```
 
@@ -164,9 +179,9 @@ subscription_id UUID REFERENCES subscriptions(id)
 amount_cents INT NOT NULL
 currency TEXT DEFAULT 'USD'
 status TEXT CHECK ('pending', 'paid', 'failed', 'refunded')
-stripe_checkout_session_id TEXT
-stripe_payment_intent_id TEXT
-stripe_invoice_id TEXT
+dodo_payment_id TEXT
+dodo_checkout_session_id TEXT
+dodo_subscription_id TEXT
 credit_ledger_entry_id UUID REFERENCES credit_ledger(id)
 metadata JSONB DEFAULT '{}'
 ```
@@ -209,9 +224,8 @@ invoice_id TEXT
 - Keep `provider_endpoint` (already exists).
 
 #### `product_versions`
-- Change `credit_cost INT` to `estimated_credit_cost NUMERIC(12,4)` or remove in favor of dynamic lookup.
-- Add `provider_endpoint_id` reference OR use the existing `private_recipe.provider_endpoint` for cost lookup.
-- Suggested: keep `estimated_credit_cost` as a **display estimate** for the UI, but the authoritative cost comes from `provider_model_pricing` at generation time.
+- Change `credit_cost INT` to `estimated_credit_cost NUMERIC(12,4)`.
+- Keep it as a **display estimate** for the UI; the authoritative cost comes from `provider_model_pricing` at generation time.
 
 #### `credit_ledger`
 - Change `amount INT` to `amount NUMERIC(12,4)`.
@@ -226,37 +240,56 @@ invoice_id TEXT
 
 ---
 
-## 5. Backend Architecture
+## 5. Dodo Payments Integration
 
-### 5.1 Stripe Integration
-
-#### Environment Variables
+### 5.1 Environment Variables
 ```
-STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+DODO_PAYMENTS_API_KEY
+DODO_PAYMENTS_WEBHOOK_SECRET
+NEXT_PUBLIC_SITE_URL
 ```
 
-#### Server Actions
-- `createCheckoutSession(planId, mode)`
-  - `mode = 'subscription'` for monthly plans.
-  - `mode = 'payment'` for weekly trials and extra credits.
-  - Returns Stripe Checkout URL.
-- `createBillingPortalSession(userId)` for managing subscriptions.
+### 5.2 Product Setup (manual step before launch)
+1. In the Dodo dashboard, create products for each plan:
+   - 2 one-time products for weekly trials (`weekly-starter`, `weekly-plus`).
+   - 4 subscription products for monthly plans (`creator`, `pro`, `studio`, `agency`).
+   - 1 variable-price one-time product for extra credits (`extra-credits`).
+2. Copy each Dodo `product_id` into the `plans.metadata.dodo_product_id` field (via seed or admin update).
+3. Create webhook endpoint in dashboard: `https://<site>/api/webhooks/dodo`.
 
-#### Webhook Route: `/api/webhooks/stripe`
+### 5.3 Checkout Flow
+- Server action `createCheckoutSession(planId, returnPath, customerEmail)`:
+  - Looks up the plan and Dodo product ID.
+  - For variable extra credits, sets `product_cart` with `product_id` and a computed `product_price` in cents.
+  - Calls `client.checkoutSessions.create({ product_cart: [...], customer: {...}, return_url: ..., metadata: {...} })`.
+  - Returns `checkout_url`; frontend redirects.
+- For monthly plans, Dodo handles recurring billing automatically.
+
+### 5.4 Webhook Route: `/api/webhooks/dodo`
 Events to handle:
-- `checkout.session.completed`
-  - For `subscription` mode: create `subscription` and `invoice`; add first month credits.
-  - For `payment` mode: create `invoice`; add credits immediately.
-  - Mark user as `has_trialed = true` if plan is a weekly trial.
-- `invoice.paid` (subscription renewal): add monthly credits.
-- `invoice.payment_failed`: set subscription `past_due`; do not add credits.
-- `customer.subscription.deleted`: set subscription `expired`.
-- `customer.subscription.updated`: update period dates and `cancel_at_period_end`.
+- `payment.succeeded`
+  - For one-time purchases (trials, extra credits): create `invoice` and add credits to ledger.
+  - For subscription first payment: create `subscription` and add initial credits.
+- `subscription.active`
+  - Mark subscription as active; set period dates.
+- `subscription.renewed`
+  - Create `invoice`; add monthly credits; reset expiry.
+- `subscription.cancelled` / `subscription.expired`
+  - Update subscription status and `ended_at`.
+- `payment.failed`
+  - For subscription renewals: set `past_due`; do not add credits.
 
-### 5.2 Entitlement Service (`lib/billing/entitlements.ts`)
+All webhook handlers must be idempotent using `dodo_payment_id`, `dodo_checkout_session_id`, or `dodo_subscription_id`.
 
+### 5.5 Customer Portal
+- Use Dodo’s hosted customer portal for subscription management (cancel, update payment method).
+- Provide a “Manage billing” link in `/app/billing`.
+
+---
+
+## 6. Backend Architecture
+
+### 6.1 Entitlement Service (`lib/billing/entitlements.ts`)
 ```
 canPurchaseTrial(userId)
 canPurchaseExtraCredits(userId)
@@ -265,11 +298,10 @@ canGenerate(userId, estimatedCredits)
 isMonthlySubscriber(userId)
 ```
 
-### 5.3 Credit Cost Service (`lib/billing/credit-cost.ts`)
-
+### 6.2 Credit Cost Service (`lib/billing/credit-cost.ts`)
 ```
-estimateCreditCost(providerEndpoint, width, height, planMarkup)
-finalCreditCost(providerEndpoint, width, height, computeSeconds, planMarkup)
+estimateCreditCost(providerEndpoint, outputSize, planMarkup)
+finalCreditCost(providerEndpoint, actualWidth, actualHeight, computeSeconds, planMarkup)
 ```
 
 Quantity calculation:
@@ -277,108 +309,116 @@ Quantity calculation:
 - `megapixel` → (width × height) / 1,000,000
 - `compute seconds` / `seconds` → `min(computeSeconds, 15)`
 
-### 5.4 Reservation Flow
+### 6.3 Reservation Flow
 
-1. User submits create request.
-2. Server derives `provider_endpoint`, estimated `width`/`height` from preset config or user options.
-3. Server computes `estimated_credit_cost` using the active plan markup.
-4. `create_generation` checks `available_balance >= estimated_credit_cost`.
-5. If sufficient, inserts a `reservation` ledger entry for `−estimated_credit_cost`.
-6. Generation is queued to Fal.
-7. On webhook/poll completion:
-   - Server reads actual `width`, `height`, `compute_time` from Fal payload.
-   - Computes `actual_credit_cost` capped at the estimated max.
-   - Reverses the reservation.
-   - Inserts a `debit` entry for `−actual_credit_cost`.
-   - Updates `generations.actual_credit_cost`, `provider_cost_usd`, `markup_multiplier`.
-8. On failure:
-   - Reverses the reservation (full release).
-   - If Fal billed for partial compute, the 10% safety buffer absorbs it; no user debit.
+1. User submits generation.
+2. Server derives `provider_endpoint` and selected output size from the preset / options.
+3. Computes `estimated_credit_cost` using the active plan markup.
+4. Checks `available_balance >= estimated_credit_cost`.
+5. Inserts a `reservation` ledger entry for `−estimated_credit_cost`.
+6. Calls Fal API (queue).
+7. On completion, reads actual `width`, `height`, `compute_time`.
+8. Computes `actual_credit_cost` capped at the estimate.
+9. Reverses reservation and inserts a `debit` for `−actual_credit_cost`.
+10. On failure, releases the reservation.
 
-### 5.5 Provider Cost Lookup
+### 6.4 Provider Cost Lookup
 - At creation time, look up `provider_model_pricing` by `provider_endpoint` and active `effective_from`/`is_active`.
 - If no price is found, reject generation or use a configurable fallback cost.
-- Admin UI (Phase 8) can override prices; until then, seed from `docs/fal-ai-image-models-relevant.md` via a one-time script.
+- Seed `provider_model_pricing` from `docs/fal-ai-image-models-relevant.md` via a one-time script.
 
 ---
 
-## 6. Frontend Changes
+## 7. Frontend Changes
 
-### 6.1 Marketing Pages
-- Update `components/marketing/pricing-teaser.tsx` to match the actual plan catalog (trials + monthly).
+### 7.1 Marketing Pages
+- Update `components/marketing/pricing-teaser.tsx` to match the actual plan catalog.
 - Update `components/marketing/sign-up-cta.tsx` to remove free-credit claims.
 - Add a dedicated `/pricing` route if not present.
 
-### 6.2 Billing UI (`/app/billing`)
+### 7.2 Billing UI (`/app/billing`)
 - Current plan card with renewal date.
-- Cancel / upgrade / downgrade buttons.
+- Cancel / upgrade / manage billing buttons (Dodo portal).
 - Current balance and transaction history.
 - “Buy extra credits” form (amount input, min $10, only for monthly subscribers).
 - Invoice history.
 
-### 6.3 Create & Preset Pages
+### 7.3 Create & Preset Pages
 - Show **estimated credit cost** on preset detail and create form.
 - Show **insufficient credits** state with a CTA to billing if the user cannot afford the estimate.
-- Show active plan markup in a subtle way (optional).
+- Output size selector per preset.
 
-### 6.4 Checkout UX
+### 7.4 Checkout UX
 - `/app/checkout/success` and `/app/checkout/cancel` pages.
 - On success, refresh balance and redirect to `/app/billing` or back to create flow.
 
 ---
 
-## 7. Admin & Operations
+## 8. Admin & Operations
 
-### 7.1 Plan Management
-- In V1, plans are seed data inserted by migration. Admin editing can come in Phase 8.
-- Migrations should insert the 6 catalog plans and the extra-credit pseudo-plan.
+### 8.1 Plan Management
+- Plans are seed data inserted by migration.
+- Dodo product IDs are set in `plans.metadata` after dashboard creation.
+- Admin editing can come in Phase 8.
 
-### 7.2 Manual Credit Adjustment
+### 8.2 Manual Credit Adjustment
 - Use `credit_ledger` `adjustment` entries only.
 - Every adjustment writes to `admin_audit_logs` with `reason`.
 - Create an admin server action `adminAdjustCredits(userId, amount, reason)`.
 
-### 7.3 Model Pricing Updates
+### 8.3 Model Pricing Updates
 - Build a script to sync `provider_model_pricing` from `docs/fal-ai-image-models-relevant.md` or the Fal pricing API.
 - Until automated, update SQL manually when Fal changes prices.
 
 ---
 
-## 8. Migration & Deployment Steps
+## 9. Future Phase: Premium Preset Gating
+
+For a later release, add an `entitlement_tier` column to `products` / `product_versions`:
+- `free` — available to any user with credits.
+- `pro` — requires $30+ monthly plan.
+- `studio` — requires $50+ plan.
+- `agency` — requires $100+ plan.
+
+The entitlement check happens at the start of `create_generation` and returns a friendly upgrade message if the user’s active plan does not meet the preset tier.
+
+---
+
+## 10. Migration & Deployment Steps
 
 1. **Database migration**
    - Create `plans`, `subscriptions`, `invoices`, `provider_model_pricing`, `fal_usage_logs`.
-   - Alter `credit_ledger.amount`, `generations.credit_cost`, `product_versions.credit_cost` to `NUMERIC(12,4)`.
+   - Alter `credit_ledger`, `generations`, `product_versions` types to `NUMERIC(12,4)`.
    - Add new columns to `generations`.
-   - Update `create_generation`, `get_user_balance`, `finalize_generation` logic.
 
 2. **Seed data**
-   - Insert 6 plans + extra-credit plan.
-   - Seed `provider_model_pricing` from the filtered Fal catalog.
+   - Insert the 7 plans with placeholder `metadata.dodo_product_id = null`.
+   - Run a seed script to populate `provider_model_pricing` from `docs/fal-ai-image-models-relevant.md`.
 
-3. **Stripe setup**
-   - Create Stripe Products & Prices for each plan.
-   - Store Stripe price IDs in `plans.metadata` or `plans` table.
+3. **Dodo setup**
+   - Create products in the Dodo dashboard.
+   - Update `plans.metadata.dodo_product_id` with real IDs.
+   - Configure webhook endpoint.
 
 4. **Code changes**
-   - Add `stripe` dependency.
+   - Add `dodopayments` SDK dependency.
    - Implement server actions, webhook, entitlement service, credit cost service.
    - Update UI.
 
 5. **Verification**
    - `typecheck`, `lint`, `test`, `build`.
-   - Test checkout flows in Stripe test mode.
+   - Test checkout flows in Dodo test mode.
    - Simulate generation cost calculation end-to-end.
 
-6. **Apply migration via MCP / Supabase CLI** (user approval needed).
+6. **Apply migration** via Supabase CLI or MCP.
 
 ---
 
-## 9. Financial Invariants
+## 11. Financial Invariants
 
 1. A generation cannot finalize a debit twice.
 2. A reservation must always be released or converted to a debit.
-3. A Stripe webhook must be idempotent using `stripe_checkout_session_id` / `stripe_invoice_id`.
+3. A Dodo webhook must be idempotent using `dodo_payment_id`, `dodo_checkout_session_id`, or `dodo_subscription_id`.
 4. Credit ledger must reconcile: sum of `purchase` + `allocation` − `debit` − `refund` = user balance.
 5. Manual adjustments write an `adjustment` ledger entry and an `admin_audit_logs` row.
 6. Extra credits can only be purchased by active monthly subscribers.
@@ -386,38 +426,23 @@ Quantity calculation:
 
 ---
 
-## 10. Open Questions / Decisions Required
-
-1. **Markup values:** Are the proposed multipliers acceptable, or do you want different ones?
-2. **Plan credit grants:** Are 2,000 / 3,000 / 5,500 / 12,000 credits per month correct, or do you want different allocations?
-3. **Credit expiry:** Do weekly trial credits expire after 7 days? Do monthly credits rollover or reset each period?
-4. **Preset gating:** Should some premium presets require a minimum plan (e.g. $30+)?
-5. **Output defaults:** What are the default / maximum output dimensions for filters and posters? (Needed for worst-case holds.)
-6. **Rounding:** Should credits be rounded to 2 decimals, or rounded up to the next whole credit?
-7. **Stripe products:** Do you already have Stripe Products/Prices created, or should the app create them automatically?
-8. **Existing users:** How should users with existing free credits be handled?
-
----
-
-## 11. Suggested First Engineering Slice
-
-Because this is a large change, I recommend splitting implementation into **three PRs**:
+## 12. Implementation Slicing
 
 ### PR A — Schema & Seed Data
 - Migration for all billing tables.
-- Seed `plans` and `provider_model_pricing`.
-- Update `credit_ledger`, `generations`, `product_versions` types.
+- Update existing `credit_ledger`, `generations`, `product_versions` columns to `NUMERIC(12,4)`.
+- Seed `plans` table with 7 plans.
+- Seed `provider_model_pricing` from the filtered Fal catalog.
 
-### PR B — Credit Cost Engine (no Stripe)
+### PR B — Credit Cost Engine (no Dodo checkout)
 - Implement reservation/finalize/refund credit flow.
 - Compute dynamic credit cost at generation time.
 - Add entitlement checks and credit cost service.
 - Update `create_generation` and worker/poll finalization.
-- Frontend cost estimates.
+- Frontend cost estimates and output-size selector.
 
-### PR C — Stripe Integration
-- Stripe checkout for trials, monthly plans, and extra credits.
-- Webhook handler.
-- Billing UI and checkout success/cancel pages.
-
-This keeps each PR reviewable and deployable independently.
+### PR C — Dodo Payments Integration
+- Add `dodopayments` SDK and env vars.
+- Checkout server actions for plans and extra credits.
+- Webhook handler for Dodo events.
+- Billing UI and customer-portal links.
