@@ -2,6 +2,7 @@ import { LandingHero } from "./landing-hero";
 import { CuratedPresets } from "./curated-presets";
 import { SignUpCTA } from "./sign-up-cta";
 import { OnePhotoFiveDirections } from "./one-photo-five-directions";
+import { NoPromptRequired } from "./no-prompt-required";
 import { HowItWorks } from "./how-it-works";
 import { CollectionSpotlight } from "./collection-spotlight";
 import { BrandBillboard } from "./brand-billboard";
@@ -49,6 +50,7 @@ export function LandingPage({
         <CuratedPresets products={curatedProducts} />
         <SignUpCTA />
         <OnePhotoFiveDirections />
+        <NoPromptRequired />
         <HowItWorks />
 
         <CollectionSpotlight
