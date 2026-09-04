@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FormProvider, useForm, useWatch } from "react-hook-form";
+import { FormProvider, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
 import type { z } from "zod";
@@ -99,6 +99,7 @@ export function ProductForm({
           primary_model: "",
         },
         model_config: {},
+        output_sizes: [],
         input_validation_config: {},
         post_process_config: {
           crop: false,
@@ -148,6 +149,11 @@ export function ProductForm({
     setValue,
     formState: { errors, isSubmitting },
   } = methods;
+
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "version.output_sizes",
+  });
 
   const [heroAssetId, posterAssetId, previewVideoAssetId, previewGifAssetId] =
     useWatch({
@@ -589,6 +595,96 @@ export function ProductForm({
               className="mt-2"
             />
           </div>
+        </div>
+      </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-cream-50 text-lg font-semibold">Output sizes</h2>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              append({ name: "", width: 1024, height: 1024, is_default: false })
+            }
+          >
+            Add size
+          </Button>
+        </div>
+        <div className="space-y-4">
+          {fields.map((field, index) => (
+            <div
+              key={field.id}
+              className="grid items-end gap-4 sm:grid-cols-[1fr,120px,120px,auto,auto]"
+            >
+              <div>
+                <Label htmlFor={`version.output_sizes.${index}.name`}>
+                  Name
+                </Label>
+                <Input
+                  id={`version.output_sizes.${index}.name`}
+                  {...register(`version.output_sizes.${index}.name`)}
+                  className="mt-2"
+                  placeholder="e.g. Square"
+                />
+              </div>
+              <div>
+                <Label htmlFor={`version.output_sizes.${index}.width`}>
+                  Width
+                </Label>
+                <Input
+                  id={`version.output_sizes.${index}.width`}
+                  type="number"
+                  {...register(`version.output_sizes.${index}.width`, {
+                    valueAsNumber: true,
+                  })}
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor={`version.output_sizes.${index}.height`}>
+                  Height
+                </Label>
+                <Input
+                  id={`version.output_sizes.${index}.height`}
+                  type="number"
+                  {...register(`version.output_sizes.${index}.height`, {
+                    valueAsNumber: true,
+                  })}
+                  className="mt-2"
+                />
+              </div>
+              <label className="text-cream-50 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  {...register(`version.output_sizes.${index}.is_default`)}
+                  className="h-4 w-4 rounded text-lime-500"
+                />
+                Default
+              </label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => remove(index)}
+                className="text-error"
+              >
+                Remove
+              </Button>
+            </div>
+          ))}
+          {fields.length === 0 && (
+            <p className="text-text-secondary text-sm">
+              No output sizes defined. Consumers will see a default 1024×1024
+              option.
+            </p>
+          )}
+          {errors.version?.output_sizes && (
+            <p className="text-error text-sm">
+              {errors.version.output_sizes.message}
+            </p>
+          )}
         </div>
       </section>
 

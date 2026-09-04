@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import sharp from "sharp";
 import { createFalAdapter } from "@/lib/ai/fal";
 import { postProcessImage, composePoster, type PostProcessConfig } from "@/lib/ai/post-process";
 import { createClient } from "@/lib/supabase/server";
@@ -54,7 +55,7 @@ function mapGenerationRow(rows: unknown[]): SafeGenerationDetail {
     status: row.status as string,
     statusDetail: (row.status_detail as string | null) ?? null,
     progress: (row.progress as Record<string, unknown> | null) ?? null,
-    creditCost: row.credit_cost as number,
+    creditCost: Number(row.credit_cost),
     createdAt: (row.created_at as string) ?? "",
     updatedAt: (row.updated_at as string) ?? "",
     outputAssetId: (row.output_asset_id as string | null) ?? null,
@@ -370,17 +371,27 @@ export async function pollGenerationStatus(
       outputBuffer,
       outputContentType
     );
+
+    const imageMeta = await sharp(
+      outputBuffer instanceof ArrayBuffer
+        ? Buffer.from(outputBuffer)
+        : (outputBuffer as Buffer)
+    ).metadata();
+
     const outputAssetId = await createOutputAsset(
       user.id,
       path,
       outputContentType,
-      outputSize
+      outputSize,
+      imageMeta.width,
+      imageMeta.height
     );
 
     const { error: completeError } = await supabase.rpc("complete_generation", {
       p_generation_id: generationId,
       p_token: token,
       p_output_asset_id: outputAssetId,
+      p_compute_seconds: statusResult.computeSeconds ?? null,
     });
     if (completeError) {
       console.error("[poll] complete_generation failed", completeError.message);

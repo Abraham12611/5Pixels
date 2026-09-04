@@ -22,6 +22,7 @@ describe("createAndSubmitGeneration action", () => {
       productVersionId: "00000000-0000-0000-0000-000000000002",
       sourceAssetId: "00000000-0000-0000-0000-000000000003",
       options: {},
+      outputSize: { name: "Square", width: 1024, height: 1024, is_default: true },
       idempotencyKey: "test-key",
     });
 

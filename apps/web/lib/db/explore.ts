@@ -54,7 +54,7 @@ export async function getPublicProducts(
 
   const typedData = (data ?? []) as (PublicProductSummary & { total_count?: number })[];
   const totalCount = typedData.length > 0 ? (typedData[0].total_count ?? 0) : 0;
-  const products = typedData.map(({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_number, credit_cost, metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets }) => ({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_number, credit_cost, metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets }));
+  const products = typedData.map(({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_id, version_number, credit_cost, output_sizes, metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets }) => ({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_id: version_id ?? null, version_number, credit_cost: Number(credit_cost), output_sizes: Array.isArray(output_sizes) ? output_sizes : [], metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets }));
 
   return { data: products as PublicProductSummary[], totalCount };
 }
@@ -77,7 +77,15 @@ export async function getPublicProductBySlug(
     return { data: null };
   }
 
-  return { data: rows[0] };
+  const row = rows[0];
+  return {
+    data: {
+      ...row,
+      version_id: row.version_id ?? null,
+      credit_cost: Number(row.credit_cost),
+      output_sizes: Array.isArray(row.output_sizes) ? row.output_sizes : [],
+    } as PublicProductDetail,
+  };
 }
 
 export async function getPublicAssetUrl(

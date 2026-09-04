@@ -14,5 +14,5 @@ export async function getUserCreditBalance(): Promise<number> {
     console.error("[getUserCreditBalance] failed", error.message);
     return 0;
   }
-  return (data as number | null) ?? 0;
+  return Number(data ?? 0);
 }

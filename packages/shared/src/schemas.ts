@@ -103,6 +103,13 @@ export const safetyConfigSchema = z.object({
   block_minors: true,
 });
 
+export const outputSizeSchema = z.object({
+  name: z.string().min(1).max(120),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  is_default: z.boolean().default(false),
+});
+
 export const productVersionSchema = z.object({
   id: z.string().uuid().optional(),
   version_number: z.number().int().positive().default(1),
@@ -111,11 +118,21 @@ export const productVersionSchema = z.object({
   private_negative_instruction: z.string().optional(),
   provider_strategy: providerStrategySchema,
   model_config: modelConfigSchema.default({}),
+  output_sizes: z.array(outputSizeSchema).optional(),
   input_validation_config: inputValidationConfigSchema.default({}),
   post_process_config: postProcessConfigSchema,
   safety_config: safetyConfigSchema,
-  credit_cost: z.number().int().nonnegative().default(0),
-});
+  credit_cost: z.number().nonnegative().default(0),
+}).refine(
+  (data) => {
+    if (!data.output_sizes) return true;
+    return data.output_sizes.every((size) => size.width * size.height <= 4_000_000);
+  },
+  {
+    message: "Each output size must be 4 megapixels or less",
+    path: ["output_sizes"],
+  }
+);
 
 export const posterConfigSchema = z.object({
   layout_template: z.enum(["portrait", "square", "landscape"]),
@@ -162,7 +179,7 @@ export const baseProductSchema = z.object({
   preview_gif_asset_id: z.string().uuid().optional(),
   likeness_level: likenessLevelSchema.optional(),
   featured_rank: z.number().int().nonnegative().optional(),
-  credit_cost: z.number().int().nonnegative().default(0),
+  credit_cost: z.number().nonnegative().default(0),
 });
 
 export const productCreateSchema = baseProductSchema

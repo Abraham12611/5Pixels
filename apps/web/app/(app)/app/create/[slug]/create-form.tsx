@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { GenerationControls } from "@/components/consumer/generation-controls";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import { validateGenerationOptions } from "@/lib/generation/validation";
 import { createAndSubmitGeneration } from "@/lib/generation/actions";
+import { estimateGenerationCost } from "@/lib/billing/credit-cost";
 import {
   finalizeSourceUpload,
   prepareSourceUpload,
 } from "@/lib/generation/upload";
-import type { PublicProductDetail } from "@/types/catalog";
+import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 
 interface CreateGenerationFormProps {
   userId: string;
@@ -22,6 +24,15 @@ interface CreateGenerationFormProps {
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 20 * 1024 * 1024;
+
+function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
+  const available = sizes?.length ? sizes : [{ name: "Square (1:1)", width: 1024, height: 1024, is_default: true }];
+  return available.find((s) => s.is_default) ?? available[0]!;
+}
+
+function sizeKey(size: OutputSizeOption): string {
+  return `${size.name}:${size.width}:${size.height}`;
+}
 
 export function CreateGenerationForm({
   userId,
@@ -36,12 +47,60 @@ export function CreateGenerationForm({
     }
     return defaults;
   });
+  const [selectedSize, setSelectedSize] = useState<OutputSizeOption>(() =>
+    getDefaultSize(product.output_sizes)
+  );
+  const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string>("");
 
   const isPoster = product.type === "poster";
-  const canAfford = initialBalance >= product.credit_cost;
+  const canAfford =
+    estimatedCost !== null && estimatedCost > 0
+      ? initialBalance >= estimatedCost
+      : initialBalance >= product.credit_cost;
+
+  const outputSizes = useMemo(
+    () =>
+      product.output_sizes?.length
+        ? product.output_sizes
+        : ([{
+            name: "Square (1:1)",
+            width: 1024,
+            height: 1024,
+            is_default: true,
+          }] as OutputSizeOption[]),
+    [product.output_sizes]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEstimate() {
+      if (!product.version_id) return;
+      const { estimatedCredits, providerEndpoint } = await estimateGenerationCost({
+        productVersionId: product.version_id,
+        outputSize: selectedSize,
+      });
+
+      if (cancelled) return;
+
+      // Fallback to the product's static credit cost if no provider pricing is
+      // configured yet.
+      if (providerEndpoint === null) {
+        setEstimatedCost(product.credit_cost);
+        return;
+      }
+
+      setEstimatedCost(estimatedCredits > 0 ? estimatedCredits : product.credit_cost);
+    }
+
+    loadEstimate();
+    return () => {
+      cancelled = true;
+    };
+  }, [product.version_id, product.credit_cost, selectedSize]);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,8 +136,9 @@ export function CreateGenerationForm({
       return;
     }
     if (!canAfford) {
+      const cost = estimatedCost ?? product.credit_cost;
       setError(
-        `This preset costs ${product.credit_cost} credits. Your balance is ${initialBalance}.`
+        `This preset costs ${cost} credits. Your balance is ${initialBalance}.`
       );
       return;
     }
@@ -125,6 +185,7 @@ export function CreateGenerationForm({
         productVersionId: product.version_id ?? "",
         sourceAssetId,
         options,
+        outputSize: selectedSize,
         idempotencyKey,
       });
 
@@ -174,7 +235,34 @@ export function CreateGenerationForm({
       </section>
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 text-lg font-semibold">2. Controls</h2>
+        <h2 className="text-cream-50 text-lg font-semibold">2. Output size</h2>
+        <div className="mt-4">
+          <Label htmlFor="output-size" className="sr-only">
+            Output size
+          </Label>
+          <Select
+            id="output-size"
+            value={sizeKey(selectedSize)}
+            onChange={(e) => {
+              const next = outputSizes.find(
+                (s) => sizeKey(s) === e.target.value
+              );
+              if (next) setSelectedSize(next);
+            }}
+            disabled={loading}
+            className="w-full sm:w-auto"
+          >
+            {outputSizes.map((size) => (
+              <option key={sizeKey(size)} value={sizeKey(size)}>
+                {size.name} ({size.width} × {size.height})
+              </option>
+            ))}
+          </Select>
+        </div>
+      </section>
+
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 text-lg font-semibold">3. Controls</h2>
         <div className="mt-4">
           <GenerationControls
             fields={product.active_fields}
@@ -188,8 +276,8 @@ export function CreateGenerationForm({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-cream-50 font-medium">
-              Cost: {product.credit_cost || "Free"}
-              {product.credit_cost ? " credits" : ""}
+              Cost: {(estimatedCost ?? product.credit_cost) || "Free"}
+              {estimatedCost ?? product.credit_cost ? " credits" : ""}
             </p>
             <p className="text-text-muted text-sm">
               Your balance: {initialBalance} credits
