@@ -115,19 +115,24 @@ ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.provider_model_pricing ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fal_usage_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS plans_public_read ON public.plans
+DROP POLICY IF EXISTS plans_public_read ON public.plans;
+CREATE POLICY plans_public_read ON public.plans
   FOR SELECT TO public USING (is_active = true);
 
-CREATE POLICY IF NOT EXISTS subscriptions_owner ON public.subscriptions
+DROP POLICY IF EXISTS subscriptions_owner ON public.subscriptions;
+CREATE POLICY subscriptions_owner ON public.subscriptions
   FOR ALL TO authenticated USING (user_id = auth.uid());
 
-CREATE POLICY IF NOT EXISTS invoices_owner ON public.invoices
+DROP POLICY IF EXISTS invoices_owner ON public.invoices;
+CREATE POLICY invoices_owner ON public.invoices
   FOR ALL TO authenticated USING (user_id = auth.uid());
 
-CREATE POLICY IF NOT EXISTS provider_pricing_authenticated_read ON public.provider_model_pricing
+DROP POLICY IF EXISTS provider_pricing_authenticated_read ON public.provider_model_pricing;
+CREATE POLICY provider_pricing_authenticated_read ON public.provider_model_pricing
   FOR SELECT TO authenticated USING (is_active = true);
 
-CREATE POLICY IF NOT EXISTS fal_usage_logs_no_user_read ON public.fal_usage_logs
+DROP POLICY IF EXISTS fal_usage_logs_no_user_read ON public.fal_usage_logs;
+CREATE POLICY fal_usage_logs_no_user_read ON public.fal_usage_logs
   FOR SELECT TO authenticated USING (false);
 
 -- ---------------------------------------------------------------------------
@@ -152,6 +157,7 @@ ALTER TABLE public.generations
 -- 5. Updated helper functions to use NUMERIC credit amounts
 -- ---------------------------------------------------------------------------
 
+DROP FUNCTION IF EXISTS public.get_user_balance();
 CREATE OR REPLACE FUNCTION public.get_user_balance()
 RETURNS NUMERIC(12,4)
 LANGUAGE sql
@@ -164,6 +170,7 @@ AS $$
   WHERE user_id = (SELECT auth.uid());
 $$;
 
+DROP FUNCTION IF EXISTS public.get_available_balance();
 CREATE OR REPLACE FUNCTION public.get_available_balance()
 RETURNS NUMERIC(12,4)
 LANGUAGE sql
@@ -179,6 +186,7 @@ $$;
 
 -- Recreate create_generation with NUMERIC credit fields.
 -- The static cost logic is preserved for PR A; dynamic cost logic arrives in PR B.
+DROP FUNCTION IF EXISTS public.create_generation(UUID, UUID, UUID, JSONB, TEXT);
 CREATE OR REPLACE FUNCTION public.create_generation(
   p_product_id UUID,
   p_product_version_id UUID,
