@@ -3,8 +3,8 @@ import { createDodoClient } from "@/lib/billing/dodo-client";
 import {
   fulfillOneTimePayment,
   fulfillSubscriptionPayment,
+  fulfillSubscriptionLifecycleEvent,
   markSubscriptionPastDue,
-  upsertSubscription,
 } from "@/lib/billing/fulfillment";
 import type { Payment, Subscription } from "dodopayments/resources/index";
 
@@ -35,6 +35,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  console.log(`[dodo webhook] received ${event.type}`);
+
   try {
     switch (event.type) {
       case "payment.succeeded": {
@@ -54,7 +56,13 @@ export async function POST(request: NextRequest) {
         break;
       }
       case "subscription.active":
-      case "subscription.renewed":
+      case "subscription.renewed": {
+        const subscription = event.data as Subscription & {
+          payload_type: "Subscription";
+        };
+        await fulfillSubscriptionLifecycleEvent(subscription);
+        break;
+      }
       case "subscription.updated":
       case "subscription.cancelled":
       case "subscription.expired":
@@ -63,26 +71,14 @@ export async function POST(request: NextRequest) {
       case "subscription.unpaused":
       case "subscription.plan_changed":
       case "subscription.update_payment_method":
-      case "subscription.failed": {
+      case "subscription.failed":
+      case "subscription.past_due": {
         const subscription = event.data as Subscription & {
           payload_type: "Subscription";
         };
-        const userId =
-          typeof subscription.metadata?.user_id === "string"
-            ? subscription.metadata.user_id
-            : undefined;
-        if (userId && subscription.customer?.customer_id) {
-          await upsertSubscription(
-            userId,
-            subscription,
-            subscription.customer.customer_id
-          );
-        } else {
-          console.warn(
-            "[dodo webhook] subscription event missing user_id or customer id",
-            subscription.subscription_id
-          );
-        }
+        console.log(
+          `[dodo webhook] received subscription event ${event.type} for ${subscription.subscription_id}; no credit action taken`
+        );
         break;
       }
       default:
