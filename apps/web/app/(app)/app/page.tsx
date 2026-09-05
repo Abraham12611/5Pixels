@@ -47,9 +47,12 @@ export default async function AppHomePage() {
           <SignOutButton />
         </div>
 
-        <div className="mb-8">
+        <div className="mb-8 flex flex-wrap gap-3">
           <Button asChild>
             <Link href="/explore">Explore presets</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/app/billing">Billing</Link>
           </Button>
         </div>
 

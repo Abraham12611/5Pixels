@@ -1,54 +1,85 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getPlansForPurchase } from "@/lib/db/plans";
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+interface PricingTier {
+  name: string;
+  price: string;
+  period: string;
+  description: string;
+  features: string[];
+  cta: string;
+  href: string;
+  primary: boolean;
+}
 
 export function PricingTeaser() {
-  const tiers = [
-    {
-      name: "Free",
-      price: "$0",
-      description: "Try the product with starter credits and free presets.",
-      features: [
-        "Free presets",
-        "Starter credits",
-        "Standard resolution",
-        "Community support",
-      ],
-      cta: "Get started",
-      href: "/signup",
-      primary: false,
-    },
-    {
-      name: "Creator",
-      price: "$12",
-      period: "/mo",
-      description: "More credits, higher resolution, and premium presets.",
-      features: [
-        "Monthly credits",
-        "Premium presets",
-        "Higher resolution",
-        "Priority processing",
-      ],
-      cta: "Start creating",
-      href: "/signup",
-      primary: true,
-    },
-    {
-      name: "Pro",
-      price: "$29",
-      period: "/mo",
-      description: "For creators and teams who need volume and control.",
-      features: [
-        "More monthly credits",
-        "All premium presets",
-        "Poster + cover layouts",
-        "Credit rollover",
-      ],
-      cta: "Go Pro",
-      href: "/signup",
-      primary: false,
-    },
-  ];
+  const [tiers, setTiers] = useState<PricingTier[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const plans = await getPlansForPurchase();
+      if (cancelled) return;
+
+      const monthly = plans.filter((p) => p.type === "monthly");
+      const trials = plans.filter((p) => p.type === "weekly_trial");
+
+      const list: PricingTier[] = monthly.map((plan) => ({
+        name: plan.name,
+        price: formatCents(plan.price_cents),
+        period: "/mo",
+        description: `${plan.credits_grant.toLocaleString()} credits / month`,
+        features: [
+          `${plan.credits_grant.toLocaleString()} monthly credits`,
+          `${plan.markup_multiplier}x credit burn rate`,
+          "Premium presets",
+          "Priority processing",
+        ],
+        cta: plan.slug === "monthly-creator" ? "Start creating" : "Subscribe",
+        href: "/app/billing",
+        primary: plan.slug === "monthly-creator",
+      }));
+
+      if (trials.length > 0) {
+        const trial = trials[0];
+        list.unshift({
+          name: "Weekly trial",
+          price: formatCents(trial.price_cents),
+          period: "/7 days",
+          description: `${trial.credits_grant.toLocaleString()} credits for 7 days. One-time only.`,
+          features: [
+            `${trial.credits_grant.toLocaleString()} trial credits`,
+            `${trial.markup_multiplier}x credit burn rate`,
+            "All presets",
+            "No subscription",
+          ],
+          cta: "Try for 7 days",
+          href: "/app/billing",
+          primary: false,
+        });
+      }
+
+      setTiers(list);
+    }
+
+    load().catch((err) => {
+      console.error("[PricingTeaser] failed to load plans", err);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <section id="pricing" className="px-4 py-16 sm:px-6 sm:py-24 lg:py-32">
@@ -61,8 +92,8 @@ export function PricingTeaser() {
             Simple, credit-based plans
           </h2>
           <p className="text-text-secondary mt-3 max-w-2xl mx-auto">
-            Pay for what you use. Every plan includes free presets and the
-            ability to buy more credits when you need them.
+            Choose a plan that fits your volume. 1 credit = $0.01 of retail
+            purchasing power; higher tiers burn credits slower.
           </p>
         </div>
 

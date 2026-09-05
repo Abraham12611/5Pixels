@@ -1,6 +1,6 @@
 # 5Pixels Billing & Dynamic Credits Implementation Plan
 
-**Status:** Approved plan — implementation in progress (PR A).
+**Status:** Approved plan — implementation in progress (PR C).
 
 This document defines the architecture for 5Pixels paid plans, credits, and dynamic per-generation pricing. It is written to protect margins across 600+ Fal AI image models while keeping the user-facing model simple: **1 credit = $0.01 USD of retail purchasing power**.
 

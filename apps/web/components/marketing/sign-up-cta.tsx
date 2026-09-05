@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 
 export function SignUpCTA() {
   const benefits = [
-    "Free credits when you join",
     "Access free and paid presets",
+    "Buy credits or subscribe",
     "Save your favorite looks",
     "Track every generation",
   ];
@@ -22,13 +22,13 @@ export function SignUpCTA() {
                 Get started
               </p>
               <h2 className="text-cream-50 mt-3 text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
-                Sign up and get your
+                Sign up and start
                 <br />
-                <span className="text-lime-400">extra credits</span>
+                <span className="text-lime-400">creating</span>
               </h2>
               <p className="text-text-secondary mt-4 max-w-md text-lg">
-                Create an account to unlock your starter credits and try
-                premium presets without entering a card.
+                Create an account, choose a plan or trial, and transform your
+                photos with premium presets.
               </p>
             </div>
 
@@ -52,7 +52,7 @@ export function SignUpCTA() {
                 className="bg-lime-500 text-ink-950 hover:bg-lime-400"
               >
                 <Link href="/signup">
-                  Sign up and get your credits
+                  Sign up and create
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -282,10 +283,18 @@ export function CreateGenerationForm({
             <p className="text-text-muted text-sm">
               Your balance: {initialBalance} credits
             </p>
+            {!canAfford && (
+              <p className="text-error mt-1 text-sm">
+                Insufficient credits.{" "}
+                <Link href="/app/billing" className="text-lime-500 underline">
+                  Buy credits
+                </Link>
+              </p>
+            )}
           </div>
           <Button
             type="submit"
-            disabled={loading || !file}
+            disabled={loading || !file || !canAfford}
             className="w-full sm:w-auto"
           >
             {loading ? progress || "Creating..." : "Create generation"}
