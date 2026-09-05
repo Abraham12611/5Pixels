@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createDodoClient } from "./dodo-client";
+import { getSiteUrl } from "./site-url";
 import {
   canPurchaseExtraCredits,
   canPurchaseTrial,
@@ -11,12 +12,6 @@ import {
 export interface CheckoutResult {
   checkoutUrl?: string;
   error?: string;
-}
-
-function siteUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ?? "http://localhost:3000"
-  ).replace(/\/$/, "");
 }
 
 export async function createPlanCheckoutSession(
@@ -74,10 +69,10 @@ export async function createPlanCheckoutSession(
         ? { customer_id: profile.dodo_customer_id }
         : { create_new_customer: true }),
     },
-    return_url: `${siteUrl()}/checkout/success?return=${encodeURIComponent(
+    return_url: `${getSiteUrl()}/checkout/success?return=${encodeURIComponent(
       returnPath
     )}`,
-    cancel_url: `${siteUrl()}/checkout/cancel?return=${encodeURIComponent(
+    cancel_url: `${getSiteUrl()}/checkout/cancel?return=${encodeURIComponent(
       returnPath
     )}`,
     metadata: {
@@ -152,10 +147,10 @@ export async function createExtraCreditsCheckoutSession(
         ? { customer_id: profile.dodo_customer_id }
         : { create_new_customer: true }),
     },
-    return_url: `${siteUrl()}/checkout/success?return=${encodeURIComponent(
+    return_url: `${getSiteUrl()}/checkout/success?return=${encodeURIComponent(
       returnPath
     )}`,
-    cancel_url: `${siteUrl()}/checkout/cancel?return=${encodeURIComponent(
+    cancel_url: `${getSiteUrl()}/checkout/cancel?return=${encodeURIComponent(
       returnPath
     )}`,
     metadata: {

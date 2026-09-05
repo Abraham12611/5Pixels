@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createDodoClient } from "./dodo-client";
+import { getSiteUrl } from "./site-url";
 
 export interface CustomerPortalResult {
   url?: string;
@@ -29,15 +30,11 @@ export async function createCustomerPortalSession(
     return { error: "You do not have an active billing account to manage." };
   }
 
-  const siteUrl = (
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ?? "http://localhost:3000"
-  ).replace(/\/$/, "");
-
   const client = createDodoClient();
   const session = await client.customers.customerPortal.create(
     profile.dodo_customer_id,
     {
-      return_url: `${siteUrl}${returnPath}`,
+      return_url: `${getSiteUrl()}${returnPath}`,
     }
   );
 
