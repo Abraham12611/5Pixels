@@ -3,6 +3,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
+import { applyRetentionForNewAsset } from "@/lib/db/retention-asset";
 import { buildOutputPath, isOwnedUserPath } from "./paths";
 
 const USER_ASSET_BUCKET = "user-assets";
@@ -159,6 +160,8 @@ export async function finalizeSourceUpload(
     throw new Error("Unable to finalize upload");
   }
 
+  await applyRetentionForNewAsset(asset.id, user.id, "generation_source");
+
   return { assetId: asset.id, path };
 }
 
@@ -279,6 +282,8 @@ export async function createOutputAsset(
     console.error("[createOutputAsset] insert failed", error?.message);
     throw new Error("Unable to record generated image");
   }
+
+  await applyRetentionForNewAsset(asset.id, userId, "generation_output");
 
   return asset.id as string;
 }
