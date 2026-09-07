@@ -63,7 +63,11 @@ export async function getActiveAlerts(): Promise<AdminAlert[]> {
     .order("created_at", { ascending: false })
     .limit(50);
 
-  if (error) throw error;
+  if (error) {
+    // Degrade gracefully when the alerts table is not yet applied.
+    console.error("[getActiveAlerts] query failed", error.message);
+    return [];
+  }
 
   return (data ?? []).map(mapRow);
 }
@@ -79,7 +83,10 @@ export async function getAlertHistory(limit = 100): Promise<AdminAlert[]> {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error) throw error;
+  if (error) {
+    console.error("[getAlertHistory] query failed", error.message);
+    return [];
+  }
 
   return (data ?? []).map(mapRow);
 }
@@ -133,12 +140,13 @@ export async function resolveAlert(alertId: string): Promise<void> {
 export async function checkAndCreateAlerts(): Promise<AdminAlert[]> {
   await requireAdminOrOwner();
 
-  const service = createServiceClient();
-  const now = new Date();
+  try {
+    const service = createServiceClient();
+    const now = new Date();
 
-  const newAlerts: AdminAlert[] = [];
+    const newAlerts: AdminAlert[] = [];
 
-  for (const rule of RULES) {
+    for (const rule of RULES) {
     const since = new Date(now.getTime() - rule.windowMinutes * 60 * 1000);
 
     let triggered = false;
@@ -222,7 +230,11 @@ export async function checkAndCreateAlerts(): Promise<AdminAlert[]> {
     }
   }
 
-  revalidatePath("/admin");
-  revalidatePath("/admin/alerts");
-  return newAlerts;
+    revalidatePath("/admin");
+    revalidatePath("/admin/alerts");
+    return newAlerts;
+  } catch (error) {
+    console.error("[checkAndCreateAlerts] failed", error);
+    return [];
+  }
 }
