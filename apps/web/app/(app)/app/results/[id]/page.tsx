@@ -3,7 +3,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
+import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
 import { Button } from "@/components/ui/button";
+import { FeedbackForm } from "@/components/consumer/feedback-form";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 
 export default async function ResultPage({
@@ -56,6 +58,8 @@ export default async function ResultPage({
   const primaryOutput = generation.outputs[0];
   let outputUrl: string | null = null;
   let sourceUrl: string | null = null;
+
+  const myFeedback = await getMyFeedbackForGeneration(id);
 
   if (primaryOutput) {
     outputUrl = await getSignedAssetUrl(
@@ -134,6 +138,14 @@ export default async function ResultPage({
             />
           </div>
         )}
+
+        <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
+          <FeedbackForm
+            generationId={id}
+            initialRating={myFeedback?.rating ?? null}
+            initialNotes={myFeedback?.notes ?? null}
+          />
+        </div>
       </div>
     </main>
   );
