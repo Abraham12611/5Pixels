@@ -26,11 +26,11 @@ export async function proxy(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_admin")
+      .select("is_admin, is_owner")
       .eq("id", user.id)
       .single();
 
-    if (!profile?.is_admin) {
+    if (!profile?.is_admin && !profile?.is_owner) {
       return NextResponse.redirect(new URL("/app", request.url));
     }
   }
