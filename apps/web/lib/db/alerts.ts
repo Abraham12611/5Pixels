@@ -79,7 +79,6 @@ export async function getAlertHistory(limit = 100): Promise<AdminAlert[]> {
   const { data, error } = await supabase
     .from("admin_alerts")
     .select("*")
-    .or("acknowledged_at.not.is.null,resolved_at.not.is.null")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -88,7 +87,13 @@ export async function getAlertHistory(limit = 100): Promise<AdminAlert[]> {
     return [];
   }
 
-  return (data ?? []).map(mapRow);
+  return (data ?? [])
+    .filter(
+      (row) =>
+        (row.acknowledged_at as string | null) !== null ||
+        (row.resolved_at as string | null) !== null
+    )
+    .map(mapRow);
 }
 
 function mapRow(row: Record<string, unknown>): AdminAlert {
@@ -230,8 +235,6 @@ export async function checkAndCreateAlerts(): Promise<AdminAlert[]> {
     }
   }
 
-    revalidatePath("/admin");
-    revalidatePath("/admin/alerts");
     return newAlerts;
   } catch (error) {
     console.error("[checkAndCreateAlerts] failed", error);
