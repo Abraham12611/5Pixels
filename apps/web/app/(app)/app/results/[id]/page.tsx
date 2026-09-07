@@ -6,6 +6,7 @@ import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
 import { Button } from "@/components/ui/button";
 import { FeedbackForm } from "@/components/consumer/feedback-form";
+import { ShareActions } from "@/components/consumer/share-actions";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 
 export default async function ResultPage({
@@ -60,6 +61,13 @@ export default async function ResultPage({
   let sourceUrl: string | null = null;
 
   const myFeedback = await getMyFeedbackForGeneration(id);
+
+  const { data: shareMeta } = await supabase
+    .from("generations")
+    .select("public_share_id")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .single();
 
   if (primaryOutput) {
     outputUrl = await getSignedAssetUrl(
@@ -138,6 +146,16 @@ export default async function ResultPage({
             />
           </div>
         )}
+
+        <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
+          <h2 className="text-cream-100 mb-3 text-sm font-semibold">
+            Share this result
+          </h2>
+          <ShareActions
+            generationId={id}
+            initialShareId={shareMeta?.public_share_id ?? null}
+          />
+        </div>
 
         <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
           <FeedbackForm
