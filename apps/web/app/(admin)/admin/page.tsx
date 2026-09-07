@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/db/admin";
 import { getAdminDashboardStats } from "@/lib/db/dashboard";
+import { getActiveAlerts } from "@/lib/db/alerts";
 import { StatCard } from "@/components/admin/stat-card";
 import Link from "next/link";
 
@@ -25,7 +26,10 @@ function formatDate(iso: string) {
 
 export default async function AdminDashboardPage() {
   await requireAdmin();
-  const stats = await getAdminDashboardStats();
+  const [stats, activeAlerts] = await Promise.all([
+    getAdminDashboardStats(),
+    getActiveAlerts(),
+  ]);
 
   return (
     <main className="p-8">
@@ -35,6 +39,30 @@ export default async function AdminDashboardPage() {
           Real-time overview of product, generations, and spend.
         </p>
       </div>
+
+      {activeAlerts.length > 0 && (
+        <section className="bg-rose-950/20 border-rose-500/30 mb-8 rounded-2xl border p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-rose-200 text-lg font-semibold">
+                {activeAlerts.length} active alert
+                {activeAlerts.length === 1 ? "" : "s"}
+              </h2>
+              <p className="text-rose-300/80 mt-1 text-sm">
+                {activeAlerts[0]?.message}
+                {activeAlerts.length > 1 &&
+                  ` and ${activeAlerts.length - 1} more`}
+              </p>
+            </div>
+            <Link
+              href="/admin/alerts"
+              className="text-rose-200 hover:text-rose-100 text-sm font-medium transition"
+            >
+              View alerts →
+            </Link>
+          </div>
+        </section>
+      )}
 
       <section className="mb-8">
         <h2 className="text-cream-100 mb-4 text-lg font-semibold">
