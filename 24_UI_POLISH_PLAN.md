@@ -574,3 +574,146 @@ Awaiting the remaining screenshots for:
 - mobile states.
 
 Then we will cut the first implementation branch from `develop`.
+
+---
+
+## 20. Batch 4 analysis — Settings & Usage
+
+### 20.1 Settings layout pattern
+
+The reference settings page uses a **persistent two-column layout**:
+
+- **Left rail (persistent):**
+  - Vertical nav with icons and labels:
+    - **Personal profile**
+    - **Gifts**
+    - **Subscription**
+    - **Usage**
+    - **Promocode**
+  - A **Need help?** card with a small blurb and a `Go to Help Center` button.
+  - A **Join our Discord** card (optional promo card).
+  - **Sign out** pinned at the very bottom.
+- **Top utility bar:**
+  - A lime **announcement / promo bar** with a countdown (`Offer expires in 02h 56m 24s`), a message (`Nano Banana... Personal 54% OFF`), and a dark CTA (`Get Unlimited with 54% OFF`) plus a close X.
+- **Right main area:**
+  - Section title + subtitle.
+  - A grid of section cards.
+
+### 20.2 Settings sections in the reference
+
+- **Subscription**
+  - Large card: current plan name (`Free Plan`), subtitle (`Unlock all features with a subscription`), lime `Upgrade plan` button.
+  - **Credits** card: `Monthly credits left` with big `0 / 10` number, small red progress bar, `+ Buy credits` action button.
+  - **Active unlimited models** row: three stat cards (`Currently unlimited`, `Free generations in total`, `Saved in total`).
+  - **Unlimited Access History** with a link (`See Unlimited History`).
+  - **Pending Invoices** with a link (`All invoices`) and an empty state.
+
+- **Personal profile (Usage/credits)**
+  - Avatar, full name, `@username`, email.
+  - **Credits** card with big number `0 credits left`, small subtext `0% of maximum credit pool`, and `Top-up` button.
+  - **Usage history** card with `See all` link and a daily-usage line chart (Aug 9 → Sep 7).
+  - **Collab karma history** row: stat cards for `Total karma points`, `Current streak`, `Karma exchange limit`.
+  - Lower sections: `Auto-publish new generations` toggle, `Application language` dropdown, `Manage Account Deletion` collapsible.
+
+### 20.3 5Pixels settings adaptation
+
+We should keep the same two-column skeleton, but start with a minimal section set:
+
+Left rail:
+- **Personal profile**
+- **Subscription**
+- **Credits**
+- **Usage**
+- **Promo code**
+- **Preferences**
+- **Security**
+- **Delete account**
+- Optional: **Help** card + **Discord** promo card + **Sign out** at bottom.
+
+Right content per section:
+
+1. **Personal profile**
+   - Profile header card (avatar, name, email, `Edit` button opening edit-profile dialog).
+   - Credits card (large balance, `Top-up` action).
+   - **Usage history** line chart (using our existing `generation` and `credit_ledger` data).
+   - Generation / feedback stat cards instead of karma.
+
+2. **Subscription**
+   - Current plan card with plan name, renewal date, and **Manage / Upgrade** button that opens the Dodo customer portal.
+   - Credits allocation card: monthly included credits, remaining, and a `Buy extra credits` action.
+   - Pending **Invoices** list with `Manage billing` link.
+
+3. **Credits**
+   - Balance card with progress bar.
+   - Credit add-ons (weekly trial, extra credits).
+   - Transaction history.
+
+4. **Usage**
+   - Daily/volume usage chart.
+   - Generation success rate and breakdown.
+
+5. **Promo code**
+   - Single card with promo code input and redeem button.
+   - Recent redemptions list.
+
+6. **Preferences**
+   - Output format (JPG/PNG) toggle.
+   - Auto-publish or default public-sharing toggle (to be implemented in V1).
+   - Retention days selectors (in pair with the existing retention settings).
+
+7. **Security**
+   - Change password.
+   - 2FA placeholder.
+   - Active sessions (future).
+
+8. **Delete account**
+   - Reuse our existing `/app/settings/delete` flow but move it to a collapsible **Danger zone** section.
+
+### 20.4 Settings micro-interactions
+
+- **Left nav active item:** background changes to `charcoal-800`, left border or icon color turns lime.
+- **Left nav hover:** same `bg-charcoal-800/50` with a subtle `text-cream-100` shift.
+- **Promo bar:** sticky on top of settings pages with a countdown timer and a close X.
+- **Section cards:** `bg-charcoal-850 border-cream-100/10 hover:border-lime-500/30` with a 2-pixel lift on hover.
+- **Progress bars:** a thin red (depleted) or lime (healthy) line inside a dark track.
+- **Toggle row:** label and description on the left, switch on the right, thin divider above.
+- **Collapsible sections:** chevron rotates 90° with a slide/fade.
+
+### 20.5 New or updated components (batch 4)
+
+- `components/consumer/settings-layout.tsx` — two-column settings shell.
+- `components/consumer/settings-left-nav.tsx` — vertical icon+label nav.
+- `components/consumer/username-display.tsx` — `@username` component.
+- `components/consumer/avatar-card.tsx` — profile avatar with edit button.
+- `components/consumer/credits-balance-card.tsx` — big credit number + progress.
+- `components/consumer/usage-history-chart.tsx` — daily usage chart.
+- `components/consumer/karma-stat-cards.tsx` — generic stat card row (renamed for our data: credits earned, streak, exchange limit).
+- `components/consumer/subscription-card.tsx` — current plan + upgrade.
+- `components/consumer/credits-allocation-card.tsx` — monthly included credits.
+- `components/consumer/invoices-card.tsx` — pending invoices empty state.
+- `components/consumer/promo-bar.tsx` — lime countdown promo banner (reusable).
+- `components/consumer/delete-account-collapsible.tsx` — danger zone.
+- `components/consumer/settings-toggle-row.tsx` — label + description + switch.
+
+### Modified pages
+
+- `app/(app)/app/settings/page.tsx` — new layout and nav wiring.
+- `app/(app)/app/settings/delete/page.tsx` — fold into settings layout or keep standalone with new nav anchor.
+
+### Migrations
+
+- `supabase/migrations/2026XXXXXXXX_profile_username_socials.sql`
+- `supabase/migrations/2026XXXXXXXX_promo_codes.sql`
+- `supabase/migrations/2026XXXXXXXX_usage_snapshots.sql` (if we want a separate daily usage aggregation)
+- `supabase/migrations/2026XXXXXXXX_product_trending.sql` (batch 2 dependencies rolled up)
+
+---
+
+## 21. Next step (batch 5)
+
+Awaiting the final screenshots for:
+
+- notification panel,
+- mobile responsive states.
+
+Then we will cut the first implementation branch from `develop`.
