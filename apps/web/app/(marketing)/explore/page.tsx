@@ -9,10 +9,12 @@ import {
   buildCatalogSearchParams,
 } from "@/lib/catalog/filters";
 import { CatalogFilters } from "@/components/consumer/catalog-filters";
+import { CategoryChipWall } from "@/components/consumer/category-chip-wall";
 import { ProductCard } from "@/components/consumer/product-card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { SearchX, ChevronLeft, ChevronRight } from "lucide-react";
+import { SearchX, ChevronLeft, ChevronRight, Zap } from "lucide-react";
 
 export default async function ExplorePage({
   searchParams,
@@ -55,17 +57,44 @@ export default async function ExplorePage({
     throw new Error(error);
   }
 
+  const activeCategoryName =
+    categories.find((c) => c.slug === filters.category)?.name ?? null;
+
+  const heading = activeCategoryName
+    ? activeCategoryName
+    : filters.type === "filter"
+      ? "Filters"
+      : filters.type === "poster"
+        ? "Posters"
+        : filters.sort === "newest"
+          ? "New arrivals"
+          : "Viral now";
+
+  const subcopy = activeCategoryName
+    ? `Curated ${filters.type ?? "filters and posters"} in the ${activeCategoryName} category.`
+    : filters.sort === "newest"
+      ? "The freshest presets added this week."
+      : "What the community is generating right now.";
+
   return (
     <main className="flex flex-1 flex-col px-4 py-10 sm:px-6 lg:py-12">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
-            Explore looks
-          </h1>
-          <p className="text-text-secondary mt-2">
-            Browse curated Filters and Posters. Pick one, upload your photo, and
-            we handle the rest.
-          </p>
+          <div className="mb-2 flex items-center gap-2">
+            <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
+              {heading}
+            </h1>
+            {filters.sort === "featured" && !filters.category && !filters.type && (
+              <Badge
+                variant="secondary"
+                className="bg-lime-400/15 text-lime-300 border-none"
+              >
+                <Zap className="mr-1 h-3 w-3" />
+                Trending
+              </Badge>
+            )}
+          </div>
+          <p className="text-text-secondary mt-2">{subcopy}</p>
         </div>
         <Link
           href="/app/favorites"
@@ -84,11 +113,17 @@ export default async function ExplorePage({
         </div>
       )}
 
+      <section className="mb-8" aria-label="Browse categories">
+        <CategoryChipWall
+          categories={categories}
+          activeCategory={filters.category}
+          activeSort={filters.sort}
+        />
+      </section>
+
       <CatalogFilters
         key={filters.search ?? ""}
-        categories={categories}
         activeType={filters.type}
-        activeCategory={filters.category}
         search={filters.search}
         sort={filters.sort}
         pageSize={filters.pageSize}
@@ -140,15 +175,17 @@ export default async function ExplorePage({
                 asChild
                 variant="secondary"
                 disabled={filters.page <= 1}
-                className={filters.page <= 1 ? "pointer-events-none opacity-50" : ""}
+                className={
+                  filters.page <= 1 ? "pointer-events-none opacity-50" : ""
+                }
               >
                 <Link
                   href={`/explore?${buildCatalogSearchParams({
                     ...filters,
                     page: filters.page - 1,
                   })}`}
-                  aria-disabled={filters.page <= 1}
-                >
+                    aria-disabled={filters.page <= 1}
+                  >
                   <ChevronLeft className="mr-2 h-4 w-4" />
                   Previous
                 </Link>
@@ -163,7 +200,9 @@ export default async function ExplorePage({
                 variant="secondary"
                 disabled={filters.page >= totalPages}
                 className={
-                  filters.page >= totalPages ? "pointer-events-none opacity-50" : ""
+                  filters.page >= totalPages
+                    ? "pointer-events-none opacity-50"
+                    : ""
                 }
               >
                 <Link

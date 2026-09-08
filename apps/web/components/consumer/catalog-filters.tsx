@@ -8,15 +8,8 @@ import { Input } from "@/components/ui/input";
 import type { ProductType } from "@/types/catalog";
 import type { CatalogSort } from "@/lib/db/explore";
 
-interface CategoryOption {
-  slug: string;
-  name: string;
-}
-
 interface CatalogFiltersProps {
-  categories: CategoryOption[];
   activeType: ProductType | null;
-  activeCategory: string | null;
   search: string | null;
   sort: CatalogSort;
   pageSize: number;
@@ -40,9 +33,7 @@ const SORT_OPTIONS: { value: CatalogSort; label: string }[] = [
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 
 export function CatalogFilters({
-  categories,
   activeType,
-  activeCategory,
   search,
   sort,
   pageSize,
@@ -85,10 +76,6 @@ export function CatalogFilters({
     updateQuery({ type: value === "all" ? null : value, page: null });
   };
 
-  const handleCategoryChange = (value: string) => {
-    updateQuery({ category: value === "all" ? null : value });
-  };
-
   const handleSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     updateQuery({
@@ -128,7 +115,7 @@ export function CatalogFilters({
         })}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <form onSubmit={handleSearchSubmit} className="relative">
           <Input
             type="search"
@@ -140,26 +127,6 @@ export function CatalogFilters({
             className="w-full"
           />
         </form>
-
-        <div className="flex items-center gap-2">
-          <label htmlFor="category" className="text-text-secondary text-sm">
-            Category
-          </label>
-          <Select
-            id="category"
-            value={activeCategory ?? "all"}
-            onChange={(e) => handleCategoryChange(e.target.value)}
-            disabled={isPending}
-            className="min-w-[10rem] flex-1"
-          >
-            <option value="all">All categories</option>
-            {categories.map((category) => (
-              <option key={category.slug} value={category.slug}>
-                {category.name}
-              </option>
-            ))}
-          </Select>
-        </div>
 
         <div className="flex items-center gap-2">
           <label htmlFor="sort" className="text-text-secondary text-sm">
