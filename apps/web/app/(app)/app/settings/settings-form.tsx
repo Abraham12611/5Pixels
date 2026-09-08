@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { updateUserSettings } from "@/lib/db/settings";
 import type { UserSettings } from "@/lib/db/settings";
 
@@ -168,15 +167,6 @@ export default function SettingsForm({ initial }: SettingsFormProps) {
           {message}
         </p>
       )}
-
-      <div className="border-t-cream-100/10 pt-8">
-        <Link
-          href="/app/settings/delete"
-          className="text-rose-400 hover:text-rose-300 text-sm font-medium transition"
-        >
-          Delete account →
-        </Link>
-      </div>
     </form>
   );
 }
