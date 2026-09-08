@@ -117,7 +117,7 @@ export default async function ExplorePage({
         <>
           <section
             aria-label="Catalog presets"
-            className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+            className="columns-2 gap-5 md:columns-3 xl:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid"
           >
             {products.map((product, index) => (
               <ProductCard
