@@ -11,7 +11,9 @@ import { PricingTeaser } from "./pricing-teaser";
 import { FAQSection } from "./faq-section";
 import { FinalCTA } from "./final-cta";
 import { MarketingFooter } from "./marketing-footer";
-import { AnnouncementBanner } from "./announcement-banner";
+import { PromoCountdownBar } from "./promo-countdown-bar";
+import { HeroCarousel } from "./hero-carousel";
+import { WhatWouldYouCreate } from "./what-would-you-create";
 import { MarketingHeader } from "./marketing-header";
 import { CategoryTagCloud } from "./category-tag-cloud";
 import type { PublicProductSummary } from "@/types/catalog";
@@ -42,12 +44,14 @@ export function LandingPage({
 
   return (
     <div className="flex min-h-screen flex-col">
-      <AnnouncementBanner />
+      <PromoCountdownBar />
       <MarketingHeader isAuthenticated={isAuthenticated} />
 
       <main className="flex-1">
         <LandingHero />
+        <HeroCarousel products={curatedProducts} />
         <CuratedPresets products={curatedProducts} />
+        <WhatWouldYouCreate />
         <SignUpCTA />
         <OnePhotoFiveDirections />
         <NoPromptRequired />
