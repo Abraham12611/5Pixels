@@ -799,3 +799,133 @@ Awaiting the final screenshots for:
 - mobile responsive states.
 
 Then we will cut the first implementation branch from `develop`.
+
+---
+
+## 24. Batch 6 analysis — Notifications & mobile
+
+### 24.1 Notifications panel
+
+The notifications panel in the reference is a **right-anchored popover**:
+
+- Header: **All notifications** with a chevron (`v` / `^`) indicating a filter menu.
+- **Tabs** directly under the header: `All`, `Requests`, `Unread`.
+- A close X at the top-right.
+- Content area: large empty-state card with a subtle bell icon and `No notifications yet`.
+- The type menu opens a small dropdown with radio-style selection: `All`, `Collaboration`, `Social`, `System`.
+- The overall surface is charcoal with a translucent backdrop and rounded corners.
+
+**5Pixels adaptation:**
+
+- We do not have Collaboration / Social features, so use a simplified set:
+  - **All**, **Generation**, **Billing**, **Unread** (or **System**).
+- The panel should be smaller than the reference and should auto-dismiss on outside click.
+- Unread notifications should show a small lime dot.
+- Use Phosphor `Bell` icon with a filled variant when unread.
+- The dropdown should be scrollable and accessible via keyboard.
+
+### 24.2 Mobile responsive landing page
+
+The reference mobile landing page uses a compact, card-driven layout:
+
+- A thin lime **promo banner** at the very top (`Get an additional discount on premium plans`).
+- A compact **app bar** with:
+  - logo at left,
+  - camera icon (home),
+  - a `Pricing` pill with a small `21% OFF` tag,
+  - a lime **Sign up** button.
+- A **search bar** underneath.
+- A **carousel hero** with a large image card, a lime `NEW MODEL` tag, the title `HIGGSFIELD GENJUTSU`, and a short description; dots under the image for carousel state.
+- A **category grid** section titled `WHAT WOULD YOU CREATE?` with four cards: `Image`, `Video`, `Supercomputer`, `MCP` (lime border on selected).
+- A **bottom nav** with icons:
+  - **Home**
+  - **Community**
+  - **Create** (large lime circle with a star icon)
+  - **Library**
+  - **Profile**
+
+**5Pixels adaptation:**
+
+- We do not need Supercomputer/MCP. Adapt the category grid to **Filters**, **Posters**, **Trending**, **Categories**.
+- We should add a **mobile bottom nav** to the app with:
+  - Home
+  - Explore
+  - Create (large lime CTA)
+  - My works
+  - Profile
+- The promo banner should be dismissible and stored in `sessionStorage` so it does not reappear on every load.
+- The hero carousel can be used on the landing page with our curated presets.
+
+### 24.3 Mobile preset/create listing
+
+The reference mobile Create flow is a **full-screen modal-style** page:
+
+- Top sheet: title (`Create`) on the left, close X on the right.
+- A **filter chip row** (`All`, `New`, `Images`, `Videos`, `Edit`) with selected chips in lime and inactive in charcoal.
+- A grid of model/preset cards:
+  - full-width featured card at top (large preview image),
+  - two-column cards (Create image, Create video, etc.),
+  - badges (`TOP`, `CORE`, `NEW`) on the card image,
+  - model name + tagline.
+- A floating lime banner at the bottom (`Credits are running low! / All credits used / Upgrade`).
+
+**5Pixels adaptation:**
+
+- The grid cards become **preset cards** (Filter / Poster).
+- A featured **Hero preset** can span full width.
+- Badge types can be `New`, `Trending`, `Premium`.
+- The floating credit-low banner should show the user's balance and link to `/app/billing`.
+- For launch, we can use a simplified two-column masonry grid.
+
+### 24.4 Mobile profile/settings
+
+- Mobile stacks the left rail above the content:
+  - avatar + name + username + stats,
+  - Account settings button,
+  - tab row/scroll row,
+  - section cards.
+- The promo banner is full-width.
+- The **Create** button becomes a FAB (bottom-right on mobile) rather than an inline button in the header.
+
+**5Pixels adaptation:**
+
+- Settings nav becomes a **scrollable horizontal chip row** on mobile, then a sidebar on tablet+.
+- Use `flex-col` at small breakpoints; the promo banner stays on top.
+
+---
+
+## 25. New or updated component list (batch 6)
+
+### New components
+
+- `components/consumer/mobile-bottom-nav.tsx`
+- `components/consumer/promo-countdown-bar.tsx`
+- `components/consumer/notification-sheet.tsx` (mobile-friendly popover)
+- `components/consumer/notification-card.tsx`
+- `components/consumer/preset-card-mobile.tsx`
+- `components/consumer/category-card-grid.tsx`
+- `components/consumer/low-credits-banner.tsx`
+- `components/consumer/mobile-features-grid.tsx`
+
+### Modified components
+
+- `components/marketing/marketing-header.tsx` — mobile app bar + bottom nav sheet.
+- `components/marketing/landing-page.tsx` — mobile carousel + category grid.
+- `components/consumer/product-card.tsx` — mobile breakpoints, badges.
+- `components/consumer/app-header.tsx` — collapse to bottom nav on mobile.
+
+### Migrations
+
+- `supabase/migrations/2026XXXXXXXX_notifications.sql` (with `type` column for filtering by generation/billing/system).
+
+---
+
+## 26. Next step
+
+We have enough material to design or implement. Next step is to confirm the batch is complete, then start the first implementation branch. Options:
+
+1. Start with the **shared shell** (shadcn components, Phosphor icons, global tokens).
+2. Then implement the **app header + notifications + settings layout** as a high-impact first pass.
+3. Then refactor the **studio toolbar and cards** in a second pass.
+
+Please confirm if you have any final screenshots (e.g. for onboarding, checkout, or error states), otherwise I can begin the UI polish implementation phase.
