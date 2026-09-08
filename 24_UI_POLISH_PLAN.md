@@ -446,3 +446,131 @@ Awaiting the remaining screenshots for:
 - mobile responsive states.
 
 Then we will cut the first implementation branch from `develop`.
+
+---
+
+## 16. Batch 3 analysis — Profile page & Account settings
+
+### 16.1 Profile page layout
+
+The reference profile page uses a **two-column layout**:
+
+- **Left sidebar (personal card):**
+  - Large circular avatar with a lime gradient placeholder.
+  - **Display name** in large cream text.
+  - **Username** in `@username` format below.
+  - Small stats row: `0 views` and `0 likes` with tiny icons.
+  - **Preview** pill button.
+  - **Followers** and **Following** counts as two large boxes.
+  - **Account settings** — wide dark pill button at the bottom.
+
+- **Right content area:**
+  - Horizontal tab row: `All works`, `Projects`, `Blogs`, `Generations` with underline on active.
+  - **Search**, **Publish**, and a lime **Create ▾** button (dropdown).
+  - Empty-state sections:
+    - **Projects** — empty grid with a centered CTA "Ready to show your projects? / Launch your projects and get noticed by millions / Create project".
+    - **Blogs** — empty grid with "Share your process / Share process, breakdowns or tips — posts stay on your profile / Create blog".
+    - **Generations** — empty grid with "Ready to show your work? / Launch your generations and get noticed by millions / Publish generations".
+
+**5Pixels adaptation:**
+
+- We don't have public projects/blogs/social yet, but a **personal profile page** is still valuable for V1.
+- The right side can be simplified to three tabs:
+  - **All works** — user's completed generations (or public shares).
+  - **Presets** — user's saved/favorite presets.
+  - **Generations** — all generations with filters.
+- The **Create** button should be contextual: Create filter / Create poster / Start tutorial (prompt for presets only).
+- **Publish** button can open the existing public sharing flow.
+
+### 16.2 Edit profile modal
+
+The reference modal is a **centered card** with:
+
+- Header: **Edit profile** title and a close X.
+- **Profile picture** (circular avatar with a plus overlay).
+- **Name** (text input).
+- **Username** (text input, `@` implied).
+- **Headline** (text input, helper text with examples).
+- **Bio** (textarea with `0 / 300` counter).
+- **Location** (text input with placeholder).
+- **Socials** — four prefixed inputs: `x.com/`, `instagram.com/`, `youtube.com/@`, `tiktok.com/@`.
+- **Additional settings** — a switch for "Show spent credits on profile".
+- Footer: **Cancel** ghost and **Save** lime buttons.
+
+**5Pixels adaptation:**
+
+- V1 fields should be trimmed: `avatar`, `display_name`, `username`, `headline`, `bio`, `location`, `socials`, `show_spent_credits`.
+- The modal should be a shadcn `Dialog` with a max width and scrollable interior.
+- The save button should be the lime accent; cancel should be a neutral dark pill.
+- The username field should auto-prefix `@` in the display.
+
+### 16.3 Account settings pop-up / page
+
+The reference shows the same two-column layout in the left sidebar with the "Account settings" button. The actual settings page is likely the same pattern: a sidebar with the personal card and right-side tabs.
+
+**5Pixels adaptation:**
+
+- Build `/app/settings` as the "Account settings" hub (already exists).
+- We need a new `/app/profile` page for the public-profile view and an **Edit profile** dialog that can be invoked from both the profile page and the app-header user dropdown.
+
+### 16.4 Profile micro-interactions
+
+- **Avatar hover:** subtle ring highlight, mini-edit icon reveal.
+- **Tab underline:** animates left-to-right on active.
+- **Create button dropdown:** slide-down with slight scale; when open, the button text toggles to a chevron-up.
+- **Edit profile modal slide-up:** translate-and-fade in.
+- **Social inputs:** only show lime border when focused; counter updates live.
+
+---
+
+## 17. New or updated component list (batch 3)
+
+### New components
+
+- `components/consumer/profile-card.tsx` — left sidebar personal card.
+- `components/consumer/profile-stats.tsx` — views/likes/followers/following.
+- `components/consumer/profile-tabs.tsx` — All works / Presets / Generations.
+- `components/consumer/account-settings-button.tsx` — sidebar pill.
+- `components/consumer/edit-profile-dialog.tsx` — the full edit form modal.
+- `components/consumer/avatar-uploader.tsx` — circular avatar with plus overlay.
+- `components/consumer/social-input.tsx` — prefixed social link input.
+
+### Modified components
+
+- `app/(app)/app/settings/page.tsx` — replace with new tabbed settings layout.
+- `components/consumer/app-header.tsx` — add profile dropdown.
+- `components/consumer/user-dropdown.tsx` — new dropdown with profile, settings, billing, sign-out.
+- `components/consumer/share-actions.tsx` — reuse for public sharing of profile works.
+
+### New pages
+
+- `app/(app)/app/profile/page.tsx` — personal profile.
+- `app/(app)/app/profile/edit/page.tsx` — optional dedicated edit route (if not a modal).
+
+### Migrations
+
+- `supabase/migrations/2026XXXXXXXX_profile_fields.sql`:
+  - adds `username`, `headline`, `bio`, `location`, `socials JSONB`, `show_spent_credits BOOLEAN`, `avatar_asset_id` on `profiles`;
+  - adds unique index on `profiles.username` (case-insensitive).
+- `supabase/migrations/2026XXXXXXXX_profile_asset_policies.sql`:
+  - allows users to write their own `avatar` asset and read profile avatars publicly.
+
+---
+
+## 18. Open question for batch 3
+
+- Should **username** be optional or required? The reference shows one by default. If not required, the profile URL falls back to a numeric ID or email handle.
+- Should the profile be **public by default** or behind a toggle? We could support `public_profile_url` toggle to control whether `/<username>` links to a public profile.
+- Do we want to show **spent credits** on the public profile or keep that private? The reference allows it as a toggle, which is a nice detail.
+
+---
+
+## 19. Next step (batch 4)
+
+Awaiting the remaining screenshots for:
+
+- notification panel,
+- settings page detailed view,
+- mobile states.
+
+Then we will cut the first implementation branch from `develop`.
