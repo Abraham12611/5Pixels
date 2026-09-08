@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { v4 as uuidv4 } from "uuid";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { GenerationControls } from "@/components/consumer/generation-controls";
+import { SourceUploadDropzone } from "@/components/consumer/source-upload-dropzone";
+import { StudioToolbar } from "@/components/consumer/studio-toolbar";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import { validateGenerationOptions } from "@/lib/generation/validation";
 import { createAndSubmitGeneration } from "@/lib/generation/actions";
@@ -29,10 +27,6 @@ const MAX_SIZE = 20 * 1024 * 1024;
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
   const available = sizes?.length ? sizes : [{ name: "Square (1:1)", width: 1024, height: 1024, is_default: true }];
   return available.find((s) => s.is_default) ?? available[0]!;
-}
-
-function sizeKey(size: OutputSizeOption): string {
-  return `${size.name}:${size.width}:${size.height}`;
 }
 
 export function CreateGenerationForm({
@@ -103,25 +97,24 @@ export function CreateGenerationForm({
     };
   }, [product.version_id, product.credit_cost, selectedSize]);
 
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setError("");
-      const selected = e.target.files?.[0] ?? null;
-      if (!selected) return;
-      if (!ALLOWED_TYPES.includes(selected.type)) {
-        setError("Please select a JPEG, PNG, or WebP image.");
-        setFile(null);
-        return;
-      }
-      if (selected.size > MAX_SIZE) {
-        setError("Image must be 20 MB or smaller.");
-        setFile(null);
-        return;
-      }
-      setFile(selected);
-    },
-    []
-  );
+  const handleFileSelected = useCallback((selected: File | null) => {
+    setError("");
+    if (!selected) {
+      setFile(null);
+      return;
+    }
+    if (!ALLOWED_TYPES.includes(selected.type)) {
+      setError("Please select a JPEG, PNG, or WebP image.");
+      setFile(null);
+      return;
+    }
+    if (selected.size > MAX_SIZE) {
+      setError("Image must be 20 MB or smaller.");
+      setFile(null);
+      return;
+    }
+    setFile(selected);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,106 +205,60 @@ export function CreateGenerationForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-8 space-y-8">
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 text-lg font-semibold">1. Source photo</h2>
-        <div className="mt-4">
-          <Label htmlFor="source-image" className="sr-only">
-            Upload source image
-          </Label>
-          <input
-            id="source-image"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleFileChange}
+    <form onSubmit={handleSubmit} className="mt-6">
+      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
+          <SourceUploadDropzone
+            file={file}
             disabled={loading}
-            className="text-cream-50 file:text-ink-950 file:mr-4 file:rounded-lg file:border-0 file:bg-lime-500 file:px-4 file:py-2 file:text-sm file:font-semibold hover:file:bg-lime-400"
+            onFileSelected={handleFileSelected}
           />
-          {file && (
-            <p className="text-text-secondary mt-2 text-sm">
-              {file.name} ({Math.round(file.size / 1024)} KB)
+
+          {error && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-200">
+              {error}
+            </div>
+          )}
+
+          {isPoster && (
+            <p className="text-text-secondary rounded-xl border border-cream-100/10 bg-charcoal-850 p-3 text-xs">
+              Poster generation includes deterministic text rendering.
             </p>
           )}
         </div>
-      </section>
 
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 text-lg font-semibold">2. Output size</h2>
-        <div className="mt-4">
-          <Label htmlFor="output-size" className="sr-only">
-            Output size
-          </Label>
-          <Select
-            id="output-size"
-            value={sizeKey(selectedSize)}
-            onChange={(e) => {
-              const next = outputSizes.find(
-                (s) => sizeKey(s) === e.target.value
-              );
-              if (next) setSelectedSize(next);
-            }}
-            disabled={loading}
-            className="w-full sm:w-auto"
-          >
-            {outputSizes.map((size) => (
-              <option key={sizeKey(size)} value={sizeKey(size)}>
-                {size.name} ({size.width} × {size.height})
-              </option>
-            ))}
-          </Select>
-        </div>
-      </section>
-
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 text-lg font-semibold">3. Controls</h2>
-        <div className="mt-4">
-          <GenerationControls
-            fields={product.active_fields}
-            values={options}
-            onChange={setOptions}
-          />
-        </div>
-      </section>
-
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-cream-50 font-medium">
-              Cost: {(estimatedCost ?? product.credit_cost) || "Free"}
-              {estimatedCost ?? product.credit_cost ? " credits" : ""}
+        <aside className="min-w-0">
+          <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-5 lg:sticky lg:top-20">
+            <h2 className="text-cream-50 text-base font-semibold">
+              Preset controls
+            </h2>
+            <p className="text-text-secondary mt-1 text-xs">
+              Tweak the look. The recipe is curated — no prompt needed.
             </p>
-            <p className="text-text-muted text-sm">
-              Your balance: {initialBalance} credits
-            </p>
-            {!canAfford && (
-              <p className="text-error mt-1 text-sm">
-                Insufficient credits.{" "}
-                <Link href="/app/billing" className="text-lime-500 underline">
-                  Buy credits
-                </Link>
-              </p>
-            )}
-          </div>
-          <Button
-            type="submit"
-            disabled={loading || !file || !canAfford}
-            className="w-full sm:w-auto"
-          >
-            {loading ? progress || "Creating..." : "Create generation"}
-          </Button>
-        </div>
-        {isPoster && (
-          <p className="text-text-secondary mt-3 text-sm">
-            Poster generation includes deterministic text rendering.
-          </p>
-        )}
-      </section>
+            <div className="border-t-cream-100/10 mt-4 border-t pt-4">
+              <GenerationControls
+                fields={product.active_fields}
+                values={options}
+                onChange={setOptions}
+              />
+            </div>
+          </section>
+        </aside>
+      </div>
 
-      {error && (
-        <div className="border-l-4 border-red-500 bg-red-950/20 p-4 text-sm text-red-200">
-          {error}
-        </div>
-      )}
+      <StudioToolbar
+        productName={product.name}
+        productType={product.type}
+        sizes={outputSizes}
+        selectedSize={selectedSize}
+        estimatedCost={estimatedCost ?? product.credit_cost}
+        balance={initialBalance}
+        canAfford={canAfford}
+        loading={loading}
+        progress={progress}
+        disabled={loading || !file}
+        onSizeChange={setSelectedSize}
+      />
     </form>
   );
 }

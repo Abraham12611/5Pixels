@@ -41,13 +41,15 @@ export default async function CreatePage({
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
-        <h1 className="text-cream-50 text-2xl font-bold sm:text-3xl">
-          Create with {product.name}
-        </h1>
-        <p className="text-text-secondary mt-2">
-          {product.short_description || product.long_description}
-        </p>
+      <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
+        <div className="mb-6">
+          <h1 className="text-cream-50 text-2xl font-bold sm:text-3xl">
+            Create with {product.name}
+          </h1>
+          <p className="text-text-secondary mt-2 max-w-prose">
+            {product.short_description || product.long_description}
+          </p>
+        </div>
 
         <CreateGenerationForm
           userId={user.id}
