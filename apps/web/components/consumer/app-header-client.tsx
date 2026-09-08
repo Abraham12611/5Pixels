@@ -5,13 +5,15 @@ import { CreditBalanceChip } from "@/components/consumer/credit-balance-chip";
 import { NotificationDropdown } from "@/components/consumer/notification-dropdown";
 import { UserDropdown } from "@/components/consumer/user-dropdown";
 import { Faders, House } from "@phosphor-icons/react";
+import type { NotificationItem } from "@/lib/db/notifications";
 
 interface AppHeaderClientProps {
   creditBalance: number;
   userName: string;
   userEmail: string;
   avatarUrl?: string | null;
-  unreadNotifications: boolean;
+  unreadCount: number;
+  notifications: NotificationItem[];
 }
 
 const navLinks = [
@@ -24,7 +26,8 @@ export function AppHeaderClient({
   userName,
   userEmail,
   avatarUrl,
-  unreadNotifications,
+  unreadCount,
+  notifications,
 }: AppHeaderClientProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-cream-100/10 bg-ink-950/80 backdrop-blur-md">
@@ -68,7 +71,10 @@ export function AppHeaderClient({
         {/* Right side */}
         <div className="flex items-center gap-2">
           <CreditBalanceChip credits={creditBalance} />
-          <NotificationDropdown unread={unreadNotifications} />
+          <NotificationDropdown
+            unreadCount={unreadCount}
+            notifications={notifications}
+          />
           <UserDropdown
             name={userName}
             email={userEmail}

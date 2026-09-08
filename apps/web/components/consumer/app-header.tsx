@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
+import {
+  getMyNotifications,
+  getUnreadNotificationCount,
+} from "@/lib/db/notifications";
 import { AppHeaderClient } from "@/components/consumer/app-header-client";
 
 export async function AppHeader() {
@@ -18,7 +22,12 @@ export async function AppHeader() {
     .eq("id", user.id)
     .single();
 
-  const creditBalance = await getUserCreditBalance();
+  const [creditBalance, unreadCount, notifications] = await Promise.all([
+    getUserCreditBalance(),
+    getUnreadNotificationCount(),
+    getMyNotifications(15),
+  ]);
+
   const name =
     (profile?.display_name as string | null) ??
     (user.user_metadata?.name as string | null) ??
@@ -30,7 +39,8 @@ export async function AppHeader() {
       creditBalance={creditBalance}
       userName={name}
       userEmail={email}
-      unreadNotifications={false}
+      unreadCount={unreadCount}
+      notifications={notifications}
     />
   );
 }
