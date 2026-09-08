@@ -717,3 +717,85 @@ Awaiting the final screenshots for:
 - mobile responsive states.
 
 Then we will cut the first implementation branch from `develop`.
+
+---
+
+## 22. Batch 5 analysis — Settings detail
+
+### 22.1 Promo code page
+
+The reference promo code page is a large, centered **borderless input** on a dark page:
+
+- Page title `Promo code` in the upper-left of the content area.
+- Centered input with very large placeholder text (`Enter promo code`).
+- While typing, the text stays large and the underline shows a red squiggle on invalid input.
+- A small lime **Claim** button appears below once a code is present.
+- Left rail shows **Need help?** and **Join our Discord** cards; **Sign out** is pinned at the bottom.
+
+**5Pixels adaptation:**
+
+- Use a centered input but place it inside a `Card` with a max width for readability.
+- Add real-time validation against the promo-code table.
+- Use a lime **Redeem** button (we don't have a claim verb) and show a success/error toast.
+- On success, show a snackbar and refresh the balance chip.
+
+### 22.2 Usage history
+
+The reference usage page has:
+
+- Title: **Usage history** with the subtitle `View credits usage, history and statistics`.
+- Top right actions: **Refresh** icon button and a date-range selector (`Last 7 days`).
+- An inline **info banner** (dark card with a small info icon) that is dismissible; the message says "You can see your credit usage history starting from July 13, 2026.".
+- **Spend overview** — four stat cards:
+  - `Total cost`
+  - `Credits spent`
+  - `Features used`
+  - `Total generations`
+- **Spend chart** card with an empty-state illustration and `No spend data yet` message.
+- **Usage history** list card with an empty-state and `No usage history yet` message.
+
+**5Pixels adaptation:**
+
+- We already track enough data to power this:
+  - `credit_ledger` for credits spent.
+  - `generations` for total generations and features used.
+  - `fal_usage_logs` for provider cost.
+- Build a simple spend series from `credit_ledger` where `entry_type = 'generation_debit'` or from `fal_usage_logs` by day.
+- The banner is optional for V1; we can drop the "some earlier data..." notice because we have data from day one.
+
+### 22.3 Subscription lower half
+
+The reference shows three cards:
+
+- **Pending Invoices** — an empty-state card with `No pending invoices` and an `All invoices` link.
+- **Payment methods** — a card showing the current Mastercard, expire date, and an `Add new payment method` button.
+- **Billing information** — a card with a `Manage` button that opens an external billing portal.
+
+**5Pixels adaptation:**
+
+- Payment methods and billing are handled by Dodo, so we should **not** reproduce them.
+- Keep the **Pending invoices** card (link to Dodo customer portal).
+- Keep a single **Billing portal** card instead of Payment methods / Billing information.
+- We can add `Pending invoices` list as a future enhancement once Dodo is fully integrated.
+
+### 22.4 Notification panel (not yet sent)
+
+We expect the next batch to cover the notifications bell dropdown. If the pattern is similar to the user dropdown, it will be:
+
+- A bell icon with a red / lime unread dot.
+- A right-anchor popover with a scrollable list of notification cards.
+- Each notification shows icon, title, body, and timestamp.
+- Actions: mark as read, link, and `View all`.
+
+Wait for the next screenshots to confirm.
+
+---
+
+## 23. Next step (batch 6)
+
+Awaiting the final screenshots for:
+
+- notification panel,
+- mobile responsive states.
+
+Then we will cut the first implementation branch from `develop`.
