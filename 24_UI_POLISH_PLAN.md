@@ -929,3 +929,151 @@ We have enough material to design or implement. Next step is to confirm the batc
 3. Then refactor the **studio toolbar and cards** in a second pass.
 
 Please confirm if you have any final screenshots (e.g. for onboarding, checkout, or error states), otherwise I can begin the UI polish implementation phase.
+
+---
+
+## 27. Batch 7 analysis — Mobile sheet patterns & final mobile states
+
+### 27.1 Full-screen mobile selection sheet
+
+The reference uses a **full-screen sheet** (not a small dropdown) for the main selection:
+
+- "CREATE IMAGE" title at the top-left with the app logo next to it.
+- A chevron down opens the sheet.
+- The sheet itself:
+  - starts at the left edge of the viewport,
+  - has a translucent dark background,
+  - uses a large, pill-shaped list of items with a left icon + label,
+  - has a **close button at the bottom center** (a small pill with an X),
+  - keeps the current selection at the top with a chevron to switch.
+- One variant shows categories: `Supercomputer`, `Image`, `Audio`, `Video`, `Viral Presets`, `Upscale`, `Inpaint`; then an `ALL` sub-section with more items.
+- Another variant shows a flat list of presets like `Sora 2 Trends`, `Draw To Edit`, `Draw To Video`, etc.
+
+**5Pixels adaptation:**
+
+- The "model selector" is replaced by a **preset type selector** (`Filter`, `Poster`) plus a **preset picker** inside the studio.
+- For quick switching we can use a full-screen **preset sheet** on mobile:
+  - large preset name at top,
+  - inline thumbnail,
+  - a flat list with left icons for the preset type,
+  - an "All presets" footer button that goes to `/explore`.
+- Do not use the reference's many tool categories; ours are limited to Filter and Poster.
+
+### 27.2 Mobile profile dropdown
+
+The mobile profile dropdown is a **slide-down sheet** anchored to the top right:
+
+- Compact header with avatar, name, and plan (`Free Plan`).
+- **Credits** card:
+  - progress dots (yellow for plan credits),
+  - `Credits` label and `0 left` counter,
+  - a small info icon.
+- **Go Premium** section:
+  - crown icon and label,
+  - lime **Upgrade** button.
+- Menu items:
+  - `View profile`,
+  - `Manage Account`,
+  - `Affiliate program` with a `New` badge,
+  - `Join Community`,
+  - `Language` (with the current language).
+  - `Sign Out`.
+- A wide **Account settings** button at the bottom.
+- The bottom nav shows a floating banner: "Credits are running low! / All credits used / Upgrade".
+
+**5Pixels adaptation:**
+
+- Replace `Affiliate program` and `Join Community` with:
+  - **Help / support**,
+  - **Notifications** toggle.
+- Keep the credits card, premium upsell, View profile, Account settings, Language, and Sign out.
+- Use a small badge for `New features` if we add release notes.
+
+### 27.3 Mobile create sheet
+
+The mobile create page is a **compact, single column** flow:
+
+- Top sheet header with title and close X.
+- **Upload card** area with a drop zone.
+- A clean placeholder textarea (our preset-first constraint means this textarea is hidden).
+- Bottom horizontal pills:
+  - `High` quality,
+  - `2K`,
+  - `Auto` aspect,
+  - `1` batch size.
+- A large lime **Generate** button with the credit cost next to it (`6.5`).
+- The pill order is affected by model selection.
+
+**5Pixels adaptation:**
+
+- Keep the compact design but show **Preset** instead of a text prompt.
+- The bottom pills become:
+  - `Preset`,
+  - `Quality`,
+  - `Resolution`,
+  - `Aspect Ratio`,
+  - `Batch size` (V1 optional; default 1).
+- Use a fixed bottom lint for the Generate button and cost.
+
+### 27.4 Mobile marketing and bottom nav
+
+- Thin lime promo banner at the top with offer text and the chevron + X.
+- Compact header with logo, camera icon, pricing pill, and sign-up button.
+- Search bar directly below the header.
+- A featured prescription carousel with a large preview "NEW MODEL" label, description, and pagination dot progress.
+- A "WHAT WOULD YOU CREATE?" section with four cards: `Image`, `Video`, `Supercomputer`, `MCP`.
+- Bottom navigation `Home`, `Community`, `Create` (big lime FAB), `Library`, `Profile`.
+
+**5Pixels adaptation:**
+
+- We will create `components/consumer/mobile-app-shell.tsx` (or place in the `(app)` layout) with:
+  - top banner (reuse `announcement-banner` or the lime promo bar),
+  - compact header (`logo · search · credits chip · profile`),
+  - content body,
+  - bottom nav with a lime **Create** FAB in the center.
+- The bottom nav items should map to:
+  - Home ("/app"),
+  - Explore,
+  - Create (opens preset sheet),
+  - Works / History ("/app/generations"),
+  - Profile ("/app/profile" or settings).
+
+### 27.5 Mobile micro-interactions
+
+- **Sheet animation:** bottom-to-top slide + fade; background dims to 70%.
+- **Preset chip touch:** instant scale-up/collapse feedback.
+- **Close button at bottom:** small pill that bounces on tap.
+- **Credit banner:** continues to float above the bottom nav until it is dismissed.
+- **Pill toggles:** instant background change (no heavy hover relationships on mobile).
+- **Carousel dots:** click to jump; horizontal drag on cards.
+
+---
+
+## 28. Summary of implementation-ready decisions
+
+We are ready to build:
+
+1. **Shared foundation** (installation, tokens, fonts, UI primitives).
+2. **App header rework** with profile dropdown and notifications.
+3. **Preset studio** layout: two-pane studio with left control rail and right stage, plus a mobile bottom sheet.
+4. **Settings rework** with the left-nav + main card grid.
+5. **Explore / landing polish** with dynamic ratio cards and the viral preset chips wall.
+
+Confirmation pending for the remaining open questions, but we can start with the shared shell and app header as the first implementation slice.
+
+---
+
+## 29. Next step
+
+We will begin implementation with the shared foundation branch:
+
+- install shadcn primitives,
+- install `@phosphor-icons/react`,
+- add global tokens and micro-interaction classes,
+- then wire the app header with credits, notifications, and profile dropdown.
+
+Subsequent branches will handle:
+
+- studio two-pane layout,
+- settings redesign,
+- explore/landing cards.
