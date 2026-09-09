@@ -4,6 +4,7 @@ import {
   getMyNotifications,
   getUnreadNotificationCount,
 } from "@/lib/db/notifications";
+import { getAvatarUrl } from "@/lib/profile/actions";
 import { AppHeaderClient } from "@/components/consumer/app-header-client";
 
 export async function AppHeader() {
@@ -18,14 +19,15 @@ export async function AppHeader() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, display_name, email")
+    .select("id, display_name, email, avatar_asset_id")
     .eq("id", user.id)
     .single();
 
-  const [creditBalance, unreadCount, notifications] = await Promise.all([
+  const [creditBalance, unreadCount, notifications, avatarUrl] = await Promise.all([
     getUserCreditBalance(),
     getUnreadNotificationCount(),
     getMyNotifications(15),
+    getAvatarUrl(profile?.avatar_asset_id as string | null | undefined),
   ]);
 
   const name =
@@ -39,6 +41,7 @@ export async function AppHeader() {
       creditBalance={creditBalance}
       userName={name}
       userEmail={email}
+      avatarUrl={avatarUrl}
       unreadCount={unreadCount}
       notifications={notifications}
     />
