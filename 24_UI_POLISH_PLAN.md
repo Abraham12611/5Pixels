@@ -1077,3 +1077,74 @@ Subsequent branches will handle:
 - studio two-pane layout,
 - settings redesign,
 - explore/landing cards.
+
+---
+
+## 30. Current progress and remaining work
+
+### Implemented UI-polish branches (not yet merged to `develop`)
+
+| Branch | Commit | Scope |
+|---|---|---|
+| `feature/ui-shared-foundation` | `6d8d810` | shadcn components, Phosphor icons, global tokens. |
+| `feature/ui-settings-redesign` | `be92956` | Settings left-nav + section cards. |
+| `feature/ui-studio-create` | `beba220` | Two-pane create page + floating `StudioToolbar`. |
+| `feature/ui-explore-cards` | `176c055` | Dynamic-ratio product cards + `Generate` overlay. |
+| `feature/ui-mobile-nav` | `4ffab2c` | Mobile bottom nav shell. |
+| `feature/notifications-backend` | `6485d33` | `notifications` table + header dropdown. |
+| `feature/ui-landing-polish` | `d2334f6` | Landing carousel, promo bar, category grid. |
+| `feature/ui-marketing-header` | `60b4e7f` | Marketing header mega dropdown. |
+| `feature/ui-viral-presets` | `f43908e` | Explore `CategoryChipWall` + viral index layout. |
+
+These branches are **stacked** in the order above. Each one builds on the previous, and `feature/ui-viral-presets` currently contains the whole stack.
+
+### Remaining slices (from this plan + open requests)
+
+- **Preset-detail related sub-navigation and upsells** — `components/consumer/preset-subnav.tsx`, `viral-grid.tsx`, related-presets chip row on `/presets/[slug]` (plan §12.2, §13).
+- **Dynamic-ratio “viral” gallery polish** — dedicated `/explore` or `/viral-presets` masonry gallery, `Trending`/`New` badges on product cards (plan §4.5, §12.2).
+- **Profile page / account settings dialog** — `/app/profile`, edit-profile modal, avatar upload, username/headline/bio/location/socials (plan §4.7, §16–17).
+- **Mobile sheet refinements** — full-screen preset picker, profile sheet, create bottom sheet (plan §27).
+- **Search/command palette overlay** — `components/consumer/command-palette.tsx` (plan §4.1).
+- **Accessibility / reduced-motion pass** — global focus rings, reduced-motion, ARIA, tooltips (plan §5).
+- **Notification realtime updates** — optional Supabase realtime on `notifications` (plan §4.3).
+- **Backend data work** — profile fields/avatar migration, promo codes, `trending_score` / `is_new` on products, usage snapshots (plan §14, §20, §22).
+
+### Merge strategy
+
+The cleanest way to land all the UI polish is to **open one PR per branch**, merging them in stack order into `develop`. Because the branches are linear, `feature/ui-viral-presets` could also be merged by itself to bring the whole stack in, but that would bypass the per-slice history. Recommended order:
+
+1. `feature/ui-shared-foundation`
+2. `feature/ui-settings-redesign`
+3. `feature/ui-studio-create`
+4. `feature/ui-explore-cards`
+5. `feature/ui-mobile-nav`
+6. `feature/notifications-backend`
+7. `feature/ui-landing-polish`
+8. `feature/ui-marketing-header`
+9. `feature/ui-viral-presets`
+
+Each PR must pass CI (`typecheck`, `lint`, `test`, `build`) and get an approving review because `develop` is branch-protected.
+
+Branch PR links (replace `feature/...`):
+
+```text
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-shared-foundation
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-settings-redesign
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-studio-create
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-explore-cards
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-mobile-nav
+https://github.com/Abraham12611/5Pixels/pull/new/feature/notifications-backend
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-landing-polish
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-marketing-header
+https://github.com/Abraham12611/5Pixels/pull/new/feature/ui-viral-presets
+```
+
+### Next step
+
+Pick the next slice to implement. The highest-impact remaining items are:
+
+1. **Profile page + edit profile dialog** (completes batch 3/4 and is required for `/app/profile`).
+2. **Preset-detail sub-navigation + viral gallery** (completes batch 2 and improves conversion).
+3. **Command palette** (relatively small, improves discovery).
+
+Once the remaining UI slices are finished, we can create/update the PRs and, after your review, merge them into `develop`.
