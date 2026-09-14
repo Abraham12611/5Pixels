@@ -11,11 +11,25 @@ interface PlanRow {
   type: string;
   credits_grant: number;
   price_cents: number;
+  dodo_product_id: string | null;
 }
 
 interface UserMapping {
   userId: string;
   customerId: string;
+}
+
+interface SubscriptionInfo {
+  subscriptionId: string;
+  productId: string;
+  nextBillingDate: string;
+  previousBillingDate: string;
+  currency: string;
+  trialPeriodDays: number;
+  status: Subscription["status"];
+  cancelAtNextBillingDate: boolean;
+  createdAt: string;
+  metadata: Record<string, unknown>;
 }
 
 function creditCostToCredits(plan: PlanRow, amountCents: number): number {
@@ -69,13 +83,38 @@ async function resolveUser(
   return null;
 }
 
+async function getPlanById(planId: string): Promise<PlanRow | null> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("plans")
+    .select("id, slug, name, type, credits_grant, price_cents, metadata")
+    .eq("id", planId)
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error(`[getPlanById] no plan ${planId}: ${error?.message ?? ""}`);
+    return null;
+  }
+
+  return {
+    id: data.id as string,
+    slug: data.slug as string,
+    name: data.name as string,
+    type: data.type as string,
+    credits_grant: Number(data.credits_grant),
+    price_cents: Number(data.price_cents),
+    dodo_product_id:
+      (data.metadata as { dodo_product_id?: string })?.dodo_product_id ?? null,
+  };
+}
+
 async function getPlanByDodoProductId(
   dodoProductId: string
 ): Promise<PlanRow | null> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("plans")
-    .select("id, slug, name, type, credits_grant, price_cents")
+    .select("id, slug, name, type, credits_grant, price_cents, metadata")
     .filter("metadata->>dodo_product_id", "eq", dodoProductId)
     .maybeSingle();
 
@@ -95,6 +134,7 @@ async function getPlanByDodoProductId(
     type: data.type as string,
     credits_grant: Number(data.credits_grant),
     price_cents: Number(data.price_cents),
+    dodo_product_id: dodoProductId,
   };
 }
 
@@ -146,29 +186,37 @@ async function findSubscriptionByDodoId(dodoSubscriptionId: string) {
   const service = createServiceClient();
   const { data } = await service
     .from("subscriptions")
-    .select("id, status, current_period_end")
+    .select(
+      "id, status, current_period_start, current_period_end, cancel_at_period_end, plan_id, trial, dodo_customer_id, metadata"
+    )
     .eq("dodo_subscription_id", dodoSubscriptionId)
     .maybeSingle();
   return data
     ? {
         id: data.id as string,
         status: data.status as string,
+        currentPeriodStart: data.current_period_start as string | null,
         currentPeriodEnd: data.current_period_end as string | null,
+        cancelAtPeriodEnd: data.cancel_at_period_end as boolean,
+        planId: data.plan_id as string,
+        trial: data.trial as boolean,
+        dodoCustomerId: data.dodo_customer_id as string | null,
+        metadata: data.metadata as Record<string, unknown>,
       }
     : null;
 }
 
 async function upsertSubscription(
   userId: string,
-  subscription: Subscription,
+  info: SubscriptionInfo,
   dodoCustomerId: string
 ): Promise<string> {
   const service = createServiceClient();
 
-  const existing = await findSubscriptionByDodoId(subscription.subscription_id);
-  const plan = await getPlanByDodoProductId(subscription.product_id);
+  const existing = await findSubscriptionByDodoId(info.subscriptionId);
+  const plan = await getPlanByDodoProductId(info.productId);
   const planId = plan?.id;
-  const status = mapSubscriptionStatus(subscription.status);
+  const status = mapSubscriptionStatus(info.status);
 
   if (existing) {
     const { error } = await service
@@ -177,10 +225,10 @@ async function upsertSubscription(
         user_id: userId,
         plan_id: planId,
         status,
-        current_period_start: subscription.previous_billing_date,
-        current_period_end: subscription.next_billing_date,
-        cancel_at_period_end: subscription.cancel_at_next_billing_date,
-        trial: subscription.trial_period_days > 0,
+        current_period_start: info.previousBillingDate,
+        current_period_end: info.nextBillingDate,
+        cancel_at_period_end: info.cancelAtNextBillingDate,
+        trial: info.trialPeriodDays > 0,
         dodo_customer_id: dodoCustomerId,
         updated_at: new Date().toISOString(),
       })
@@ -189,23 +237,19 @@ async function upsertSubscription(
     return existing.id;
   }
 
-  const { data, error } = await service
-    .from("subscriptions")
-    .insert({
-      user_id: userId,
-      plan_id: planId,
-      status,
-      trial: subscription.trial_period_days > 0,
-      started_at: subscription.created_at,
-      current_period_start: subscription.previous_billing_date,
-      current_period_end: subscription.next_billing_date,
-      cancel_at_period_end: subscription.cancel_at_next_billing_date,
-      dodo_subscription_id: subscription.subscription_id,
-      dodo_customer_id: dodoCustomerId,
-      metadata: subscription.metadata,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await service.from("subscriptions").insert({
+    user_id: userId,
+    plan_id: planId,
+    status,
+    trial: info.trialPeriodDays > 0,
+    started_at: info.createdAt,
+    current_period_start: info.previousBillingDate,
+    current_period_end: info.nextBillingDate,
+    cancel_at_period_end: info.cancelAtNextBillingDate,
+    dodo_subscription_id: info.subscriptionId,
+    dodo_customer_id: dodoCustomerId,
+    metadata: info.metadata,
+  }).select("id").single();
 
   if (error || !data) {
     throw new Error(
@@ -235,6 +279,68 @@ function mapSubscriptionStatus(
       return "active";
     default:
       return "active";
+  }
+}
+
+function toSubscriptionInfo(subscription: Subscription): SubscriptionInfo {
+  return {
+    subscriptionId: subscription.subscription_id,
+    productId: subscription.product_id,
+    nextBillingDate: subscription.next_billing_date,
+    previousBillingDate: subscription.previous_billing_date,
+    currency: subscription.currency,
+    trialPeriodDays: subscription.trial_period_days,
+    status: subscription.status,
+    cancelAtNextBillingDate: subscription.cancel_at_next_billing_date,
+    createdAt: subscription.created_at,
+    metadata: subscription.metadata,
+  };
+}
+
+async function buildSubscriptionInfoFromPayment(
+  payment: Payment
+): Promise<SubscriptionInfo | null> {
+  const dodoSubscriptionId = payment.subscription_id;
+  if (!dodoSubscriptionId) return null;
+
+  // Prefer the local DB record (created by a subscription.* event).
+  const local = await findSubscriptionByDodoId(dodoSubscriptionId);
+  if (local?.planId) {
+    const plan = await getPlanById(local.planId);
+    if (plan?.dodo_product_id && local.currentPeriodEnd) {
+      console.log(
+        `[buildSubscriptionInfoFromPayment] using local subscription record for ${dodoSubscriptionId}`
+      );
+      return {
+        subscriptionId: dodoSubscriptionId,
+        productId: plan.dodo_product_id,
+        nextBillingDate: local.currentPeriodEnd,
+        previousBillingDate:
+          local.currentPeriodStart ?? payment.created_at ?? new Date().toISOString(),
+        currency: payment.currency,
+        trialPeriodDays: local.trial ? 1 : 0,
+        status: "active" as Subscription["status"],
+        cancelAtNextBillingDate: local.cancelAtPeriodEnd,
+        createdAt: payment.created_at,
+        metadata: local.metadata,
+      };
+    }
+  }
+
+  // Fall back to Dodo API.
+  try {
+    const dodo = createDodoClient();
+    const remote = await dodo.subscriptions.retrieve(dodoSubscriptionId);
+    console.log(
+      `[buildSubscriptionInfoFromPayment] fetched Dodo subscription for ${dodoSubscriptionId}`
+    );
+    return toSubscriptionInfo(remote);
+  } catch (err) {
+    console.error(
+      `[buildSubscriptionInfoFromPayment] failed to fetch Dodo subscription ${dodoSubscriptionId}:`,
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
   }
 }
 
@@ -298,15 +404,15 @@ async function ensureCreditsForBillingPeriod(
 async function ensureInvoiceForSubscriptionPeriod(
   userId: string,
   plan: PlanRow | null,
-  subscription: Subscription,
+  info: SubscriptionInfo,
   payment: Payment | null,
   amountCents: number
 ) {
   const service = createServiceClient();
-  const nextBillingDate = subscription.next_billing_date;
+  const nextBillingDate = info.nextBillingDate;
 
   const invoice = await findInvoiceByPeriod(
-    subscription.subscription_id,
+    info.subscriptionId,
     nextBillingDate
   );
 
@@ -333,18 +439,20 @@ async function ensureInvoiceForSubscriptionPeriod(
     return invoice.id;
   }
 
+  const dbSubscription = await findSubscriptionByDodoId(info.subscriptionId);
+
   const { data, error } = await service
     .from("invoices")
     .insert({
       user_id: userId,
       plan_id: plan?.id,
-      subscription_id: (await findSubscriptionByDodoId(subscription.subscription_id))?.id,
+      subscription_id: dbSubscription?.id,
       amount_cents: payment?.total_amount ?? amountCents,
-      currency: subscription.currency,
+      currency: payment?.currency ?? info.currency,
       status: "paid",
       dodo_payment_id: payment?.payment_id ?? null,
       dodo_checkout_session_id: payment?.checkout_session_id ?? null,
-      dodo_subscription_id: subscription.subscription_id,
+      dodo_subscription_id: info.subscriptionId,
       metadata: { next_billing_date: nextBillingDate },
     })
     .select("id")
@@ -475,28 +583,20 @@ export async function fulfillSubscriptionPayment(payment: Payment) {
 
   await recordCustomer(mapping.userId, mapping.customerId);
 
-  let subscription: Subscription;
-  try {
-    const dodo = createDodoClient();
-    subscription = await dodo.subscriptions.retrieve(payment.subscription_id);
-  } catch (err) {
+  const info = await buildSubscriptionInfoFromPayment(payment);
+  if (!info) {
     console.error(
-      `[fulfillSubscriptionPayment] failed to fetch subscription`,
-      err instanceof Error ? err.message : String(err)
+      `[fulfillSubscriptionPayment] could not build subscription info for payment ${payment.payment_id}; will retry on subscription event`
     );
     return;
   }
 
-  await upsertSubscription(
-    mapping.userId,
-    subscription,
-    payment.customer.customer_id
-  );
+  await upsertSubscription(mapping.userId, info, payment.customer.customer_id);
 
-  const plan = await getPlanByDodoProductId(subscription.product_id);
+  const plan = await getPlanByDodoProductId(info.productId);
   if (!plan) {
     console.error(
-      `[fulfillSubscriptionPayment] no plan for subscription product ${subscription.product_id}`
+      `[fulfillSubscriptionPayment] no plan for subscription product ${info.productId}`
     );
     return;
   }
@@ -504,16 +604,16 @@ export async function fulfillSubscriptionPayment(payment: Payment) {
   const invoiceId = await ensureInvoiceForSubscriptionPeriod(
     mapping.userId,
     plan,
-    subscription,
+    info,
     payment,
     plan.price_cents
   );
 
-  const idempotencyKey = `subscription:${subscription.subscription_id}:${subscription.next_billing_date}`;
+  const idempotencyKey = `subscription:${info.subscriptionId}:${info.nextBillingDate}`;
   const ledgerEntryId = await ensureCreditsForBillingPeriod(
     mapping.userId,
     plan,
-    subscription.subscription_id,
+    info.subscriptionId,
     invoiceId,
     idempotencyKey,
     payment.total_amount
@@ -526,7 +626,7 @@ export async function fulfillSubscriptionPayment(payment: Payment) {
     .eq("id", invoiceId);
 
   console.log(
-    `[fulfillSubscriptionPayment] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${subscription.next_billing_date}`
+    `[fulfillSubscriptionPayment] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.nextBillingDate}`
   );
 }
 
@@ -551,9 +651,11 @@ export async function fulfillSubscriptionLifecycleEvent(
 
   await recordCustomer(mapping.userId, mapping.customerId);
 
+  const info = toSubscriptionInfo(subscription);
+
   const subscriptionId = await upsertSubscription(
     mapping.userId,
-    subscription,
+    info,
     subscription.customer.customer_id
   );
 
@@ -564,30 +666,30 @@ export async function fulfillSubscriptionLifecycleEvent(
     return;
   }
 
-  const plan = await getPlanByDodoProductId(subscription.product_id);
+  const plan = await getPlanByDodoProductId(info.productId);
   if (!plan) {
     console.error(
-      `[fulfillSubscriptionLifecycleEvent] no plan for product ${subscription.product_id}`
+      `[fulfillSubscriptionLifecycleEvent] no plan for product ${info.productId}`
     );
     return;
   }
 
-  const isTrial = subscription.trial_period_days > 0;
+  const isTrial = info.trialPeriodDays > 0;
   const invoiceAmount = isTrial ? 0 : plan.price_cents;
 
   const invoiceId = await ensureInvoiceForSubscriptionPeriod(
     mapping.userId,
     plan,
-    subscription,
+    info,
     null,
     invoiceAmount
   );
 
-  const idempotencyKey = `subscription:${subscription.subscription_id}:${subscription.next_billing_date}`;
+  const idempotencyKey = `subscription:${info.subscriptionId}:${info.nextBillingDate}`;
   const ledgerEntryId = await ensureCreditsForBillingPeriod(
     mapping.userId,
     plan,
-    subscription.subscription_id,
+    info.subscriptionId,
     invoiceId,
     idempotencyKey,
     invoiceAmount
@@ -605,7 +707,7 @@ export async function fulfillSubscriptionLifecycleEvent(
     .eq("id", subscriptionId);
 
   console.log(
-    `[fulfillSubscriptionLifecycleEvent] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${subscription.next_billing_date}`
+    `[fulfillSubscriptionLifecycleEvent] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.nextBillingDate}`
   );
 }
 
