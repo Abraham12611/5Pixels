@@ -17,7 +17,7 @@ import { RecentPresetRecorder } from "@/components/consumer/recent-preset-record
 import { selectCatalogMediaAsset } from "@/lib/catalog/media";
 import { fidelityLabel } from "@/lib/catalog/badges";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
 
 interface PresetDetailPageProps {
   params: Promise<{ slug: string }>;

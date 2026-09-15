@@ -162,12 +162,40 @@ export function LibraryResultCard({
               variant="ghost"
               size="icon"
               aria-label={`More actions for ${item.productName} result`}
-              className="bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 h-8 w-8 rounded-full backdrop-blur-sm"
+              className="bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 relative h-8 w-8 rounded-full backdrop-blur-sm after:absolute after:-inset-1.5 after:content-['']"
             >
               <DotsThreeVertical size={15} weight="bold" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem asChild>
+              <Link href={resultHref} prefetch={false}>
+                <ArrowSquareOut size={15} />
+                Open
+              </Link>
+            </DropdownMenuItem>
+            {item.outputUrl && (
+              <DropdownMenuItem asChild>
+                <a
+                  href={item.outputUrl}
+                  download
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => {
+                    onDownloaded(item.id);
+                    void markGenerationDownloaded(item.id);
+                  }}
+                >
+                  <Download size={15} />
+                  Download
+                </a>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onSelect={handleSave} disabled={isPending}>
+              <BookmarkSimple size={15} weight={saved ? "fill" : "regular"} />
+              {saved ? "Remove from saved" : "Save to Library"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={handleShare} disabled={isPending}>
               <ShareNetwork size={15} />
               Share

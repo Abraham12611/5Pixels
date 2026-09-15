@@ -1,6 +1,6 @@
 "use client";
 
-import { ShieldCheck, RefreshCcw, Lock } from "lucide-react";
+import { ShieldCheck, ArrowsClockwise, LockSimple } from "@phosphor-icons/react";
 
 export function TrustSection() {
   const items = [
@@ -11,13 +11,13 @@ export function TrustSection() {
         "Every preset is evaluated against a golden dataset before it goes live.",
     },
     {
-      icon: Lock,
+      icon: LockSimple,
       title: "Private source-image handling",
       description:
         "Your uploads are used only for your generations and never exposed publicly.",
     },
     {
-      icon: RefreshCcw,
+      icon: ArrowsClockwise,
       title: "Failed generations are refunded",
       description:
         "If a transformation fails, your credits are returned automatically.",

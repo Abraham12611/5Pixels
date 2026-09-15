@@ -97,10 +97,9 @@ export function CreditMeter({
   return (
     <span
       role="img"
-      aria-label={`Credit level ${Math.min(
-        balance,
-        max ?? balance
-      )} of ${max ?? "50+"}`}
+      aria-label={`${balance} ${balance === 1 ? "credit" : "credits"}${
+        max ? ` of ${max}` : ""
+      }`}
       className={cn("inline-flex items-end gap-[3px]", className)}
     >
       {Array.from({ length: SEGMENTS }, (_, i) => {

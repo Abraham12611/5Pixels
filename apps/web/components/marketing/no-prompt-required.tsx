@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check } from "@phosphor-icons/react";
 
 export function NoPromptRequired() {
   const points = [

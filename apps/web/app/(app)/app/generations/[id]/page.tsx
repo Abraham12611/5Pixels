@@ -163,7 +163,7 @@ export default function GenerationStatusPage() {
           )}
 
           {generation && copy && (
-            <>
+            <div aria-live="polite">
               <GenerationPixelProgress
                 filled={pixelCountForStatus(generation.status)}
                 active={terminal ? -1 : Math.min(stageIndex, 4)}
@@ -274,11 +274,14 @@ export default function GenerationStatusPage() {
                   Library.
                 </p>
               )}
-            </>
+            </div>
           )}
 
           {error && (
-            <p className="text-warning mt-5 flex items-center justify-center gap-1.5 text-xs">
+            <p
+              role="status"
+              className="text-warning mt-5 flex items-center justify-center gap-1.5 text-xs"
+            >
               <WarningCircle size={14} weight="fill" />
               {error}
             </p>

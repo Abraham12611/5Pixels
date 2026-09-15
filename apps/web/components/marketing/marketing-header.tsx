@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Menu, X, Search } from "lucide-react";
+import { List, X, MagnifyingGlass } from "@phosphor-icons/react";
 import {
   Compass,
   Faders,
@@ -213,7 +213,7 @@ export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
             className="text-text-secondary hover:text-cream-50 hidden rounded-lg p-2 transition sm:block"
             aria-label="Search"
           >
-            <Search className="h-5 w-5" />
+            <MagnifyingGlass className="h-5 w-5" />
           </Link>
 
           {isAuthenticated ? (
@@ -254,7 +254,7 @@ export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
             aria-label="Toggle menu"
             aria-expanded={mobileOpen}
           >
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {mobileOpen ? <X className="h-5 w-5" /> : <List className="h-5 w-5" />}
           </button>
         </div>
       </div>

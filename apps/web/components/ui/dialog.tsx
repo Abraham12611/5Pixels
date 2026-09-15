@@ -1,7 +1,77 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Shared dialog accessibility: Tab containment, initial focus, focus return,
+ * and body scroll lock. Reusable for non-Dialog overlays (e.g. AuthModal's
+ * bottom-sheet layout) that can't use the Dialog markup directly.
+ */
+export function useDialogA11y(
+  open: boolean,
+  panelRef: RefObject<HTMLElement | null>
+) {
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    const focusables = () =>
+      Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+
+    // Initial focus: keep an autofocused element, else first interactive
+    // element, else the panel itself.
+    const active = document.activeElement;
+    const alreadyFocused = active instanceof HTMLElement && panel.contains(active);
+    if (!alreadyFocused) {
+      const first = focusables()[0];
+      (first ?? panel).focus();
+    }
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (e.shiftKey && (active === firstEl || !panel.contains(active))) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && (active === lastEl || !panel.contains(active))) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+      restoreFocusRef.current?.focus();
+      restoreFocusRef.current = null;
+    };
+  }, [open, panelRef]);
+}
 
 interface DialogProps {
   open: boolean;
@@ -17,6 +87,8 @@ export function Dialog({
   className,
 }: DialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogA11y(open, panelRef);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -34,7 +106,7 @@ export function Dialog({
     <div
       ref={overlayRef}
       role="presentation"
-      className="bg-ink-950/80 fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="bg-ink-950/80 animate-overlay-in fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={(e) => {
         if (e.target === overlayRef.current) {
           onOpenChange(false);
@@ -42,10 +114,12 @@ export function Dialog({
       }}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         className={cn(
-          "border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6 shadow-xl",
+          "border-cream-100/10 bg-charcoal-850 animate-dialog-in rounded-2xl border p-6 shadow-xl outline-none",
           className
         )}
       >

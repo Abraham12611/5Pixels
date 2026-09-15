@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ArrowRight } from "lucide-react";
+import { Check, ArrowRight } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 
 export function SignUpCTA() {
