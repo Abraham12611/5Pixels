@@ -217,3 +217,25 @@ export async function signOut() {
   await supabase.auth.signOut();
   redirect("/login");
 }
+
+export async function signOutOtherSessions(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { success: false, error: "You must be signed in." };
+  }
+  const { error } = await supabase.auth.signOut({ scope: "others" });
+  if (error) {
+    console.error("[signOutOtherSessions] failed", error.message);
+    return {
+      success: false,
+      error: "Unable to sign out other sessions. Please try again.",
+    };
+  }
+  return { success: true };
+}

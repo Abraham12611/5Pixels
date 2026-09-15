@@ -406,7 +406,7 @@ export function CreateGenerationForm({
           </div>
           {!canAfford && (
             <Link
-              href="/app/settings/billing"
+              href="/app/billing"
               className="text-lime-400 mb-3 block text-xs font-medium underline underline-offset-2"
             >
               Get more credits

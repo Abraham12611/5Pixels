@@ -93,9 +93,12 @@ export function UserDropdown({
       : null;
 
   const action = isOut || isLow
-    ? { label: "Buy credits", href: "/app/billing" }
+    ? {
+        label: "Buy credits",
+        href: planName ? "/app/billing/plan#top-up" : "/pricing",
+      }
     : planName
-      ? { label: "Manage plan", href: "/app/billing" }
+      ? { label: "Manage plan", href: "/app/billing/plan" }
       : { label: "Upgrade to a plan", href: "/pricing" };
 
   const renewsLabel = planRenewsAt
@@ -224,7 +227,7 @@ export function UserDropdown({
         <DropdownMenuSeparator className="bg-cream-100/10 my-2" />
 
         <DropdownMenuItem asChild>
-          <Link href="/app/profile" className={ITEM_CLASS}>
+          <Link href="/app/account/profile" className={ITEM_CLASS}>
             <User size={16} weight="bold" />
             Profile
           </Link>
@@ -236,7 +239,7 @@ export function UserDropdown({
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/app/settings" className={ITEM_CLASS}>
+          <Link href="/app/account" className={ITEM_CLASS}>
             <Gear size={16} weight="bold" />
             Settings
           </Link>
