@@ -23,7 +23,7 @@ const TRIGGER_CLASS =
   "text-text-secondary hover:text-cream-100 group relative inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium outline-none transition-colors focus-visible:ring-lime-500/50 focus-visible:ring-2 data-[state=open]:text-cream-50";
 
 const LINK_CLASS =
-  "text-text-secondary hover:bg-charcoal-800 hover:text-cream-100 group/link flex items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors";
+  "text-text-secondary hover:bg-charcoal-800 hover:text-cream-100 group/link flex flex-row items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors";
 
 /**
  * Explore mega-menu — Browse categories on the left, a few featured looks on
@@ -65,7 +65,7 @@ export function ExploreMenu({ categories, featured, active }: ExploreMenuProps) 
                     <p className="text-text-muted px-2.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wider">
                       Categories
                     </p>
-                    <div className="max-h-56 overflow-y-auto">
+                    <div className="[&::-webkit-scrollbar-thumb]:bg-charcoal-600 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar]:w-1 max-h-56 overflow-y-auto pr-1">
                       {categories.map((c) => (
                         <NavigationMenuLink asChild key={c.slug}>
                           <Link
@@ -92,7 +92,7 @@ export function ExploreMenu({ categories, featured, active }: ExploreMenuProps) 
                       <NavigationMenuLink asChild key={p.slug}>
                         <Link
                           href={`/presets/${p.slug}`}
-                          className="hover:bg-charcoal-800 group/tile flex items-center gap-2.5 rounded-lg p-2 transition-colors"
+                          className="hover:bg-charcoal-800 group/tile flex flex-row items-center gap-2.5 rounded-lg p-2 transition-colors"
                         >
                           <span className="bg-charcoal-800 media-frame relative h-11 w-11 shrink-0 overflow-hidden rounded-md">
                             {p.thumbUrl ? (
