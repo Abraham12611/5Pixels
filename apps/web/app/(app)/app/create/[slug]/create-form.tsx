@@ -9,11 +9,17 @@ import { GenerationControls } from "@/components/consumer/generation-controls";
 import { StudioStage } from "@/components/consumer/studio-stage";
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
+import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
+import { InsufficientCreditsDialog } from "@/components/consumer/insufficient-credits-dialog";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import { validateGenerationOptions } from "@/lib/generation/validation";
 import { createAndSubmitGeneration } from "@/lib/generation/actions";
 import { estimateGenerationCost } from "@/lib/billing/credit-cost";
+import {
+  shouldConfirmCost,
+  SKIP_COST_CONFIRM_KEY,
+} from "@/lib/generation/credit-confirm";
 import {
   finalizeSourceUpload,
   prepareSourceUpload,
@@ -31,6 +37,10 @@ interface CreateGenerationFormProps {
   userId: string;
   product: PublicProductDetail;
   initialBalance: number;
+  /** Whether the user has any prior generation — drives first-run cost confirmation. */
+  hasPriorGenerations: boolean;
+  /** Degraded mode: transformations paused, browsing still available. */
+  generationPaused?: boolean;
   /** Pre-filled source from an earlier generation (Adjust flow). */
   initialSource?: ReusedSource | null;
   initialOptions?: Record<string, unknown> | null;
@@ -64,6 +74,8 @@ export function CreateGenerationForm({
   userId,
   product,
   initialBalance,
+  hasPriorGenerations,
+  generationPaused = false,
   initialSource,
   initialOptions,
   initialSize,
@@ -86,6 +98,8 @@ export function CreateGenerationForm({
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [insufficientOpen, setInsufficientOpen] = useState(false);
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -180,7 +194,7 @@ export function CreateGenerationForm({
     setReusedSource(null);
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setProgress("");
@@ -193,11 +207,11 @@ export function CreateGenerationForm({
       setError("This look isn't available right now.");
       return;
     }
+    if (generationPaused) {
+      return;
+    }
     if (!canAfford) {
-      const cost = estimatedCost ?? product.credit_cost;
-      setError(
-        `This transformation costs ${cost} credits. Your balance is ${initialBalance}.`
-      );
+      setInsufficientOpen(true);
       return;
     }
 
@@ -210,6 +224,30 @@ export function CreateGenerationForm({
       return;
     }
 
+    let skipPreference = false;
+    try {
+      skipPreference =
+        localStorage.getItem(SKIP_COST_CONFIRM_KEY) === "1";
+    } catch {
+      // storage unavailable — treat as not skipped
+    }
+
+    const cost = estimatedCost ?? product.credit_cost;
+    if (
+      shouldConfirmCost({
+        cost,
+        hasPriorGenerations,
+        skipPreference,
+      })
+    ) {
+      setConfirmOpen(true);
+      return;
+    }
+
+    void runGeneration();
+  };
+
+  const runGeneration = async () => {
     setLoading(true);
 
     try {
@@ -404,20 +442,21 @@ export function CreateGenerationForm({
               {initialBalance} {initialBalance === 1 ? "credit" : "credits"}
             </span>
           </div>
-          {!canAfford && (
-            <Link
-              href="/app/billing"
-              className="text-lime-400 mb-3 block text-xs font-medium underline underline-offset-2"
+          {generationPaused && (
+            <p
+              role="status"
+              className="text-text-secondary border-cream-100/10 bg-charcoal-800 mb-3 rounded-md border px-3 py-2 text-xs"
             >
-              Get more credits
-            </Link>
+              Transformations are temporarily paused. You can keep preparing —
+              Generate will be back shortly.
+            </p>
           )}
           <Button
             type="submit"
             variant="brand"
             size="lg"
             className="w-full"
-            disabled={loading || !hasSource || !canAfford}
+            disabled={loading || !hasSource || generationPaused}
           >
             {loading ? "Working…" : "Generate"}
           </Button>
@@ -439,6 +478,22 @@ export function CreateGenerationForm({
         submitStepLabel={SUBMIT_STEPS[Math.min(stepIndex, 2)]}
         onFileSelected={handleFileSelected}
         onClear={handleClearSource}
+      />
+
+      <CreditConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        cost={displayCost}
+        balance={initialBalance}
+        onConfirm={() => void runGeneration()}
+      />
+      <InsufficientCreditsDialog
+        open={insufficientOpen}
+        onOpenChange={setInsufficientOpen}
+        required={displayCost}
+        balance={initialBalance}
+        presetName={product.name}
+        presetThumbUrl={presetThumb}
       />
     </form>
   );

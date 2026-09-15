@@ -13,7 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ShareActions } from "@/components/consumer/share-actions";
+import { ShareDialog } from "@/components/consumer/share-dialog";
 import { regenerateGeneration } from "@/lib/generation/actions";
 import {
   markGenerationDownloaded,
@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 interface ResultActionsProps {
   generationId: string;
   productSlug: string;
+  productName: string;
   /** Credit cost of running this transformation again. */
   creditCost: number;
   downloadUrl: string | null;
@@ -39,12 +40,13 @@ interface ResultActionsProps {
 export function ResultActions({
   generationId,
   productSlug,
+  productName,
   creditCost,
   downloadUrl,
   initialShareId,
   initialSaved,
 }: ResultActionsProps) {
-  const [shareOpen, setShareOpen] = useState(Boolean(initialShareId));
+  const [shareOpen, setShareOpen] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
   const [regenError, setRegenError] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -116,9 +118,9 @@ export function ResultActions({
         <div className="col-span-2 flex items-center gap-2 sm:col-span-1 sm:ml-auto">
           <Button
             type="button"
-            variant={shareOpen ? "secondary" : "tertiary"}
-            onClick={() => setShareOpen((v) => !v)}
-            aria-expanded={shareOpen}
+            variant="tertiary"
+            onClick={() => setShareOpen(true)}
+            aria-haspopup="dialog"
           >
             <ShareNetwork size={15} weight="bold" />
             Share
@@ -145,21 +147,14 @@ export function ResultActions({
         </p>
       )}
 
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-          shareOpen
-            ? "mt-3 grid-rows-[1fr] opacity-100"
-            : "grid-rows-[0fr] opacity-0"
-        )}
-      >
-        <div className="overflow-hidden">
-          <ShareActions
-            generationId={generationId}
-            initialShareId={initialShareId}
-          />
-        </div>
-      </div>
+      <ShareDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        generationId={generationId}
+        initialShareId={initialShareId}
+        presetName={productName}
+        imageUrl={downloadUrl}
+      />
     </div>
   );
 }

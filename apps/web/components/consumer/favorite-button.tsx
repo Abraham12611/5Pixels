@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { Heart } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { AuthModal, type AuthModalPreset } from "@/components/auth/auth-modal";
 import { toggleFavorite } from "@/app/actions/favorites";
 
 interface FavoriteButtonProps {
@@ -13,6 +13,8 @@ interface FavoriteButtonProps {
   isAuthenticated: boolean;
   returnPath: string;
   compact?: boolean;
+  /** Preset context shown inside the auth modal for anonymous visitors. */
+  preset?: AuthModalPreset | null;
   /** Called after the server confirms the toggle — not fired on failure. */
   onToggled?: (isFavorite: boolean) => void;
 }
@@ -23,34 +25,41 @@ export function FavoriteButton({
   isAuthenticated,
   returnPath,
   compact = false,
+  preset,
   onToggled,
 }: FavoriteButtonProps) {
   const [isFavorite, setIsFavorite] = useState(initialIsFavorite);
   const [error, setError] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   if (!isAuthenticated) {
     return (
-      <Button
-        asChild
-        variant="ghost"
-        size="icon"
-        className={cn(
-          "bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 rounded-full backdrop-blur-sm hover:text-lime-400",
-          compact ? "h-8 w-8" : "h-10 w-10"
-        )}
-        aria-label="Sign in to favorite this preset"
-      >
-        <Link
-          href={`/login?next=${encodeURIComponent(returnPath)}`}
-          prefetch={false}
+      <>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => setAuthOpen(true)}
+          className={cn(
+            "bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 rounded-full backdrop-blur-sm hover:text-lime-400",
+            compact ? "h-8 w-8" : "h-10 w-10"
+          )}
+          aria-label="Sign in to favorite this preset"
+          aria-haspopup="dialog"
         >
           <Heart
             className={cn(compact ? "h-4 w-4" : "h-5 w-5")}
             weight="bold"
           />
-        </Link>
-      </Button>
+        </Button>
+        <AuthModal
+          open={authOpen}
+          onOpenChange={setAuthOpen}
+          next={returnPath}
+          preset={preset}
+        />
+      </>
     );
   }
 

@@ -44,6 +44,8 @@ export type AuthFormState =
       success?: boolean;
       message?: string;
       errors?: Record<string, string[]>;
+      /** Email the last action targeted — lets sent states offer resend. */
+      sentTo?: string;
     }
   | undefined;
 
@@ -68,10 +70,17 @@ export async function signUp(
     return { success: false, errors: parsed.errors };
   }
 
+  const next = String(formData.get("next") ?? "/app");
+  const safeNext = isRelativePath(next) ? next : "/app";
+  const siteUrl = getSiteUrl();
+
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
+    options: {
+      emailRedirectTo: `${siteUrl}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+    },
   });
 
   if (error) {
@@ -89,7 +98,46 @@ export async function signUp(
     };
   }
 
-  redirect("/login?message=check-email");
+  redirect(
+    `/verify-email?email=${encodeURIComponent(parsed.data.email)}&next=${encodeURIComponent(safeNext)}`
+  );
+}
+
+export async function resendVerificationEmail(
+  _prevState: AuthFormState,
+  formData: FormData
+): Promise<AuthFormState> {
+  const parsed = parseFormData(forgotPasswordSchema, formData);
+  if (!parsed.success) {
+    return { success: false, errors: parsed.errors };
+  }
+
+  const next = String(formData.get("next") ?? "/app");
+  const safeNext = isRelativePath(next) ? next : "/app";
+  const siteUrl = getSiteUrl();
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: parsed.data.email,
+    options: {
+      emailRedirectTo: `${siteUrl}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+    },
+  });
+
+  if (error) {
+    return {
+      success: false,
+      message:
+        error.message || "Unable to resend the email. Please try again.",
+    };
+  }
+
+  return {
+    success: true,
+    sentTo: parsed.data.email,
+    message: "Verification email sent.",
+  };
 }
 
 export async function signIn(
@@ -110,12 +158,13 @@ export async function signIn(
   });
 
   if (error) {
-    return {
-      success: false,
-      message:
-        error.message ||
-        "Invalid email or password. Please check and try again.",
-    };
+    const raw = error.message.toLowerCase();
+    const message = raw.includes("invalid login credentials")
+      ? "Email or password is incorrect. Try again."
+      : raw.includes("email not confirmed")
+        ? "Confirm your email first — we sent a verification link."
+        : error.message;
+    return { success: false, message };
   }
 
   redirect(isRelativePath(next) ? next : "/app");
@@ -182,6 +231,7 @@ export async function forgotPassword(
 
   return {
     success: true,
+    sentTo: parsed.data.email,
     message:
       "If an account exists for this email, you will receive a password reset link.",
   };

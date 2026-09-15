@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/auth/password-input";
 import {
   signIn,
   signInWithGoogle,
@@ -20,6 +22,17 @@ function messageText(message?: string) {
     return "Password updated. Please sign in again.";
   }
   return message;
+}
+
+function errorText(error?: string) {
+  if (!error) return undefined;
+  if (error === "no-code") {
+    return "That sign-in link didn't include a code. Please try again.";
+  }
+  if (error === "link-expired") {
+    return "That link has expired or was already used.";
+  }
+  return error;
 }
 
 export function LoginForm({
@@ -41,13 +54,21 @@ export function LoginForm({
   >(signInWithGoogle, initialState);
 
   const statusMessage =
-    messageText(message) || state?.message || googleState?.message;
-  const statusError = error;
+    messageText(message) ||
+    (state?.success ? state.message : undefined) ||
+    (googleState?.success ? googleState.message : undefined);
+  const formError =
+    state?.success === false
+      ? state.message
+      : googleState?.success === false
+        ? googleState.message
+        : undefined;
+  const linkError = errorText(error);
 
   return (
     <form action={submitAction} className="mt-6 space-y-4">
       <input type="hidden" name="next" value={next ?? "/app"} />
-      <div>
+      <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
           id="email"
@@ -58,46 +79,67 @@ export function LoginForm({
           autoComplete="email"
         />
         {state?.errors?.email && (
-          <p className="text-error mt-1 text-sm">
+          <p className="text-error text-[13px]" role="alert">
             {state.errors.email.join(" ")}
           </p>
         )}
       </div>
-      <div>
-        <Label htmlFor="password">Password</Label>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          placeholder="••••••••"
-          required
-          autoComplete="current-password"
-        />
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between">
+          <Label htmlFor="password">Password</Label>
+          <Link
+            href="/forgot-password"
+            className="text-text-muted hover:text-cream-50 text-xs font-medium transition"
+          >
+            Forgot password?
+          </Link>
+        </div>
+        <PasswordInput id="password" autoComplete="current-password" />
         {state?.errors?.password && (
-          <p className="text-error mt-1 text-sm">
+          <p className="text-error text-[13px]" role="alert">
             {state.errors.password.join(" ")}
           </p>
         )}
       </div>
       {statusMessage && (
-        <p className="rounded-lg bg-lime-500/10 px-3 py-2 text-sm text-lime-400">
+        <p className="rounded-lg bg-lime-500/10 px-3 py-2 text-sm text-lime-300">
           {statusMessage}
         </p>
       )}
-      {statusError && (
-        <p className="bg-error/10 text-error rounded-lg px-3 py-2 text-sm">
-          {statusError === "no-code"
-            ? "No authorization code provided. Please try again."
-            : statusError}
-        </p>
+      {(formError || linkError) && (
+        <div
+          role="alert"
+          className="bg-error/10 text-error space-y-1.5 rounded-lg px-3 py-2 text-sm"
+        >
+          <p>{formError ?? linkError}</p>
+          {linkError === "That link has expired or was already used." && (
+            <p className="text-text-secondary text-xs">
+              Need a new link?{" "}
+              <Link href="/forgot-password" className="underline underline-offset-2">
+                Reset your password
+              </Link>{" "}
+              or{" "}
+              <Link href="/verify-email" className="underline underline-offset-2">
+                resend verification
+              </Link>
+              .
+            </p>
+          )}
+        </div>
       )}
       <Button
         type="submit"
+        variant="brand"
         disabled={pending || googlePending}
         className="w-full"
       >
-        {pending ? "Signing in…" : "Sign in"}
+        {pending ? "Logging in…" : "Log in"}
       </Button>
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="bg-cream-100/10 h-px flex-1" />
+        <span className="text-text-muted text-xs">or</span>
+        <span className="bg-cream-100/10 h-px flex-1" />
+      </div>
       <Button
         type="submit"
         formAction={googleAction}
