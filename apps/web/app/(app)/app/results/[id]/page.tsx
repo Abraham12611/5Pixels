@@ -39,27 +39,23 @@ export default async function ResultPage({
     product_id: string;
     product_name: string;
     product_slug: string;
-    credit_cost: number;
+    credit_cost: number | string;
     created_at: string;
     failure_code: string | null;
     failure_stage: string | null;
+    output_asset_id: string | null;
+    output_bucket: string | null;
+    output_storage_key: string | null;
+    output_width: number | null;
+    output_height: number | null;
     source_bucket: string | null;
     source_storage_key: string | null;
-    outputs: Array<{
-      asset_id: string;
-      bucket: string;
-      storage_key: string;
-      mime_type: string | null;
-      width: number | null;
-      height: number | null;
-    }>;
   };
 
   if (generation.status !== "completed") {
     redirect(`/app/generations/${id}`);
   }
 
-  const primaryOutput = generation.outputs[0];
   let outputUrl: string | null = null;
   let sourceUrl: string | null = null;
 
@@ -75,10 +71,10 @@ export default async function ResultPage({
   ]);
   const shareMeta = shareMetaResult.data;
 
-  if (primaryOutput) {
+  if (generation.output_bucket && generation.output_storage_key) {
     outputUrl = await getSignedAssetUrl(
-      primaryOutput.bucket,
-      primaryOutput.storage_key,
+      generation.output_bucket,
+      generation.output_storage_key,
       600
     );
   }
@@ -91,6 +87,7 @@ export default async function ResultPage({
     );
   }
 
+  const creditCost = Number(generation.credit_cost) || 0;
   const createdLabel = generation.created_at
     ? new Date(generation.created_at).toLocaleDateString(undefined, {
         month: "short",
@@ -122,10 +119,8 @@ export default async function ResultPage({
           <span className="text-text-muted text-xs">
             {[
               createdLabel,
-              generation.credit_cost > 0
-                ? `${generation.credit_cost} ${
-                    generation.credit_cost === 1 ? "credit" : "credits"
-                  }`
+              creditCost > 0
+                ? `${creditCost} ${creditCost === 1 ? "credit" : "credits"}`
                 : null,
             ]
               .filter(Boolean)
@@ -134,13 +129,13 @@ export default async function ResultPage({
         </div>
 
         {/* Hero media + optional compare */}
-        {primaryOutput && outputUrl ? (
+        {outputUrl ? (
           <ResultCompare
             resultUrl={outputUrl}
             originalUrl={sourceUrl}
             resultAlt={`${generation.product_name} result`}
-            width={primaryOutput.width ?? 1024}
-            height={primaryOutput.height ?? 1024}
+            width={generation.output_width ?? 1024}
+            height={generation.output_height ?? 1024}
           />
         ) : (
           <div className="media-frame bg-charcoal-850 flex aspect-video w-full items-center justify-center rounded-xl">
@@ -153,7 +148,7 @@ export default async function ResultPage({
           generationId={generation.id}
           productId={generation.product_id}
           productSlug={generation.product_slug}
-          creditCost={generation.credit_cost}
+          creditCost={creditCost}
           downloadUrl={outputUrl}
           initialShareId={shareMeta?.public_share_id ?? null}
           initialIsFavorite={favoriteIds.includes(generation.product_id)}
