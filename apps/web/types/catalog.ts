@@ -28,6 +28,9 @@ export interface PublicProductSummary {
   preview_gif_asset_id: string | null;
   preview_video_asset_id: string | null;
   public_assets: PublicProductAsset[];
+  created_at: string | null;
+  /** very_high | high | medium | creative — consumer-facing fidelity signal. */
+  likeness_level: string | null;
 }
 
 export interface PublicProductAsset {

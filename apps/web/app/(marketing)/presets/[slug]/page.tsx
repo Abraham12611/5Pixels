@@ -14,6 +14,7 @@ import { ExampleGallery } from "@/components/consumer/example-gallery";
 import { RelatedPresets } from "@/components/consumer/related-presets";
 import { RecentPresetRecorder } from "@/components/consumer/recent-preset-recorder";
 import { selectCatalogMediaAsset } from "@/lib/catalog/media";
+import { fidelityLabel } from "@/lib/catalog/badges";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
@@ -208,17 +209,27 @@ export default async function PresetDetailPage({
               <p className="text-text-secondary">{product.long_description}</p>
             )}
 
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="bg-charcoal-800 text-cream-50 rounded-full px-3 py-1 text-sm font-medium">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bg-charcoal-800 text-cream-50 rounded-md px-2.5 py-1 text-[13px] font-medium tabular-nums">
                 {product.credit_cost || "Free"}
-                {product.credit_cost ? " credits" : ""}
+                {product.credit_cost
+                  ? ` ${product.credit_cost === 1 ? "credit" : "credits"}`
+                  : ""}
               </span>
-              {product.version_number ? (
-                <span className="bg-charcoal-800 text-text-muted rounded-full px-3 py-1 text-sm">
-                  Version {product.version_number}
+              {fidelityLabel(product.likeness_level) && (
+                <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px]">
+                  {fidelityLabel(product.likeness_level)}
                 </span>
-              ) : null}
+              )}
+              <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px] capitalize">
+                {product.type}
+              </span>
             </div>
+
+            <p className="text-text-muted text-sm">
+              Works best with clear, well-lit photos — keep the subject
+              centered.
+            </p>
 
             <div className="border-cream-100/10 border-t pt-6">
               <h2 className="text-cream-50 text-lg font-semibold">Controls</h2>
@@ -228,19 +239,23 @@ export default async function PresetDetailPage({
             </div>
 
             <div className="mt-auto flex flex-col gap-3 pt-6">
-              <Button asChild className="w-full sm:w-auto">
+              <Button asChild size="lg" className="w-full sm:w-auto">
                 <Link
                   href={ctaHref}
                   prefetch={false}
                   aria-label={
                     isAuthenticated
-                      ? `Create with ${product.name}`
+                      ? `Try ${product.name} — ${product.credit_cost || "free"} credits`
                       : `Sign in to create with ${product.name}`
                   }
                 >
-                  {isAuthenticated
-                    ? "Create with this look"
-                    : "Sign in to create"}
+                  {isAuthenticated ? "Try this look" : "Sign in to create"}
+                  {isAuthenticated && product.credit_cost > 0 && (
+                    <span className="text-ink-950/60 text-xs font-medium">
+                      · {product.credit_cost}{" "}
+                      {product.credit_cost === 1 ? "credit" : "credits"}
+                    </span>
+                  )}
                 </Link>
               </Button>
               {!isAuthenticated && (
@@ -261,6 +276,37 @@ export default async function PresetDetailPage({
               isAuthenticated={isAuthenticated}
               favoriteIds={favoriteIds}
             />
+          </div>
+        </div>
+
+        {/* Sticky mobile CTA — sits above the app bottom nav when signed in */}
+        <div className="fixed inset-x-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-40 px-4 md:hidden">
+          <div className="shadow-elevated flex items-center justify-between gap-3 rounded-xl bg-charcoal-850/95 p-3 backdrop-blur">
+            <div className="min-w-0">
+              <p className="text-cream-50 truncate text-sm font-semibold">
+                {product.name}
+              </p>
+              <p className="text-text-muted text-[11px] tabular-nums">
+                {product.credit_cost
+                  ? `${product.credit_cost} ${
+                      product.credit_cost === 1 ? "credit" : "credits"
+                    }`
+                  : "Free"}
+              </p>
+            </div>
+            <Button asChild className="shrink-0">
+              <Link
+                href={ctaHref}
+                prefetch={false}
+                aria-label={
+                  isAuthenticated
+                    ? `Try ${product.name}`
+                    : `Sign in to create with ${product.name}`
+                }
+              >
+                {isAuthenticated ? "Try this look" : "Sign in"}
+              </Link>
+            </Button>
           </div>
         </div>
       </main>
