@@ -8,6 +8,8 @@ export interface UserSettings {
   defaultDownloadFormat: string;
   marketingOptIn: boolean;
   productUpdatesOptIn: boolean;
+  notifyGenerationCompleted: boolean;
+  notifyBilling: boolean;
   autoDeleteOriginalsDays: number | null;
   autoDeleteOutputsDays: number | null;
 }
@@ -22,7 +24,7 @@ export async function getUserSettings(): Promise<UserSettings | null> {
   const { data, error } = await supabase
     .from("user_settings")
     .select(
-      "default_download_format, marketing_opt_in, product_updates_opt_in, auto_delete_originals_days, auto_delete_outputs_days"
+      "default_download_format, marketing_opt_in, product_updates_opt_in, notify_generation_completed, notify_billing, auto_delete_originals_days, auto_delete_outputs_days"
     )
     .eq("user_id", user.id)
     .single();
@@ -37,6 +39,9 @@ export async function getUserSettings(): Promise<UserSettings | null> {
     defaultDownloadFormat: (data.default_download_format as string) ?? "webp",
     marketingOptIn: (data.marketing_opt_in as boolean) ?? false,
     productUpdatesOptIn: (data.product_updates_opt_in as boolean) ?? false,
+    notifyGenerationCompleted:
+      (data.notify_generation_completed as boolean) ?? true,
+    notifyBilling: (data.notify_billing as boolean) ?? true,
     autoDeleteOriginalsDays:
       data.auto_delete_originals_days != null
         ? Number(data.auto_delete_originals_days)
@@ -52,6 +57,8 @@ export interface UpdateUserSettingsInput {
   defaultDownloadFormat?: string;
   marketingOptIn?: boolean;
   productUpdatesOptIn?: boolean;
+  notifyGenerationCompleted?: boolean;
+  notifyBilling?: boolean;
   autoDeleteOriginalsDays?: number | null;
   autoDeleteOutputsDays?: number | null;
 }
@@ -75,6 +82,8 @@ export async function updateUserSettings(
         default_download_format: input.defaultDownloadFormat,
         marketing_opt_in: input.marketingOptIn,
         product_updates_opt_in: input.productUpdatesOptIn,
+        notify_generation_completed: input.notifyGenerationCompleted,
+        notify_billing: input.notifyBilling,
         auto_delete_originals_days: input.autoDeleteOriginalsDays,
         auto_delete_outputs_days: input.autoDeleteOutputsDays,
         updated_at: new Date().toISOString(),
@@ -93,7 +102,8 @@ export async function updateUserSettings(
     outputs: input.autoDeleteOutputsDays,
   });
 
-  revalidatePath("/app/settings");
+  revalidatePath("/app/account/privacy");
+  revalidatePath("/app/account/notifications");
   return { success: true };
 }
 

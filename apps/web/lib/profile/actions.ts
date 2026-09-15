@@ -134,9 +134,9 @@ export async function updateProfile(
     return { success: false, error: "Unable to save profile." };
   }
 
-  revalidatePath("/app/profile");
+  revalidatePath("/app/account");
+  revalidatePath("/app/account/profile");
   revalidatePath("/app");
-  revalidatePath("/app/settings");
   return { success: true };
 }
 
