@@ -5,9 +5,9 @@ import { Trash, ArrowRight } from "@phosphor-icons/react";
 
 export function DeleteAccountCard() {
   return (
-    <section className="border-rose-500/20 bg-rose-950/20 rounded-2xl border p-6">
+    <section className="border-error/20 bg-error/10 rounded-2xl border p-6">
       <div className="flex items-start gap-3">
-        <div className="bg-rose-900/40 text-rose-300 rounded-xl p-2.5">
+        <div className="bg-error/20 text-error rounded-xl p-2.5">
           <Trash size={22} weight="fill" />
         </div>
         <div>
@@ -21,7 +21,7 @@ export function DeleteAccountCard() {
       <div className="mt-6">
         <Link
           href="/app/settings/delete"
-          className="hover:bg-rose-950/40 flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-900/30 px-5 py-2.5 text-sm font-semibold text-rose-300 transition"
+          className="hover:bg-error/15 flex items-center gap-2 rounded-xl border border-error/20 bg-error/15 px-5 py-2.5 text-sm font-semibold text-error transition"
         >
           Delete account
           <ArrowRight size={16} weight="bold" />

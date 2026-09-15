@@ -105,7 +105,7 @@ export function SettingsNav({ active, userName, userEmail }: SettingsNavProps) {
                 active === item.key
                   ? "bg-lime-500/15 text-lime-300 border-l-2 border-lime-500"
                   : item.destructive
-                    ? "text-rose-400 hover:bg-rose-950/40"
+                    ? "text-error hover:bg-error/15"
                     : "text-text-secondary hover:bg-charcoal-800 hover:text-cream-100"
               )}
             >

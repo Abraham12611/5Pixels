@@ -103,7 +103,7 @@ export function PublicProfileCard({
             {stats.generations} works
           </span>
           <span className="inline-flex items-center gap-1">
-            <Heart size={13} weight="fill" className="text-rose-400" />
+            <Heart size={13} weight="fill" className="text-error" />
             {stats.favorites} saves
           </span>
           {stats.spent !== null ? (

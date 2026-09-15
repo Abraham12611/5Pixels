@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Heart } from "lucide-react";
+import { Heart } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { toggleFavorite } from "@/app/actions/favorites";
@@ -42,7 +42,10 @@ export function FavoriteButton({
           href={`/login?next=${encodeURIComponent(returnPath)}`}
           prefetch={false}
         >
-          <Heart className={cn(compact ? "h-4 w-4" : "h-5 w-5")} />
+          <Heart
+            className={cn(compact ? "h-4 w-4" : "h-5 w-5")}
+            weight="bold"
+          />
         </Link>
       </Button>
     );
@@ -81,10 +84,8 @@ export function FavoriteButton({
         aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
       >
         <Heart
-          className={cn(
-            compact ? "h-4 w-4" : "h-5 w-5",
-            isFavorite && "fill-current"
-          )}
+          className={cn(compact ? "h-4 w-4" : "h-5 w-5")}
+          weight={isFavorite ? "fill" : "bold"}
         />
       </Button>
       {error && (

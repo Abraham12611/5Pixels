@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle } from "lucide-react";
+import { Warning } from "@phosphor-icons/react";
 import Link from "next/link";
 
 export default function PresetDetailErrorPage({
@@ -18,7 +18,7 @@ export default function PresetDetailErrorPage({
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-20 text-center">
-      <AlertTriangle className="text-error h-12 w-12" aria-hidden />
+      <Warning className="text-error h-12 w-12" aria-hidden />
       <h2 className="text-cream-50 mt-4 text-2xl font-bold">
         Couldn&apos;t load this preset
       </h2>

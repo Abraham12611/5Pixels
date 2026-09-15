@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore } from "react";
-import { Play, Pause, VolumeX } from "lucide-react";
+import { Play, Pause, SpeakerX } from "@phosphor-icons/react";
 
 interface ProductVideoPlayerProps {
   publicUrl: string;
@@ -78,16 +78,16 @@ export function ProductVideoPlayer({
             aria-label={isPlaying ? "Pause preview" : "Play preview"}
           >
             {isPlaying ? (
-              <Pause className="h-6 w-6" />
+              <Pause className="h-6 w-6" weight="fill" />
             ) : (
-              <Play className="ml-1 h-6 w-6" />
+              <Play className="ml-1 h-6 w-6" weight="fill" />
             )}
           </button>
         </div>
       )}
 
       <div className="absolute right-3 top-3 rounded-full bg-ink-950/70 px-2 py-1 text-xs text-cream-50 backdrop-blur-sm">
-        <VolumeX className="mr-1 inline h-3 w-3" aria-hidden />
+        <SpeakerX className="mr-1 inline h-3 w-3" aria-hidden />
         Preview
       </div>
     </div>

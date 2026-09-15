@@ -38,15 +38,15 @@ const ACTIONS: Record<
   {
     label: string;
     next: ProductStatus;
-    variant: "secondary" | "danger" | "primary";
+    variant: "secondary" | "destructive" | "brand";
   } | null
 > = {
   draft: null,
   internal_test: null,
   private_beta: null,
-  scheduled: { label: "Activate", next: "active", variant: "primary" },
+  scheduled: { label: "Activate", next: "active", variant: "brand" },
   active: { label: "Pause", next: "paused", variant: "secondary" },
-  paused: { label: "Unpause", next: "active", variant: "primary" },
+  paused: { label: "Unpause", next: "active", variant: "brand" },
   retired: null,
 };
 
@@ -98,7 +98,7 @@ export function ProductActions({
       {canRetire && (
         <Button
           type="button"
-          variant="danger"
+          variant="destructive"
           disabled={isPending}
           onClick={() => setConfirmOpen(true)}
         >
@@ -140,7 +140,7 @@ export function ProductActions({
             </Button>
             <Button
               type="button"
-              variant="danger"
+              variant="destructive"
               disabled={isPending}
               onClick={() => runAction("retired")}
             >

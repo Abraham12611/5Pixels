@@ -202,7 +202,7 @@ export function EditProfileDialog({
           </div>
 
           {error && (
-            <div className="rounded-xl border border-rose-500/40 bg-rose-950/30 p-3 text-sm text-rose-200">
+            <div className="rounded-xl border border-error/40 bg-error/10 p-3 text-sm text-error">
               {error}
             </div>
           )}
