@@ -9,6 +9,7 @@ import {
 import { ProductMedia } from "@/components/consumer/product-media";
 import { ProductVideoPlayer } from "@/components/consumer/product-video-player";
 import { FavoriteButton } from "@/components/consumer/favorite-button";
+import { AuthGateButton } from "@/components/auth/auth-gate";
 import { ControlPreview } from "@/components/consumer/control-preview";
 import { ExampleGallery } from "@/components/consumer/example-gallery";
 import { RelatedPresets } from "@/components/consumer/related-presets";
@@ -106,6 +107,9 @@ export default async function PresetDetailPage({
 
   const isFavorite = favoriteIds.includes(product.id);
   const heroAsset = selectCatalogMediaAsset(product.public_assets, "hero");
+  const presetThumbUrl = heroAsset
+    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${heroAsset.bucket}/${heroAsset.storage_key}`
+    : null;
   const videoAsset = product.public_assets.find(
     (asset) => asset.role === "preview_video"
   );
@@ -198,6 +202,7 @@ export default async function PresetDetailPage({
                 initialIsFavorite={isFavorite}
                 isAuthenticated={isAuthenticated}
                 returnPath={returnPath}
+                preset={{ name: product.name, thumbUrl: presetThumbUrl }}
               />
             </div>
 
@@ -239,35 +244,45 @@ export default async function PresetDetailPage({
             </div>
 
             <div className="mt-auto flex flex-col gap-3 pt-6">
-              <Button asChild size="lg" className="w-full sm:w-auto">
-                <Link
-                  href={ctaHref}
-                  prefetch={false}
-                  aria-label={
-                    isAuthenticated
-                      ? `Try ${product.name} — ${product.credit_cost || "free"} credits`
-                      : `Sign in to create with ${product.name}`
-                  }
-                >
-                  {isAuthenticated ? "Try this look" : "Sign in to create"}
-                  {isAuthenticated && product.credit_cost > 0 && (
-                    <span className="text-ink-950/60 text-xs font-medium">
-                      · {product.credit_cost}{" "}
-                      {product.credit_cost === 1 ? "credit" : "credits"}
-                    </span>
-                  )}
-                </Link>
-              </Button>
-              {!isAuthenticated && (
-                <p className="text-text-muted text-sm">
-                  Already have an account?{" "}
+              {isAuthenticated ? (
+                <Button asChild size="lg" className="w-full sm:w-auto">
                   <Link
-                    href={`/login?next=${encodeURIComponent(ctaHref)}`}
-                    className="text-lime-400 hover:underline"
+                    href={ctaHref}
+                    prefetch={false}
+                    aria-label={`Try ${product.name} — ${product.credit_cost || "free"} credits`}
                   >
-                    Sign in
+                    Try this look
+                    {product.credit_cost > 0 && (
+                      <span className="text-ink-950/60 text-xs font-medium">
+                        · {product.credit_cost}{" "}
+                        {product.credit_cost === 1 ? "credit" : "credits"}
+                      </span>
+                    )}
                   </Link>
-                </p>
+                </Button>
+              ) : (
+                <>
+                  <AuthGateButton
+                    next={ctaHref}
+                    preset={{ name: product.name, thumbUrl: presetThumbUrl }}
+                    className="w-full sm:w-auto"
+                    ariaLabel={`Try ${product.name}`}
+                    costLabel={
+                      product.credit_cost > 0
+                        ? `${product.credit_cost} ${product.credit_cost === 1 ? "credit" : "credits"}`
+                        : null
+                    }
+                  />
+                  <p className="text-text-muted text-sm">
+                    Already have an account?{" "}
+                    <Link
+                      href={`/login?next=${encodeURIComponent(ctaHref)}`}
+                      className="text-lime-400 hover:underline"
+                    >
+                      Log in
+                    </Link>
+                  </p>
+                </>
               )}
             </div>
 
@@ -294,19 +309,25 @@ export default async function PresetDetailPage({
                   : "Free"}
               </p>
             </div>
-            <Button asChild className="shrink-0">
-              <Link
-                href={ctaHref}
-                prefetch={false}
-                aria-label={
-                  isAuthenticated
-                    ? `Try ${product.name}`
-                    : `Sign in to create with ${product.name}`
-                }
-              >
-                {isAuthenticated ? "Try this look" : "Sign in"}
-              </Link>
-            </Button>
+            {isAuthenticated ? (
+              <Button asChild className="shrink-0">
+                <Link
+                  href={ctaHref}
+                  prefetch={false}
+                  aria-label={`Try ${product.name}`}
+                >
+                  Try this look
+                </Link>
+              </Button>
+            ) : (
+              <AuthGateButton
+                next={ctaHref}
+                preset={{ name: product.name, thumbUrl: presetThumbUrl }}
+                size="md"
+                className="shrink-0"
+                ariaLabel={`Try ${product.name}`}
+              />
+            )}
           </div>
         </div>
       </main>

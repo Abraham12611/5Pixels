@@ -146,6 +146,7 @@ export default async function ResultPage({
         <ResultActions
           generationId={generation.id}
           productSlug={generation.product_slug}
+          productName={generation.product_name}
           creditCost={creditCost}
           downloadUrl={outputUrl}
           initialShareId={shareMeta?.public_share_id ?? null}

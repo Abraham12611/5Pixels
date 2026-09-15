@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getPublicProductBySlug } from "@/lib/db/explore";
+import { createIntentSlug, intentLabel } from "@/lib/auth/intent";
+import { isRelativePath } from "@/lib/auth/url";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage({
@@ -13,42 +17,54 @@ export default async function LoginPage({
     data: { user },
   } = await supabase.auth.getUser();
 
+  const params = await searchParams;
+  const next =
+    params.next && isRelativePath(params.next) ? params.next : "/app";
+
   if (user) {
-    redirect("/app");
+    redirect(next);
   }
 
-  const params = await searchParams;
+  // Surface a calm return-intent note: preset name for create flows,
+  // destination name otherwise.
+  let contextNote: string | null = null;
+  const slug = createIntentSlug(next);
+  if (slug) {
+    const { data: product } = await getPublicProductBySlug(slug);
+    contextNote = product
+      ? `You'll return to ${product.name} after signing in.`
+      : "You'll return to your look after signing in.";
+  } else {
+    const label = intentLabel(next);
+    if (label && next !== "/app") {
+      contextNote = `You'll return to ${label} after signing in.`;
+    }
+  }
+
+  const signupHref = `/signup?next=${encodeURIComponent(next)}`;
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-      <div className="border-cream-100/10 bg-charcoal-850 w-full max-w-sm rounded-2xl border p-8 shadow-lg">
-        <h1 className="text-cream-50 text-2xl font-bold">Sign in</h1>
-        <p className="text-text-secondary mt-1 text-sm">
-          Welcome back to 5Pixels.
-        </p>
-        <LoginForm
-          message={params.message}
-          error={params.error}
-          next={params.next}
-        />
+    <AuthShell
+      title="Welcome back"
+      subtitle="Log in to keep creating."
+      contextNote={contextNote}
+      footer={
         <p className="text-text-secondary mt-6 text-center text-sm">
-          Don&apos;t have an account?{" "}
+          New to 5Pixels?{" "}
           <Link
-            href="/signup"
+            href={signupHref}
             className="font-medium text-lime-400 hover:underline"
           >
-            Sign up
+            Create an account
           </Link>
         </p>
-        <p className="text-text-secondary mt-2 text-center text-sm">
-          <Link
-            href="/forgot-password"
-            className="text-cream-100 hover:text-cream-50 font-medium"
-          >
-            Forgot your password?
-          </Link>
-        </p>
-      </div>
-    </main>
+      }
+    >
+      <LoginForm
+        message={params.message}
+        error={params.error}
+        next={next}
+      />
+    </AuthShell>
   );
 }

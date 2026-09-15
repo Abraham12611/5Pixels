@@ -28,7 +28,16 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const balance = await getUserCreditBalance();
+  const [balance, generationCount] = await Promise.all([
+    getUserCreditBalance(),
+    supabase
+      .from("generations")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .then((r) => r.count ?? 0),
+  ]);
+
+  const generationPaused = process.env.GENERATION_PAUSED === "true";
 
   // Adjust flow (?from=<generationId>): restore the source photo and the
   // options used for that run. Everything is re-validated at submit time —
@@ -83,6 +92,8 @@ export default async function CreatePage({
         userId={user.id}
         product={product}
         initialBalance={balance}
+        hasPriorGenerations={generationCount > 0}
+        generationPaused={generationPaused}
         initialSource={initialSource}
         initialOptions={initialOptions}
         initialSize={initialSize}

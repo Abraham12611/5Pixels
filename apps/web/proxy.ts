@@ -15,7 +15,12 @@ export async function proxy(request: NextRequest) {
   if (user) {
     const isAuthRoute = authRoutes.some((route) => pathname === route);
     if (isAuthRoute) {
-      return NextResponse.redirect(new URL("/app", request.url));
+      const next = request.nextUrl.searchParams.get("next");
+      const target =
+        next && next.startsWith("/") && !next.startsWith("//")
+          ? next
+          : "/app";
+      return NextResponse.redirect(new URL(target, request.url));
     }
   }
 
@@ -36,7 +41,12 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/app") && !user) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set(
+      "next",
+      pathname + request.nextUrl.search
+    );
+    return NextResponse.redirect(loginUrl);
   }
 
   return supabaseResponse;
