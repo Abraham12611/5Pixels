@@ -36,6 +36,8 @@ export interface SafeGeneration {
   outputMimeType: string | null;
   outputWidth: number | null;
   outputHeight: number | null;
+  savedAt: string | null;
+  downloadedAt: string | null;
 }
 
 export interface SafeGenerationDetail extends SafeGeneration {

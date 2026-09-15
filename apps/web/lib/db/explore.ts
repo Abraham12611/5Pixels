@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type {
+  FavoriteProduct,
   PublicProductSummary,
   PublicProductDetail,
 } from "@/types/catalog";
@@ -117,6 +118,43 @@ export async function getActiveCategories(): Promise<
   }
 
   return (data ?? []) as { slug: string; name: string }[];
+}
+
+/**
+ * Favorited products for the signed-in user, including presets that have
+ * since been retired or hidden. Rows arrive sorted by most recently saved.
+ */
+export async function getUserFavoriteProducts(): Promise<
+  CatalogResult<FavoriteProduct[]>
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_user_favorite_products");
+
+  if (error) {
+    console.error("[getUserFavoriteProducts] RPC failed", error);
+    return { data: [], error: GENERIC_ERROR };
+  }
+
+  const rows = (data ?? []) as (PublicProductSummary & {
+    is_available?: boolean;
+    favorited_at?: string;
+  })[];
+
+  return {
+    data: rows.map(
+      ({ is_available, favorited_at, credit_cost, output_sizes, ...rest }) => ({
+        product: {
+          ...rest,
+          credit_cost: Number(credit_cost),
+          output_sizes: Array.isArray(output_sizes) ? output_sizes : [],
+          created_at: rest.created_at ?? null,
+          likeness_level: rest.likeness_level ?? null,
+        } as PublicProductSummary,
+        isAvailable: is_available === true,
+        favoritedAt: favorited_at ?? "",
+      })
+    ),
+  };
 }
 
 export async function getUserFavoriteProductIds(): Promise<string[]> {

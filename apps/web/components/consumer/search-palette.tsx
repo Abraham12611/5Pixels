@@ -237,7 +237,7 @@ export function SearchPalette({
               {scope === "library" && (
                 <button
                   type="button"
-                  onClick={() => go("/app/generations")}
+                  onClick={() => go("/app/library")}
                   className="text-text-secondary hover:text-cream-100 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
                 >
                   Open Library

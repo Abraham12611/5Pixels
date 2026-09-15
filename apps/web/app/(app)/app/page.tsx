@@ -10,9 +10,9 @@ import {
 } from "@/lib/db/explore";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { isFailureStatus, isTerminalStatus } from "@/lib/generation/stages";
+import { mapSafeGenerationRow } from "@/lib/generation/map";
 import { ProductCard } from "@/components/consumer/product-card";
 import { cn } from "@/lib/utils";
-import type { SafeGeneration } from "@/lib/generation/types";
 import type { PublicProductSummary } from "@/types/catalog";
 
 const RAIL_SIZE = 10;
@@ -113,10 +113,12 @@ export default async function DiscoverPage() {
       getUserFavoriteProductIds(),
     ]);
 
-  const generations = ((generationsResult.data ?? []) as unknown[] as SafeGeneration[]).slice(
-    0,
-    8
-  );
+  const generations = ((generationsResult.data ?? []) as Record<
+    string,
+    unknown
+  >[])
+    .map(mapSafeGenerationRow)
+    .slice(0, 8);
   const trending = trendingResult.data ?? [];
   const newest = newestResult.data ?? [];
 
@@ -186,7 +188,7 @@ export default async function DiscoverPage() {
           <section>
             <SectionHeader
               title="Continue"
-              href="/app/generations"
+              href="/app/library"
               action="View all"
             />
             <div className="scrollbar-none -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">

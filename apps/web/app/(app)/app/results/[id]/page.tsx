@@ -3,7 +3,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
-import { getUserFavoriteProductIds } from "@/lib/db/explore";
 import { ResultCompare } from "@/components/consumer/result-compare";
 import { ResultActions } from "@/components/consumer/result-actions";
 import { ResultFeedback } from "@/components/consumer/result-feedback";
@@ -50,6 +49,7 @@ export default async function ResultPage({
     output_height: number | null;
     source_bucket: string | null;
     source_storage_key: string | null;
+    saved_at: string | null;
   };
 
   if (generation.status !== "completed") {
@@ -59,7 +59,7 @@ export default async function ResultPage({
   let outputUrl: string | null = null;
   let sourceUrl: string | null = null;
 
-  const [myFeedback, shareMetaResult, favoriteIds] = await Promise.all([
+  const [myFeedback, shareMetaResult] = await Promise.all([
     getMyFeedbackForGeneration(id),
     supabase
       .from("generations")
@@ -67,7 +67,6 @@ export default async function ResultPage({
       .eq("id", id)
       .eq("user_id", user.id)
       .single(),
-    getUserFavoriteProductIds(),
   ]);
   const shareMeta = shareMetaResult.data;
 
@@ -101,7 +100,7 @@ export default async function ResultPage({
         {/* Context row */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <Link
-            href="/app"
+            href="/app/library"
             className="text-text-muted hover:text-cream-100 -ml-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[13px] transition-colors"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -146,13 +145,11 @@ export default async function ResultPage({
         {/* Action console */}
         <ResultActions
           generationId={generation.id}
-          productId={generation.product_id}
           productSlug={generation.product_slug}
           creditCost={creditCost}
           downloadUrl={outputUrl}
           initialShareId={shareMeta?.public_share_id ?? null}
-          initialIsFavorite={favoriteIds.includes(generation.product_id)}
-          returnPath={`/app/results/${generation.id}`}
+          initialSaved={Boolean(generation.saved_at)}
         />
 
         {/* Feedback strip */}

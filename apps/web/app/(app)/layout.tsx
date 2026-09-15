@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/consumer/app-header";
 import { MobileBottomNav } from "@/components/consumer/mobile-bottom-nav";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function AppLayout({
   children,
@@ -11,6 +12,7 @@ export default function AppLayout({
       <AppHeader />
       <div className="flex flex-1 flex-col pb-24 md:pb-0">{children}</div>
       <MobileBottomNav />
+      <Toaster position="bottom-center" />
     </div>
   );
 }

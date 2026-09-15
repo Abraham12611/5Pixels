@@ -13,7 +13,7 @@ const LEFT_ITEMS = [
 ];
 
 const RIGHT_ITEMS = [
-  { href: "/app/generations", label: "Library", icon: Image },
+  { href: "/app/library", label: "Library", icon: Image },
   { href: "/app/favorites", label: "Favorites", icon: Heart },
 ];
 

@@ -13,6 +13,8 @@ interface FavoriteButtonProps {
   isAuthenticated: boolean;
   returnPath: string;
   compact?: boolean;
+  /** Called after the server confirms the toggle — not fired on failure. */
+  onToggled?: (isFavorite: boolean) => void;
 }
 
 export function FavoriteButton({
@@ -21,6 +23,7 @@ export function FavoriteButton({
   isAuthenticated,
   returnPath,
   compact = false,
+  onToggled,
 }: FavoriteButtonProps) {
   const [isFavorite, setIsFavorite] = useState(initialIsFavorite);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +64,8 @@ export function FavoriteButton({
       if (!result.success) {
         setIsFavorite(!next);
         setError(result.error ?? "Could not update favorite.");
+      } else {
+        onToggled?.(next);
       }
     });
   };
