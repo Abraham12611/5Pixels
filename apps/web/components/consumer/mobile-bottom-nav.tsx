@@ -2,19 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Compass, House, Image, Lightning, User } from "@phosphor-icons/react";
+import { Compass, Heart, House, Image, Lightning } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
 const CENTER_LABEL = "Create";
 
 const LEFT_ITEMS = [
-  { href: "/app", label: "Home", icon: House },
+  { href: "/app", label: "Discover", icon: House },
   { href: "/explore", label: "Explore", icon: Compass },
 ];
 
 const RIGHT_ITEMS = [
-  { href: "/app/generations", label: "Works", icon: Image },
-  { href: "/app/settings?section=profile", label: "Profile", icon: User },
+  { href: "/app/generations", label: "Library", icon: Image },
+  { href: "/app/favorites", label: "Favorites", icon: Heart },
 ];
 
 function isActive(pathname: string, href: string): boolean {

@@ -72,6 +72,28 @@
   outline-offset: -1px;
 }
 
+/* Dialog/overlay entrance — subtle rise + fade, killed under reduced motion */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@utility animate-dialog-in {
+  animation: dialog-in 180ms var(--ease-out) both;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility animate-overlay-in {
+  animation: overlay-in 140ms var(--ease-out) both;
+}
+
 :root {
   color-scheme: dark;
 }

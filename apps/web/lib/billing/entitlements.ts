@@ -8,6 +8,7 @@ export interface ActivePlan {
   name: string;
   type: string;
   markupMultiplier: number;
+  creditsGrant: number;
   currentPeriodEnd: string | null;
 }
 
@@ -53,7 +54,7 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
 
   const { data: plan, error: planError } = await supabase
     .from("plans")
-    .select("id, slug, name, type, markup_multiplier")
+    .select("id, slug, name, type, markup_multiplier, credits_grant")
     .eq("id", data as string)
     .single();
 
@@ -78,6 +79,7 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
     name: plan.name as string,
     type: plan.type as string,
     markupMultiplier: Number(plan.markup_multiplier),
+    creditsGrant: Number(plan.credits_grant ?? 0),
     currentPeriodEnd: (subscription?.current_period_end as string | null) ?? null,
   };
 }

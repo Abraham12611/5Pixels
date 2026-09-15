@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { CreditBalanceChip } from "@/components/consumer/credit-balance-chip";
 import { NotificationDropdown } from "@/components/consumer/notification-dropdown";
 import { UserDropdown } from "@/components/consumer/user-dropdown";
-import { Faders, House } from "@phosphor-icons/react";
+import { GlobalSearch } from "@/components/consumer/global-search";
+import { ExploreMenu } from "@/components/consumer/explore-menu";
+import { FivePixelMark } from "@/components/consumer/five-pixel";
 import type { NotificationItem } from "@/lib/db/notifications";
+import type {
+  SearchCategory,
+  SearchLibraryItem,
+  SearchPreset,
+} from "@/lib/search";
+import { cn } from "@/lib/utils";
 
 interface AppHeaderClientProps {
   creditBalance: number;
@@ -14,12 +23,46 @@ interface AppHeaderClientProps {
   avatarUrl?: string | null;
   unreadCount: number;
   notifications: NotificationItem[];
+  planName: string | null;
+  planRenewsAt: string | null;
+  creditsGrant: number | null;
+  inProgressCount: number;
+  lowCreditAt: number;
+  searchPresets: SearchPreset[];
+  searchCategories: SearchCategory[];
+  searchLibrary: SearchLibraryItem[];
+  catalogError: boolean;
 }
 
-const navLinks = [
-  { href: "/app", label: "Home", icon: House },
-  { href: "/explore", label: "Explore", icon: Faders },
+interface NavItem {
+  href: string;
+  label: string;
+  isActive: (pathname: string) => boolean;
+}
+
+const DISCOVER: NavItem = {
+  href: "/app",
+  label: "Discover",
+  isActive: (p) => p === "/app",
+};
+
+const AFTER_EXPLORE: NavItem[] = [
+  {
+    href: "/app/generations",
+    label: "Library",
+    isActive: (p) =>
+      p.startsWith("/app/generations") || p.startsWith("/app/results"),
+  },
+  {
+    href: "/app/favorites",
+    label: "Favorites",
+    isActive: (p) => p.startsWith("/app/favorites"),
+  },
 ];
+
+function isExploreActive(pathname: string): boolean {
+  return pathname.startsWith("/explore") || pathname.startsWith("/presets");
+}
 
 export function AppHeaderClient({
   creditBalance,
@@ -28,13 +71,27 @@ export function AppHeaderClient({
   avatarUrl,
   unreadCount,
   notifications,
+  planName,
+  planRenewsAt,
+  creditsGrant,
+  inProgressCount,
+  lowCreditAt,
+  searchPresets,
+  searchCategories,
+  searchLibrary,
+  catalogError,
 }: AppHeaderClientProps) {
+  const pathname = usePathname();
+
   return (
-    <header className="sticky top-0 z-40 border-b border-cream-100/10 bg-ink-950/80 backdrop-blur-md">
+    <header className="border-cream-100/10 bg-ink-950/85 sticky top-0 z-40 border-b backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
         {/* Logo */}
-        <Link href="/app" className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-lime-500 text-ink-950">
+        <Link
+          href="/app"
+          className="focus-visible:ring-lime-500/50 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2"
+        >
+          <span className="bg-lime-500 text-ink-950 flex h-7 w-7 items-center justify-center rounded-lg">
             <span className="grid grid-cols-3 gap-0.5">
               {[0, 1, 2, 3, 4].map((i) => (
                 <span
@@ -51,26 +108,38 @@ export function AppHeaderClient({
           </span>
         </Link>
 
-        {/* Center nav */}
-        <nav className="hidden items-center gap-1 md:flex">
-          {navLinks.map((link) => {
-            const Icon = link.icon;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-text-secondary hover:bg-charcoal-800 hover:text-cream-50 flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition"
-              >
-                <Icon size={16} weight="bold" />
-                {link.label}
-              </Link>
-            );
-          })}
+        {/* Primary nav */}
+        <nav
+          aria-label="Primary"
+          className="hidden items-center gap-1 md:flex"
+        >
+          <NavLink item={DISCOVER} pathname={pathname} />
+          <ExploreMenu
+            categories={searchCategories}
+            featured={searchPresets}
+            active={isExploreActive(pathname)}
+          />
+          {AFTER_EXPLORE.map((item) => (
+            <NavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+            />
+          ))}
         </nav>
 
-        {/* Right side */}
+        {/* Right cluster */}
         <div className="flex items-center gap-2">
-          <CreditBalanceChip credits={creditBalance} />
+          <GlobalSearch
+            presets={searchPresets}
+            categories={searchCategories}
+            library={searchLibrary}
+            catalogError={catalogError}
+          />
+          <CreditBalanceChip
+            credits={creditBalance}
+            lowCreditAt={lowCreditAt}
+          />
           <NotificationDropdown
             unreadCount={unreadCount}
             notifications={notifications}
@@ -79,9 +148,38 @@ export function AppHeaderClient({
             name={userName}
             email={userEmail}
             avatarUrl={avatarUrl}
+            credits={creditBalance}
+            creditsGrant={creditsGrant}
+            planName={planName}
+            planRenewsAt={planRenewsAt}
+            inProgressCount={inProgressCount}
+            lowCreditAt={lowCreditAt}
           />
         </div>
       </div>
     </header>
+  );
+}
+
+function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
+  const active = item.isActive(pathname);
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "relative flex h-9 items-center rounded-md px-3 text-sm font-medium outline-none transition-colors focus-visible:ring-lime-500/50 focus-visible:ring-2",
+        active
+          ? "text-cream-50"
+          : "text-text-secondary hover:text-cream-100"
+      )}
+    >
+      {item.label}
+      {active && (
+        <span className="absolute inset-x-3 -bottom-1 flex justify-center">
+          <FivePixelMark />
+        </span>
+      )}
+    </Link>
   );
 }

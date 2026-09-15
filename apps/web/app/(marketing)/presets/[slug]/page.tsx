@@ -12,6 +12,7 @@ import { FavoriteButton } from "@/components/consumer/favorite-button";
 import { ControlPreview } from "@/components/consumer/control-preview";
 import { ExampleGallery } from "@/components/consumer/example-gallery";
 import { RelatedPresets } from "@/components/consumer/related-presets";
+import { RecentPresetRecorder } from "@/components/consumer/recent-preset-recorder";
 import { selectCatalogMediaAsset } from "@/lib/catalog/media";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
@@ -113,6 +114,17 @@ export default async function PresetDetailPage({
 
   return (
     <>
+      {isAuthenticated && (
+        <RecentPresetRecorder
+          slug={product.slug}
+          name={product.name}
+          thumbUrl={
+            heroAsset
+              ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${heroAsset.bucket}/${heroAsset.storage_key}`
+              : null
+          }
+        />
+      )}
       {jsonLd && (
         <script
           type="application/ld+json"
