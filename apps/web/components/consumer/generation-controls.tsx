@@ -1,21 +1,37 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+import {
+  ChoiceSettingTile,
+  SettingTile,
+} from "@/components/consumer/setting-tile";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import type { PublicProductField } from "@/types/catalog";
 
 interface GenerationControlsProps {
   fields: PublicProductField[];
   values: Record<string, unknown>;
+  /** Visually deemphasize controls until a source image is present. */
+  disabled?: boolean;
   onChange: (values: Record<string, unknown>) => void;
 }
+
+const CHOICE_TYPES = new Set([
+  "select",
+  "radio",
+  "layout",
+  "background",
+  "wardrobe",
+  "era",
+  "mood",
+]);
 
 export function GenerationControls({
   fields,
   values,
+  disabled,
   onChange,
 }: GenerationControlsProps) {
   const sorted = sortFields(fields);
@@ -26,184 +42,188 @@ export function GenerationControls({
 
   if (sorted.length === 0) {
     return (
-      <p className="text-text-secondary text-sm">
-        No adjustable controls for this preset.
+      <p className="text-text-secondary text-[13px]">
+        This look needs no adjustments — the recipe is fully curated.
       </p>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-2.5">
       {sorted.map((field) => {
         const normalized = normalizeField(field);
         const controlId = `gen-field-${field.field_key}`;
         const value = values[field.field_key] ?? normalized.defaultValue;
 
         return (
-          <div key={field.id} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor={controlId}>{field.label}</Label>
-              {field.required && (
-                <span className="text-text-muted text-xs">Required</span>
-              )}
-            </div>
-            {field.help_text && (
-              <p className="text-text-secondary text-xs">{field.help_text}</p>
-            )}
-            {renderControl(normalized, controlId, value, (v) =>
-              update(field.field_key, v)
-            )}
-          </div>
+          <ControlTile
+            key={field.id}
+            field={normalized}
+            controlId={controlId}
+            value={value}
+            disabled={disabled}
+            onChange={(v) => update(field.field_key, v)}
+          />
         );
       })}
     </div>
   );
 }
 
-function renderControl(
-  field: ReturnType<typeof normalizeField>,
-  controlId: string,
-  value: unknown,
-  onChange: (value: unknown) => void
-) {
+function ControlTile({
+  field,
+  controlId,
+  value,
+  disabled,
+  onChange,
+}: {
+  field: ReturnType<typeof normalizeField>;
+  controlId: string;
+  value: unknown;
+  disabled?: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  if (CHOICE_TYPES.has(field.field_type)) {
+    return (
+      <ChoiceSettingTile
+        id={controlId}
+        label={field.label}
+        required={field.required ?? undefined}
+        disabled={disabled}
+        value={String(value ?? "")}
+        options={field.options}
+        onChange={onChange}
+      />
+    );
+  }
+
   switch (field.field_type) {
-    case "short_text":
+    case "intensity":
       return (
-        <Input
-          id={controlId}
-          type="text"
-          value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
-          maxLength={
-            (field.validation?.maxLength as number | undefined) ?? undefined
-          }
-        />
-      );
-
-    case "select":
-    case "layout":
-    case "background":
-    case "wardrobe":
-    case "era":
-    case "mood":
-      return (
-        <Select
-          id={controlId}
-          value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
+        <SettingTile
+          label={field.label}
+          required={field.required ?? undefined}
+          disabled={disabled}
+          stacked
         >
-          {field.options.length > 0 ? (
-            field.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))
-          ) : (
-            <option value="">No options configured</option>
-          )}
-        </Select>
-      );
-
-    case "radio":
-      return (
-        <fieldset className="space-y-2">
-          {field.options.length > 0 ? (
-            field.options.map((option) => (
-              <label
-                key={option.value}
-                className="text-cream-50 flex items-center gap-2 text-sm"
-              >
-                <input
-                  type="radio"
-                  name={controlId}
-                  value={option.value}
-                  checked={String(value) === option.value}
-                  onChange={(e) => onChange(e.target.value)}
-                  className="text-lime-500"
-                />
-                {option.label}
-              </label>
-            ))
-          ) : (
-            <p className="text-text-secondary text-sm">
-              No options configured.
-            </p>
-          )}
-        </fieldset>
+          <div className="flex items-center gap-3">
+            <Slider
+              id={controlId}
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              value={[Number(value ?? field.min)]}
+              onValueChange={(v) => onChange(v[0])}
+              disabled={disabled}
+              className="flex-1 [&_[data-slot=slider-range]]:bg-lime-400 [&_[data-slot=slider-track]]:bg-cream-100/15 [&_[data-slot=slider-thumb]]:border-lime-400"
+            />
+            <span className="text-text-secondary w-8 shrink-0 text-right text-[13px] tabular-nums">
+              {Number(value ?? field.min)}
+            </span>
+          </div>
+        </SettingTile>
       );
 
     case "toggle":
       return (
-        <label className="flex items-center gap-3">
-          <input
+        <SettingTile
+          label={field.label}
+          required={field.required ?? undefined}
+          hint={field.help_text ?? undefined}
+          disabled={disabled}
+        >
+          <Switch
             id={controlId}
-            type="checkbox"
             checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-            className={cn(
-              "border-cream-100/20 bg-charcoal-800 h-5 w-5 rounded text-lime-500"
-            )}
+            onCheckedChange={onChange}
+            disabled={disabled}
+            className="data-[state=checked]:bg-lime-500 data-[state=unchecked]:bg-cream-100/15"
           />
-          <span className="text-text-secondary text-sm">
-            {value ? "On" : "Off"}
-          </span>
-        </label>
+        </SettingTile>
       );
 
     case "color":
       return (
-        <div className="flex items-center gap-3">
-          <input
-            id={controlId}
-            type="color"
-            value={String(value ?? "#82ea3a")}
-            onChange={(e) => onChange(e.target.value)}
-            className="h-10 w-16 rounded bg-transparent"
-          />
-          <span className="text-text-secondary text-sm">
-            {String(value ?? "#82ea3a")}
-          </span>
-        </div>
+        <SettingTile
+          label={field.label}
+          required={field.required ?? undefined}
+          disabled={disabled}
+        >
+          <label
+            htmlFor={controlId}
+            className="flex cursor-pointer items-center gap-2"
+          >
+            <span className="text-text-secondary text-[13px]">
+              {String(value ?? "#82ea3a")}
+            </span>
+            <input
+              id={controlId}
+              type="color"
+              value={String(value ?? "#82ea3a")}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={disabled}
+              className="border-cream-100/20 h-7 w-10 cursor-pointer rounded-md border bg-transparent p-0.5"
+            />
+          </label>
+        </SettingTile>
       );
 
     case "aspect_ratio":
-      return (
-        <Input
-          id={controlId}
-          type="text"
-          value={String(value ?? "1:1")}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      );
-
-    case "intensity":
-      return (
-        <div className="space-y-2">
-          <input
+      // Schema-level aspect fields are choice-like when options exist.
+      if (field.options.length > 0) {
+        return (
+          <ChoiceSettingTile
             id={controlId}
-            type="range"
-            min={field.min}
-            max={field.max}
-            step={field.step}
-            value={Number(value ?? field.min)}
-            onChange={(e) => onChange(Number(e.target.value))}
-            className="w-full accent-lime-500"
+            label={field.label}
+            required={field.required ?? undefined}
+            disabled={disabled}
+            value={String(value ?? "")}
+            options={field.options}
+            onChange={onChange}
           />
-          <div className="text-text-muted flex justify-between text-xs">
-            <span>{field.min}</span>
-            <span>{field.max}</span>
-          </div>
-        </div>
+        );
+      }
+      return (
+        <SettingTile
+          label={field.label}
+          required={field.required ?? undefined}
+          hint={field.help_text ?? undefined}
+          disabled={disabled}
+          stacked
+        >
+          <Input
+            id={controlId}
+            type="text"
+            value={String(value ?? "1:1")}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            className="border-cream-100/10 bg-charcoal-900 text-cream-50 h-9 rounded-md text-sm"
+          />
+        </SettingTile>
       );
 
     default:
+      // short_text and any future text-like types
       return (
-        <Input
-          id={controlId}
-          type="text"
-          value={String(value ?? "")}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <SettingTile
+          label={field.label}
+          required={field.required ?? undefined}
+          hint={field.help_text ?? undefined}
+          disabled={disabled}
+          stacked
+        >
+          <Input
+            id={controlId}
+            type="text"
+            value={String(value ?? "")}
+            onChange={(e) => onChange(e.target.value)}
+            maxLength={
+              (field.validation?.maxLength as number | undefined) ?? undefined
+            }
+            disabled={disabled}
+            className="border-cream-100/10 bg-charcoal-900 text-cream-50 placeholder:text-text-muted h-9 rounded-md text-sm"
+          />
+        </SettingTile>
       );
   }
 }

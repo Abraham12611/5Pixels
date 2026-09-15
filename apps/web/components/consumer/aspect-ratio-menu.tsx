@@ -6,7 +6,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Check, Columns } from "@phosphor-icons/react";
+import { CaretDown, Check, Columns } from "@phosphor-icons/react";
 import type { OutputSizeOption } from "@/types/catalog";
 import { cn } from "@/lib/utils";
 
@@ -82,17 +82,22 @@ export function AspectRatioMenu({
           type="button"
           disabled={disabled}
           className={cn(
-            "flex items-center gap-2 rounded-full border border-cream-100/15 bg-charcoal-900 px-3.5 py-1.5 text-xs font-medium text-cream-100 transition",
-            "hover:border-cream-100/35 hover:bg-charcoal-800",
+            "group flex items-center gap-1.5 rounded-md px-1 py-0.5 text-[13px] transition-colors",
+            "text-text-secondary hover:text-cream-100",
             "focus-visible:ring-2 focus-visible:ring-lime-500/50 focus-visible:outline-none",
             disabled && "cursor-not-allowed opacity-50"
           )}
         >
-          <Columns size={14} weight="bold" className="text-lime-400" />
-          <span>{aspectLabel(selected)}</span>
-          <span className="text-text-muted">
+          <Columns size={13} weight="bold" className="text-lime-400" />
+          <span className="truncate">{aspectLabel(selected)}</span>
+          <span className="text-text-muted hidden sm:inline">
             {selected.width} × {selected.height}
           </span>
+          <CaretDown
+            size={12}
+            weight="bold"
+            className="text-text-muted shrink-0"
+          />
         </button>
       </DropdownMenuTrigger>
 

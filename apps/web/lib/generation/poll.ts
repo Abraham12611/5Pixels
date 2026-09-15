@@ -6,7 +6,11 @@ import { createFalAdapter } from "@/lib/ai/fal";
 import { postProcessImage, composePoster, type PostProcessConfig } from "@/lib/ai/post-process";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { createOutputAsset, uploadOutputImage } from "@/lib/generation/upload";
+import {
+  createOutputAsset,
+  getSignedAssetUrl,
+  uploadOutputImage,
+} from "@/lib/generation/upload";
 import type { SafeGenerationDetail } from "./types";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
@@ -234,18 +238,24 @@ export async function pollGenerationStatus(
   } = await supabase.auth.getUser();
   if (!user) return { generation: null, error: "Please sign in." };
 
-  const token = await readProcessingToken(generationId);
-  if (!token) {
-    return { generation: null, error: "Polling token missing or expired." };
-  }
-
   const generation = await fetchSafeGeneration(generationId);
   if (!generation) {
     return { generation: null, error: "Generation not found." };
   }
 
+  // Terminal states are always viewable — the processing token only gates
+  // provider polling and lifecycle mutation, not the user's own record.
   if (isTerminalStatus(generation.status)) {
     return { generation };
+  }
+
+  const token = await readProcessingToken(generationId);
+  if (!token) {
+    return {
+      generation,
+      error:
+        "Live updates are only available in the tab that started this transformation.",
+    };
   }
 
   const providerRow = await getProviderRow(generationId);
@@ -407,4 +417,31 @@ export async function pollGenerationStatus(
 
   const updated = await fetchSafeGeneration(generationId);
   return { generation: updated ?? generation };
+}
+
+/**
+ * One-shot context for the status surface: a signed URL for the source photo
+ * so the page can show what is being transformed. Safe to call without a
+ * processing token — the record is user-scoped.
+ */
+export async function getGenerationContext(
+  generationId: string
+): Promise<{ sourceUrl: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { sourceUrl: null };
+
+  const generation = await fetchSafeGeneration(generationId);
+  if (!generation?.sourceBucket || !generation.sourceStorageKey) {
+    return { sourceUrl: null };
+  }
+
+  const sourceUrl = await getSignedAssetUrl(
+    generation.sourceBucket,
+    generation.sourceStorageKey,
+    3600
+  );
+  return { sourceUrl };
 }
