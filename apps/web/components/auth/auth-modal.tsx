@@ -10,6 +10,7 @@ import {
 } from "react";
 import { X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { useDialogA11y } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/auth/password-input";
@@ -57,16 +58,6 @@ export function AuthModal({
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onOpenChange]);
 
-  // Lock body scroll while open (bottom sheet on mobile scrolls internally).
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
   if (!open) return null;
 
   // Remounts on every open, so the tab resets without an effect.
@@ -95,6 +86,9 @@ function AuthModalBody({
   initialTab: "login" | "signup";
 }) {
   const [tab, setTab] = useState<"login" | "signup">(initialTab);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Mounted only while open — always active.
+  useDialogA11y(true, panelRef);
 
   return (
     <div
@@ -106,10 +100,12 @@ function AuthModalBody({
       }}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={tab === "login" ? "Log in" : "Create account"}
-        className="border-cream-100/10 bg-charcoal-850 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border sm:max-w-sm sm:rounded-2xl"
+        tabIndex={-1}
+        className="border-cream-100/10 bg-charcoal-850 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border outline-none sm:max-w-sm sm:rounded-2xl"
       >
         {/* Sticky header: context + close */}
         <div className="border-cream-100/10 flex items-center gap-3 border-b px-5 py-4">

@@ -6,7 +6,7 @@ import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
 import { ResultCompare } from "@/components/consumer/result-compare";
 import { ResultActions } from "@/components/consumer/result-actions";
 import { ResultFeedback } from "@/components/consumer/result-feedback";
-import { ChevronLeft } from "lucide-react";
+import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 
 export default async function ResultPage({
   params,
@@ -103,7 +103,7 @@ export default async function ResultPage({
             href="/app/library"
             className="text-text-muted hover:text-cream-100 -ml-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[13px] transition-colors"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <CaretLeft className="h-3.5 w-3.5" />
             Library
           </Link>
           <span className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">

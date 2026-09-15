@@ -156,7 +156,7 @@ export function SearchPalette({
             <button
               type="button"
               onClick={() => setQuery("")}
-              className="text-text-muted hover:text-cream-100 rounded-md p-1 transition-colors"
+              className="text-text-muted hover:text-cream-100 relative rounded-md p-1 transition-colors after:absolute after:-inset-1.5 after:content-['']"
               aria-label="Clear search"
             >
               <X size={16} weight="bold" />
@@ -168,7 +168,7 @@ export function SearchPalette({
           <button
             type="button"
             onClick={close}
-            className="text-text-muted hover:text-cream-100 hover:bg-charcoal-800 rounded-md p-1.5 transition-colors sm:hidden"
+            className="text-text-muted hover:text-cream-100 hover:bg-charcoal-800 relative rounded-md p-1.5 transition-colors after:absolute after:-inset-1.5 after:content-[''] sm:hidden"
             aria-label="Close search"
           >
             <X size={20} weight="bold" />

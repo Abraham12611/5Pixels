@@ -42,8 +42,8 @@ export function FavoriteButton({
           size="icon"
           onClick={() => setAuthOpen(true)}
           className={cn(
-            "bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 rounded-full backdrop-blur-sm hover:text-lime-400",
-            compact ? "h-8 w-8" : "h-10 w-10"
+            "bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 relative rounded-full backdrop-blur-sm after:absolute after:content-[''] hover:text-lime-400",
+            compact ? "h-8 w-8 after:-inset-1.5" : "h-10 w-10 after:-inset-1"
           )}
           aria-label="Sign in to favorite this preset"
           aria-haspopup="dialog"
@@ -88,11 +88,13 @@ export function FavoriteButton({
         disabled={isPending}
         onClick={handleToggle}
         className={cn(
-          "focus:ring-offset-ink-950 rounded-full backdrop-blur-sm transition focus:ring-2 focus:ring-lime-500 focus:ring-offset-2 focus:outline-none",
+          "focus:ring-offset-ink-950 relative rounded-full backdrop-blur-sm transition focus:ring-2 focus:ring-lime-500 focus:ring-offset-2 focus:outline-none",
           isFavorite
             ? "bg-error/20 text-error hover:bg-error/30"
             : "bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 hover:text-lime-400",
-          compact ? "h-8 w-8" : "h-10 w-10"
+          compact
+            ? "h-8 w-8 after:absolute after:-inset-1.5 after:content-['']"
+            : "h-10 w-10"
         )}
         aria-pressed={isFavorite}
         aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}

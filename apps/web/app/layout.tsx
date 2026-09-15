@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   title: "5Pixels — Pick the look. Upload your photo. We handle the rest.",
   description:
     "Curated AI image transformations. No prompts required.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#080a08",
+  colorScheme: "dark",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

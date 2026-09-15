@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { CaretDown } from "@phosphor-icons/react";
 
 const faqs = [
   {
     question: "What is a preset?",
     answer:
-      "A preset is a curated visual direction. It bundles the AI instructions, model routing, post-processing, and user-facing controls into one click.",
+      "A preset is a curated visual direction. It bundles the creative recipe, finishing touches, and simple controls into one click.",
   },
   {
     question: "Do I need to write prompts?",
@@ -27,7 +27,7 @@ const faqs = [
   {
     question: "How long does a transformation take?",
     answer:
-      "Most transformations complete in seconds to under a minute, depending on the provider and any post-processing steps.",
+      "Most transformations complete in seconds to under a minute, depending on the preset's finishing steps.",
   },
   {
     question: "What happens to my uploaded image?",
@@ -73,7 +73,7 @@ export function FAQSection() {
                   <span className="text-cream-50 font-medium">
                     {faq.question}
                   </span>
-                  <ChevronDown
+                  <CaretDown
                     className={`h-5 w-5 text-lime-400 transition-transform ${
                       isOpen ? "rotate-180" : ""
                     }`}

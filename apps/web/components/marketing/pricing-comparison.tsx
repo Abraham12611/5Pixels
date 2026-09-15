@@ -139,11 +139,14 @@ export function PricingComparison({
 
   return (
     <div className="border-cream-100/10 bg-charcoal-850 overflow-hidden rounded-[20px] border">
-      {/* Sticky plan header */}
-      <div
-        className="border-cream-100/10 grid items-end gap-2 border-b px-5 py-4"
-        style={{ gridTemplateColumns: colTemplate }}
-      >
+      {/* Scrolls horizontally on small screens instead of squeezing columns */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[640px]">
+          {/* Sticky plan header */}
+          <div
+            className="border-cream-100/10 grid items-end gap-2 border-b px-5 py-4"
+            style={{ gridTemplateColumns: colTemplate }}
+          >
         <div />
         {columns.map((col) => (
           <div key={col.key} className="text-center">
@@ -158,42 +161,51 @@ export function PricingComparison({
         ))}
       </div>
 
-      {sections.map((section) => (
-        <details
-          key={section.title}
-          open={section.defaultOpen}
-          className="group border-cream-100/10 border-b last:border-b-0"
-        >
-          <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
-            <section.icon size={18} className="text-lime-400" weight="regular" />
-            <span className="text-cream-50 flex-1 text-sm font-semibold">
-              {section.title}
-            </span>
-            <CaretDown
-              size={16}
-              className="text-text-secondary transition-transform group-open:rotate-180"
-            />
-          </summary>
-          <div className="px-5 pb-4">
-            {section.rows.map((row) => (
-              <div
-                key={row.label}
-                className={cn(
-                  "border-cream-100/10 grid items-center gap-2 border-t py-3"
-                )}
-                style={{ gridTemplateColumns: colTemplate }}
-              >
-                <p className="text-text-secondary text-sm">{row.label}</p>
-                {row.values.map((value, i) => (
-                  <div key={columns[i].key} className="text-center">
-                    <CellValue value={value} />
+          {sections.map((section) => (
+            <details
+              key={section.title}
+              open={section.defaultOpen}
+              className="group border-cream-100/10 border-b last:border-b-0"
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 [&::-webkit-details-marker]:hidden">
+                <section.icon
+                  size={18}
+                  className="text-lime-400"
+                  weight="regular"
+                />
+                <span className="text-cream-50 flex-1 text-sm font-semibold">
+                  {section.title}
+                </span>
+                <CaretDown
+                  size={16}
+                  className="text-text-secondary transition-transform group-open:rotate-180"
+                />
+              </summary>
+              <div className="px-5 pb-4">
+                {section.rows.map((row) => (
+                  <div
+                    key={row.label}
+                    className={cn(
+                      "border-cream-100/10 grid items-center gap-2 border-t py-3"
+                    )}
+                    style={{ gridTemplateColumns: colTemplate }}
+                  >
+                    <p className="text-text-secondary text-sm">{row.label}</p>
+                    {row.values.map((value, i) => (
+                      <div key={columns[i].key} className="text-center">
+                        <CellValue value={value} />
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
-            ))}
-          </div>
-        </details>
-      ))}
+            </details>
+          ))}
+        </div>
+      </div>
+      <p className="border-cream-100/10 text-text-muted border-t px-5 py-2.5 text-center text-[11px] sm:hidden">
+        Scroll sideways to compare all plans
+      </p>
     </div>
   );
 }

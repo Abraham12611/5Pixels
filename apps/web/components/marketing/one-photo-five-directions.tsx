@@ -1,13 +1,13 @@
 "use client";
 
-import { Upload, Sparkles, Image } from "lucide-react";
+import { UploadSimple, Sparkle, Image } from "@phosphor-icons/react";
 
 export function OnePhotoFiveDirections() {
   const directions = [
     { label: "Studio", icon: Image, color: "from-cream-100/20 to-cream-100/5" },
-    { label: "Cinematic", icon: Sparkles, color: "from-lime-500/20 to-lime-500/5" },
+    { label: "Cinematic", icon: Sparkle, color: "from-lime-500/20 to-lime-500/5" },
     { label: "Retro", icon: Image, color: "from-warning/20 to-warning/5" },
-    { label: "Illustration", icon: Sparkles, color: "from-error/20 to-error/5" },
+    { label: "Illustration", icon: Sparkle, color: "from-error/20 to-error/5" },
     { label: "Cover", icon: Image, color: "from-success/20 to-success/5" },
   ];
 
@@ -31,7 +31,7 @@ export function OnePhotoFiveDirections() {
           <div className="border-cream-100/10 bg-charcoal-850 relative order-1 flex aspect-square items-center justify-center rounded-3xl border p-6 md:col-start-2 md:row-start-1 md:row-end-3">
             <div className="text-center">
               <div className="bg-charcoal-700 mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full">
-                <Upload className="text-text-muted h-10 w-10" />
+                <UploadSimple className="text-text-muted h-10 w-10" />
               </div>
               <p className="text-cream-50 font-medium">Your photo</p>
               <p className="text-text-muted mt-1 text-sm">

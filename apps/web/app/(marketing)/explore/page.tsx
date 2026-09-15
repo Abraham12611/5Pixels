@@ -14,7 +14,7 @@ import { ProductCard } from "@/components/consumer/product-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { SearchX, ChevronLeft, ChevronRight, Zap } from "lucide-react";
+import { MagnifyingGlass, CaretLeft, CaretRight, Lightning } from "@phosphor-icons/react/dist/ssr";
 
 export default async function ExplorePage({
   searchParams,
@@ -94,7 +94,7 @@ export default async function ExplorePage({
                 variant="secondary"
                 className="bg-lime-400/15 text-lime-300 border-none"
               >
-                <Zap className="mr-1 h-3 w-3" />
+                <Lightning className="mr-1 h-3 w-3" />
                 Trending
               </Badge>
             )}
@@ -151,7 +151,7 @@ export default async function ExplorePage({
 
       {products.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
-          <SearchX className="text-text-muted h-12 w-12" aria-hidden />
+          <MagnifyingGlass className="text-text-muted h-12 w-12" aria-hidden />
           <h2 className="text-cream-50 mt-4 text-xl font-semibold">
             No presets match your filters
           </h2>
@@ -205,7 +205,7 @@ export default async function ExplorePage({
                   })}`}
                     aria-disabled={filters.page <= 1}
                   >
-                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  <CaretLeft className="mr-2 h-4 w-4" />
                   Previous
                 </Link>
               </Button>
@@ -232,7 +232,7 @@ export default async function ExplorePage({
                   aria-disabled={filters.page >= totalPages}
                 >
                   Next
-                  <ChevronRight className="ml-2 h-4 w-4" />
+                  <CaretRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
             </nav>

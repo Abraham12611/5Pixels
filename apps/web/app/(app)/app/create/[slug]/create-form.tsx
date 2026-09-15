@@ -413,7 +413,7 @@ export function CreateGenerationForm({
         </div>
 
         {/* Sticky generate console */}
-        <div className="border-cream-100/10 bg-charcoal-900/95 sticky bottom-6 border-t px-4 py-4 backdrop-blur sm:px-5 md:bottom-4 lg:bottom-0">
+        <div className="border-cream-100/10 bg-charcoal-900/95 sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)] border-t px-4 py-4 backdrop-blur sm:px-5 lg:bottom-0">
           {error && (
             <p className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
               <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />

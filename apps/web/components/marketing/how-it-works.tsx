@@ -1,23 +1,23 @@
 "use client";
 
-import { Upload, MousePointerClick, Sparkles } from "lucide-react";
+import { UploadSimple, CursorClick, Sparkle } from "@phosphor-icons/react";
 
 export function HowItWorks() {
   const steps = [
     {
-      icon: MousePointerClick,
+      icon: CursorClick,
       title: "Choose a preset",
       description:
         "Browse curated looks across portraits, cinematic scenes, covers, and posters.",
     },
     {
-      icon: Upload,
+      icon: UploadSimple,
       title: "Upload your photo",
       description:
         "Use a clear source image. Your upload stays private and is only used for your generation.",
     },
     {
-      icon: Sparkles,
+      icon: Sparkle,
       title: "Get your transformation",
       description:
         "We generate, post-process, and deliver a high-quality result — no prompt writing needed.",
