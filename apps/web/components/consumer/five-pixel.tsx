@@ -17,6 +17,43 @@ export function FivePixelMark({ className }: { className?: string }) {
   );
 }
 
+interface GenerationPixelProgressProps {
+  /** How many of the five pixels read as filled (0–5). */
+  filled: number;
+  /** Pixel index currently pulsing; -1 for no pulse (e.g. completed). */
+  active?: number;
+  className?: string;
+}
+
+/**
+ * Five-pixel progress meter for running generations. Filled pixels are lit,
+ * the active pixel pulses; reduced-motion users see the static fill.
+ */
+export function GenerationPixelProgress({
+  filled,
+  active = -1,
+  className,
+}: GenerationPixelProgressProps) {
+  return (
+    <span
+      role="img"
+      aria-label={`Progress ${filled} of 5`}
+      className={cn("inline-flex items-center gap-[5px]", className)}
+    >
+      {Array.from({ length: 5 }, (_, i) => (
+        <span
+          key={i}
+          className={cn(
+            "h-[6px] w-[6px] rounded-[1.5px] transition-colors duration-300",
+            i < filled ? "bg-lime-400" : "bg-charcoal-700",
+            i === active && "animate-pulse"
+          )}
+        />
+      ))}
+    </span>
+  );
+}
+
 export type CreditMeterTone = "default" | "warning" | "error";
 
 interface CreditMeterProps {

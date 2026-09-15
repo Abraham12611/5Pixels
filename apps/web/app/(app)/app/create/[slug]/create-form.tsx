@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
+import { ArrowRight, Sparkle, Warning } from "@phosphor-icons/react";
 import { GenerationControls } from "@/components/consumer/generation-controls";
-import { SourceUploadDropzone } from "@/components/consumer/source-upload-dropzone";
-import { StudioToolbar } from "@/components/consumer/studio-toolbar";
+import { StudioStage } from "@/components/consumer/studio-stage";
+import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
+import { SettingTile } from "@/components/consumer/setting-tile";
+import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import { validateGenerationOptions } from "@/lib/generation/validation";
 import { createAndSubmitGeneration } from "@/lib/generation/actions";
@@ -13,37 +18,69 @@ import {
   finalizeSourceUpload,
   prepareSourceUpload,
 } from "@/lib/generation/upload";
+import { cn } from "@/lib/utils";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
+
+interface ReusedSource {
+  assetId: string;
+  url: string;
+  name: string;
+}
 
 interface CreateGenerationFormProps {
   userId: string;
   product: PublicProductDetail;
   initialBalance: number;
+  /** Pre-filled source from an earlier generation (Adjust flow). */
+  initialSource?: ReusedSource | null;
+  initialOptions?: Record<string, unknown> | null;
+  initialSize?: OutputSizeOption | null;
 }
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 20 * 1024 * 1024;
 
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
-  const available = sizes?.length ? sizes : [{ name: "Square (1:1)", width: 1024, height: 1024, is_default: true }];
+  const available = sizes?.length
+    ? sizes
+    : [{ name: "Square (1:1)", width: 1024, height: 1024, is_default: true }];
   return available.find((s) => s.is_default) ?? available[0]!;
+}
+
+const SUBMIT_STEPS = [
+  "Uploading your photo",
+  "Preparing the transformation",
+  "Starting",
+] as const;
+
+function submitStepIndex(progress: string): number {
+  if (progress.startsWith("Preparing secure")) return 0;
+  if (progress.startsWith("Uploading")) return 0;
+  if (progress.startsWith("Finalizing")) return 1;
+  return 2;
 }
 
 export function CreateGenerationForm({
   userId,
   product,
   initialBalance,
+  initialSource,
+  initialOptions,
+  initialSize,
 }: CreateGenerationFormProps) {
   const [file, setFile] = useState<File | null>(null);
+  const [reusedSource, setReusedSource] = useState<ReusedSource | null>(
+    initialSource ?? null
+  );
   const [options, setOptions] = useState<Record<string, unknown>>(() => {
     const defaults: Record<string, unknown> = {};
     for (const field of sortFields(product.active_fields)) {
       defaults[field.field_key] = normalizeField(field).defaultValue;
     }
-    return defaults;
+    return initialOptions ? { ...defaults, ...initialOptions } : defaults;
   });
-  const [selectedSize, setSelectedSize] = useState<OutputSizeOption>(() =>
-    getDefaultSize(product.output_sizes)
+  const [selectedSize, setSelectedSize] = useState<OutputSizeOption>(
+    () => initialSize ?? getDefaultSize(product.output_sizes)
   );
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +88,7 @@ export function CreateGenerationForm({
   const [error, setError] = useState<string>("");
 
   const isPoster = product.type === "poster";
+  const hasSource = Boolean(file) || Boolean(reusedSource);
   const canAfford =
     estimatedCost !== null && estimatedCost > 0
       ? initialBalance >= estimatedCost
@@ -69,26 +107,46 @@ export function CreateGenerationForm({
     [product.output_sizes]
   );
 
+  const previewUrl = useMemo(() => {
+    if (file) return URL.createObjectURL(file);
+    return reusedSource?.url ?? null;
+  }, [file, reusedSource]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl && file) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl, file]);
+
+  const presetThumb = useMemo(() => {
+    const asset =
+      product.public_assets?.find((a) => a.role === "hero") ??
+      product.public_assets?.[0];
+    if (!asset) return null;
+    return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
+  }, [product.public_assets]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadEstimate() {
       if (!product.version_id) return;
-      const { estimatedCredits, providerEndpoint } = await estimateGenerationCost({
-        productVersionId: product.version_id,
-        outputSize: selectedSize,
-      });
+      const { estimatedCredits, providerEndpoint } =
+        await estimateGenerationCost({
+          productVersionId: product.version_id,
+          outputSize: selectedSize,
+        });
 
       if (cancelled) return;
 
-      // Fallback to the product's static credit cost if no provider pricing is
-      // configured yet.
       if (providerEndpoint === null) {
         setEstimatedCost(product.credit_cost);
         return;
       }
 
-      setEstimatedCost(estimatedCredits > 0 ? estimatedCredits : product.credit_cost);
+      setEstimatedCost(
+        estimatedCredits > 0 ? estimatedCredits : product.credit_cost
+      );
     }
 
     loadEstimate();
@@ -113,7 +171,13 @@ export function CreateGenerationForm({
       setFile(null);
       return;
     }
+    setReusedSource(null);
     setFile(selected);
+  }, []);
+
+  const handleClearSource = useCallback(() => {
+    setFile(null);
+    setReusedSource(null);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -121,18 +185,18 @@ export function CreateGenerationForm({
     setError("");
     setProgress("");
 
-    if (!file) {
-      setError("Please upload a source image.");
+    if (!hasSource) {
+      setError("Add a photo to get started.");
       return;
     }
     if (!product.version_id) {
-      setError("Preset is not available for generation.");
+      setError("This look isn't available right now.");
       return;
     }
     if (!canAfford) {
       const cost = estimatedCost ?? product.credit_cost;
       setError(
-        `This preset costs ${cost} credits. Your balance is ${initialBalance}.`
+        `This transformation costs ${cost} credits. Your balance is ${initialBalance}.`
       );
       return;
     }
@@ -149,28 +213,37 @@ export function CreateGenerationForm({
     setLoading(true);
 
     try {
-      setProgress("Preparing secure upload...");
-      const { signedUrl, path } = await prepareSourceUpload(
-        file.type,
-        file.size
-      );
+      let sourceAssetId = reusedSource?.assetId ?? null;
 
-      setProgress("Uploading image...");
-      const upload = await fetch(signedUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
-      if (!upload.ok) {
-        throw new Error("Image upload failed. Please try again.");
+      if (file) {
+        setProgress("Preparing secure upload...");
+        const { signedUrl, path } = await prepareSourceUpload(
+          file.type,
+          file.size
+        );
+
+        setProgress("Uploading image...");
+        const upload = await fetch(signedUrl, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type },
+        });
+        if (!upload.ok) {
+          throw new Error("Image upload failed. Please try again.");
+        }
+
+        setProgress("Finalizing upload...");
+        const finalized = await finalizeSourceUpload(
+          path,
+          file.type,
+          file.size
+        );
+        sourceAssetId = finalized.assetId;
       }
 
-      setProgress("Finalizing upload...");
-      const { assetId: sourceAssetId } = await finalizeSourceUpload(
-        path,
-        file.type,
-        file.size
-      );
+      if (!sourceAssetId) {
+        throw new Error("Add a photo to get started.");
+      }
 
       setProgress("Starting generation...");
       const idempotencyKey = `create:${userId}:${product.id}:${uuidv4()}`;
@@ -204,60 +277,168 @@ export function CreateGenerationForm({
     }
   };
 
+  const displayCost = estimatedCost ?? product.credit_cost;
+  const stepIndex = submitStepIndex(progress);
+
   return (
-    <form onSubmit={handleSubmit} className="mt-6">
-      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-4">
-          <SourceUploadDropzone
-            file={file}
-            disabled={loading}
-            onFileSelected={handleFileSelected}
-          />
-
-          {error && (
-            <div className="rounded-xl border border-error/40 bg-error/10 p-4 text-sm text-error">
-              {error}
+    <form onSubmit={handleSubmit} className="flex flex-1 flex-col lg:flex-row">
+      {/* Configuration rail */}
+      <aside className="border-cream-100/10 order-last flex w-full shrink-0 flex-col lg:order-first lg:max-h-full lg:w-[340px] lg:overflow-y-auto lg:border-r xl:w-[370px]">
+        <div className="flex-1 space-y-6 px-4 py-6 sm:px-5">
+          {/* Preset context card */}
+          <div className="shadow-border flex items-center gap-3 rounded-lg bg-charcoal-800/80 p-3">
+            {presetThumb ? (
+              <div className="media-frame relative h-14 w-14 shrink-0 overflow-hidden rounded-md">
+                <Image
+                  src={presetThumb}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+            ) : (
+              <div className="media-frame flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-charcoal-700">
+                <Sparkle size={20} weight="fill" className="text-lime-400" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-cream-50 truncate text-sm font-semibold">
+                {product.name}
+              </p>
+              <p className="text-text-muted text-xs capitalize">
+                {product.type} look
+              </p>
             </div>
-          )}
+            <Link
+              href="/explore"
+              className="text-text-secondary hover:text-lime-400 flex shrink-0 items-center gap-1 text-xs font-medium transition-colors"
+            >
+              Change
+              <ArrowRight size={12} weight="bold" />
+            </Link>
+          </div>
 
-          {isPoster && (
-            <p className="text-text-secondary rounded-xl border border-cream-100/10 bg-charcoal-850 p-3 text-xs">
-              Poster generation includes deterministic text rendering.
+          {/* Source status line */}
+          <div>
+            <p className="text-text-muted mb-2 text-[11px] font-semibold uppercase tracking-wide">
+              Source
             </p>
-          )}
+            {hasSource ? (
+              <p className="text-text-secondary flex items-center gap-2 text-[13px]">
+                <span className="bg-lime-400 h-1.5 w-1.5 shrink-0 rounded-full" />
+                <span className="truncate">
+                  {file?.name ?? reusedSource?.name ?? "Photo added"}
+                </span>
+              </p>
+            ) : (
+              <p className="text-text-muted text-[13px]">
+                No photo yet — add one in the workspace.
+              </p>
+            )}
+          </div>
+
+          {/* Preset controls */}
+          <div>
+            <div className="mb-2.5 flex items-baseline justify-between">
+              <p className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
+                Adjust the look
+              </p>
+              {!hasSource && (
+                <span className="text-text-muted text-[11px]">
+                  Add a photo first
+                </span>
+              )}
+            </div>
+            <GenerationControls
+              fields={product.active_fields}
+              values={options}
+              disabled={!hasSource || loading}
+              onChange={setOptions}
+            />
+            {isPoster && (
+              <p className="text-text-muted mt-3 text-[11px]">
+                Posters include text rendered over the finished image.
+              </p>
+            )}
+          </div>
+
+          {/* Output size */}
+          <SettingTile label="Output size" disabled={loading}>
+            <AspectRatioMenu
+              sizes={outputSizes}
+              selected={selectedSize}
+              disabled={loading}
+              onChange={setSelectedSize}
+            />
+          </SettingTile>
         </div>
 
-        <aside className="min-w-0">
-          <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-5 lg:sticky lg:top-20">
-            <h2 className="text-cream-50 text-base font-semibold">
-              Preset controls
-            </h2>
-            <p className="text-text-secondary mt-1 text-xs">
-              Tweak the look. The recipe is curated — no prompt needed.
+        {/* Sticky generate console */}
+        <div className="border-cream-100/10 bg-charcoal-900/95 sticky bottom-6 border-t px-4 py-4 backdrop-blur sm:px-5 md:bottom-4 lg:bottom-0">
+          {error && (
+            <p className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
+              <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
+              {error}
             </p>
-            <div className="border-t-cream-100/10 mt-4 border-t pt-4">
-              <GenerationControls
-                fields={product.active_fields}
-                values={options}
-                onChange={setOptions}
-              />
-            </div>
-          </section>
-        </aside>
-      </div>
+          )}
+          <div className="mb-3 flex items-baseline justify-between text-[13px]">
+            <span className="text-text-secondary">Cost</span>
+            <span
+              className={cn(
+                "font-semibold tabular-nums",
+                canAfford ? "text-cream-50" : "text-error"
+              )}
+            >
+              {displayCost} {displayCost === 1 ? "credit" : "credits"}
+            </span>
+          </div>
+          <div className="mb-3 flex items-baseline justify-between text-[13px]">
+            <span className="text-text-secondary">Balance</span>
+            <span
+              className={cn(
+                "tabular-nums",
+                canAfford ? "text-text-secondary" : "text-error"
+              )}
+            >
+              {initialBalance} {initialBalance === 1 ? "credit" : "credits"}
+            </span>
+          </div>
+          {!canAfford && (
+            <Link
+              href="/app/settings/billing"
+              className="text-lime-400 mb-3 block text-xs font-medium underline underline-offset-2"
+            >
+              Get more credits
+            </Link>
+          )}
+          <Button
+            type="submit"
+            variant="brand"
+            size="lg"
+            className="w-full"
+            disabled={loading || !hasSource || !canAfford}
+          >
+            {loading ? "Working…" : "Generate"}
+          </Button>
+        </div>
+      </aside>
 
-      <StudioToolbar
-        productName={product.name}
-        productType={product.type}
-        sizes={outputSizes}
-        selectedSize={selectedSize}
-        estimatedCost={estimatedCost ?? product.credit_cost}
-        balance={initialBalance}
-        canAfford={canAfford}
-        loading={loading}
-        progress={progress}
-        disabled={loading || !file}
-        onSizeChange={setSelectedSize}
+      {/* Visual stage */}
+      <StudioStage
+        previewUrl={previewUrl}
+        sourceName={file?.name ?? reusedSource?.name ?? null}
+        aspectRatio={
+          selectedSize.width && selectedSize.height
+            ? selectedSize.width / selectedSize.height
+            : null
+        }
+        disabled={loading}
+        submitting={loading}
+        submitStepIndex={stepIndex}
+        submitStepLabel={SUBMIT_STEPS[Math.min(stepIndex, 2)]}
+        onFileSelected={handleFileSelected}
+        onClear={handleClearSource}
       />
     </form>
   );

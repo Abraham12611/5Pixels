@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { v4 as uuidv4 } from "uuid";
 import { createFalAdapter } from "@/lib/ai/fal";
 import {
   getProviderEndpoint,
@@ -265,4 +266,56 @@ export async function createAndSubmitGeneration(
   }
 
   redirect(`/app/generations/${row.generation_id}`);
+}
+
+/**
+ * Regenerate: start a new run with the same preset, source photo, options,
+ * and output size as a previous generation. Credits are charged again — the
+ * caller surfaces the cost on the action before the user commits.
+ */
+export async function regenerateGeneration(
+  generationId: string
+): Promise<CreateAndSubmitResult | never> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "Please sign in to continue." };
+  }
+
+  const { data: previous, error } = await supabase
+    .from("generations")
+    .select(
+      "product_id, product_version_id, source_asset_id, requested_options, progress"
+    )
+    .eq("id", generationId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (error || !previous) {
+    return { error: "This transformation can't be regenerated." };
+  }
+  if (!previous.product_version_id || !previous.source_asset_id) {
+    return { error: "This transformation can't be regenerated." };
+  }
+
+  const progress = (previous.progress ?? {}) as Record<string, unknown>;
+  const outputWidth = Number(progress.output_width);
+  const outputHeight = Number(progress.output_height);
+
+  const idempotencyKey = `regen:${user.id}:${generationId}:${uuidv4()}`;
+  return createAndSubmitGeneration({
+    productId: previous.product_id,
+    productVersionId: previous.product_version_id,
+    sourceAssetId: previous.source_asset_id,
+    options:
+      (previous.requested_options as Record<string, unknown> | null) ?? {},
+    outputSize: {
+      name: "Previous size",
+      width: outputWidth > 0 ? outputWidth : 1024,
+      height: outputHeight > 0 ? outputHeight : 1024,
+    },
+    idempotencyKey,
+  });
 }

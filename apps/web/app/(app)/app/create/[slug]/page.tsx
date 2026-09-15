@@ -1,18 +1,20 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { getPublicProductBySlug } from "@/lib/db/explore";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
-import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { CreateGenerationForm } from "./create-form";
+import type { OutputSizeOption } from "@/types/catalog";
 
 export default async function CreatePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { slug } = await params;
+  const { from } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -28,35 +30,63 @@ export default async function CreatePage({
 
   const balance = await getUserCreditBalance();
 
+  // Adjust flow (?from=<generationId>): restore the source photo and the
+  // options used for that run. Everything is re-validated at submit time —
+  // this only prefills what the user already owned.
+  let initialSource: { assetId: string; url: string; name: string } | null =
+    null;
+  let initialOptions: Record<string, unknown> | null = null;
+  let initialSize: OutputSizeOption | null = null;
+
+  if (from) {
+    const { data: previous } = await supabase
+      .from("generations")
+      .select("product_id, source_asset_id, requested_options, progress")
+      .eq("id", from)
+      .eq("user_id", user.id)
+      .single();
+
+    if (previous && previous.product_id === product.id) {
+      if (previous.source_asset_id) {
+        const url = await getSignedSourceUrlByAssetId(
+          previous.source_asset_id
+        );
+        if (url) {
+          initialSource = {
+            assetId: previous.source_asset_id,
+            url,
+            name: "Your previous photo",
+          };
+        }
+      }
+      if (
+        previous.requested_options &&
+        typeof previous.requested_options === "object"
+      ) {
+        initialOptions = previous.requested_options as Record<string, unknown>;
+      }
+      const progress = previous.progress as Record<string, unknown> | null;
+      const prevW = Number(progress?.output_width);
+      const prevH = Number(progress?.output_height);
+      if (prevW > 0 && prevH > 0) {
+        initialSize =
+          product.output_sizes?.find(
+            (s) => s.width === prevW && s.height === prevH
+          ) ?? null;
+      }
+    }
+  }
+
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="border-cream-100/10 bg-charcoal-850 border-b">
-        <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 sm:px-6">
-          <Button asChild variant="ghost" size="sm">
-            <Link href={`/presets/${slug}`} prefetch={false}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </Link>
-          </Button>
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
-        <div className="mb-6">
-          <h1 className="text-cream-50 text-2xl font-bold sm:text-3xl">
-            Create with {product.name}
-          </h1>
-          <p className="text-text-secondary mt-2 max-w-prose">
-            {product.short_description || product.long_description}
-          </p>
-        </div>
-
-        <CreateGenerationForm
-          userId={user.id}
-          product={product}
-          initialBalance={balance}
-        />
-      </div>
+    <main className="flex flex-1 flex-col lg:max-h-[calc(100dvh-3.5rem)]">
+      <CreateGenerationForm
+        userId={user.id}
+        product={product}
+        initialBalance={balance}
+        initialSource={initialSource}
+        initialOptions={initialOptions}
+        initialSize={initialSize}
+      />
     </main>
   );
 }
