@@ -44,13 +44,32 @@
   --color-ring: var(--color-lime-500);
   --color-border: var(--color-charcoal-700);
 
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  /* 5-based radius scale: 10 / 12 / 15 / 20 */
+  --radius-sm: 0.625rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.9375rem;
+  --radius-xl: 1.25rem;
+
+  /* Dark-mode elevation: white ring instead of decorative borders */
+  --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.06);
+  --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.12);
+  --shadow-elevated:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 8px 24px -8px oklch(0 0 0 / 0.5);
+
+  /* Motion: named curves from the design spec */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* 1px white/10 inner outline for all meaningful media (better-ui rule) */
+@utility media-frame {
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
 }
 
 :root {
@@ -74,13 +93,18 @@ body {
   outline-offset: 2px;
 }
 
-/* Reduced motion */
+/* Reduced motion: kill movement, keep instant state feedback */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
     transition-duration: 0.01ms !important;
+    transition-property:
+      color,
+      background-color,
+      border-color,
+      box-shadow,
+      opacity !important;
   }
 }

@@ -128,7 +128,7 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
           </Select>
         </div>
         <div className="flex items-end gap-2">
-          <Button type="button" variant="danger" onClick={onRemove}>
+          <Button type="button" variant="destructive" onClick={onRemove}>
             Remove
           </Button>
         </div>
@@ -293,7 +293,7 @@ function ChoiceOptionsEditor({
           />
           <Button
             type="button"
-            variant="danger"
+            variant="destructive"
             onClick={() => updateOptions(options.filter((_, i) => i !== optIndex))}
           >
             Remove

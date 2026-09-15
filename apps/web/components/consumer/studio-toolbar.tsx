@@ -66,7 +66,7 @@ export function StudioToolbar({
           <Coins
             size={15}
             weight="fill"
-            className={cost > balance ? "text-rose-400" : "text-lime-400"}
+            className={cost > balance ? "text-error" : "text-lime-400"}
           />
           <span className="text-cream-50 font-mono font-semibold">{cost}</span>
           <span className="text-text-muted text-xs">credits</span>
@@ -83,7 +83,7 @@ export function StudioToolbar({
       </div>
 
       {!canAfford && !loading && (
-        <div className="mx-auto mt-2 flex max-w-max items-center gap-2 rounded-full border border-rose-500/30 bg-rose-950/60 px-4 py-1.5 text-xs text-rose-200 backdrop-blur">
+        <div className="mx-auto mt-2 flex max-w-max items-center gap-2 rounded-full border border-error/30 bg-error/20 px-4 py-1.5 text-xs text-error backdrop-blur">
           <Warning size={13} weight="bold" />
           <span>
             Insufficient credits (balance {balance}).{" "}

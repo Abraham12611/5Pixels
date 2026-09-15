@@ -141,7 +141,7 @@ export function VersionRollback({
             </Button>
             <Button
               type="button"
-              variant="danger"
+              variant="destructive"
               disabled={isPending}
               onClick={runRollback}
             >

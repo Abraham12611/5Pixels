@@ -107,7 +107,7 @@ export function SourceUploadDropzone({
               <button
                 type="button"
                 onClick={clear}
-                className="flex items-center gap-1 rounded-lg bg-black/60 px-2 py-1 text-xs text-rose-300 backdrop-blur transition hover:bg-black/80"
+                className="flex items-center gap-1 rounded-lg bg-black/60 px-2 py-1 text-xs text-error backdrop-blur transition hover:bg-black/80"
               >
                 <Trash size={12} weight="bold" />
                 Remove
@@ -160,7 +160,7 @@ export function SourceUploadDropzone({
       ) : null}
 
       {file && file.size > 20 * 1024 * 1024 ? (
-        <p className="text-rose-400 flex items-center gap-1.5 text-xs">
+        <p className="text-error flex items-center gap-1.5 text-xs">
           <Warning size={14} weight="bold" /> Image must be 20 MB or smaller.
         </p>
       ) : null}

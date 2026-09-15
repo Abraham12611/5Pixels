@@ -32,7 +32,7 @@ export function CreditsCard({ balance }: CreditsCardProps) {
         <div className="mt-4">
           <div className="bg-charcoal-700 h-1.5 w-full overflow-hidden rounded-full">
             <div
-              className={`h-full rounded-full ${low ? "bg-rose-500" : "bg-lime-400"}`}
+              className={`h-full rounded-full ${low ? "bg-error" : "bg-lime-400"}`}
               style={{ width: `${pct}%` }}
             />
           </div>

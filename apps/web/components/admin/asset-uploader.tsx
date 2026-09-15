@@ -191,7 +191,7 @@ export function AssetUploader({
             {previewUrl ? "Replace" : "Choose file"}
           </Button>
           {value && (
-            <Button type="button" variant="danger" onClick={remove}>
+            <Button type="button" variant="destructive" onClick={remove}>
               Remove selection
             </Button>
           )}

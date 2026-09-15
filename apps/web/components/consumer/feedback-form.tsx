@@ -89,7 +89,7 @@ export function FeedbackForm({
       {message && (
         <p
           className={`text-sm ${
-            message.startsWith("Thanks") ? "text-lime-400" : "text-rose-400"
+            message.startsWith("Thanks") ? "text-lime-400" : "text-error"
           }`}
         >
           {message}

@@ -49,7 +49,7 @@ export function ProductMedia({
         muted
         playsInline
         preload="metadata"
-        className={cn("h-full w-full object-cover", className)}
+        className={cn("media-frame h-full w-full object-cover", className)}
         aria-label={alt}
       />
     );
@@ -63,7 +63,7 @@ export function ProductMedia({
         fill={fill}
         width={fill ? undefined : (asset.width ?? 640)}
         height={fill ? undefined : (asset.height ?? 800)}
-        className={cn("object-cover", className)}
+        className={cn("media-frame object-cover", className)}
         priority={priority}
         sizes={sizes}
         unoptimized={asset.mime_type === "image/gif"}

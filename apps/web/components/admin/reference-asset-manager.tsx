@@ -285,7 +285,7 @@ export function ReferenceAssetManager({
             </div>
             <Button
               type="button"
-              variant="danger"
+              variant="destructive"
               onClick={() => detach(asset.id)}
               disabled={busy}
             >

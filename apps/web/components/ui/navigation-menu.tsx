@@ -1,7 +1,7 @@
 import * as React from "react"
 import { cva } from "class-variance-authority"
 import { cn } from "cn"
-import { ChevronDownIcon } from "lucide-react"
+import { CaretDown } from "@phosphor-icons/react"
 import { NavigationMenu as NavigationMenuPrimitive } from "radix-ui"
 
 function NavigationMenu({
@@ -73,8 +73,9 @@ function NavigationMenuTrigger({
       {...props}
     >
       {children}{" "}
-      <ChevronDownIcon
-        className="relative top-[1px] ml-1 size-3 transition duration-300 group-data-[state=open]:rotate-180"
+      <CaretDown
+        className="relative top-[1px] ml-1 size-3 transition-transform duration-200 ease-out group-data-[state=open]:rotate-180"
+        weight="bold"
         aria-hidden="true"
       />
     </NavigationMenuPrimitive.Trigger>

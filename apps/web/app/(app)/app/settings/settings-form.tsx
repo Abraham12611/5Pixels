@@ -161,7 +161,7 @@ export default function SettingsForm({ initial }: SettingsFormProps) {
       {message && (
         <p
           className={`text-sm ${
-            message === "Settings saved." ? "text-lime-400" : "text-rose-400"
+            message === "Settings saved." ? "text-lime-400" : "text-error"
           }`}
         >
           {message}

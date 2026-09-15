@@ -32,8 +32,8 @@ export default function DeleteAccountPage() {
           legal and operational purposes.
         </p>
 
-        <div className="bg-rose-950/20 border-rose-500/30 mt-6 rounded-xl border p-4">
-          <p className="text-rose-200 text-sm">
+        <div className="bg-error/10 border-error/30 mt-6 rounded-xl border p-4">
+          <p className="text-error text-sm">
             <strong>Warning:</strong> This action cannot be undone. Your source
             images, generated outputs, favorites, and settings will be deleted.
             Any active subscription will be cancelled.
@@ -58,20 +58,20 @@ export default function DeleteAccountPage() {
               value={confirmation}
               onChange={(e) => setConfirmation(e.target.value)}
               required
-              className="border-cream-100/10 bg-charcoal-900 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+              className="border-cream-100/10 bg-charcoal-900 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-error"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="bg-rose-500 text-cream-50 hover:bg-rose-400 disabled:opacity-50 w-full rounded-xl px-4 py-2 text-sm font-semibold transition"
+            className="bg-error text-cream-50 hover:bg-error/80 disabled:opacity-50 w-full rounded-xl px-4 py-2 text-sm font-semibold transition"
           >
             {loading ? "Deleting…" : "Delete my account"}
           </button>
 
           {error && (
-            <p className="text-rose-400 text-sm">{error}</p>
+            <p className="text-error text-sm">{error}</p>
           )}
         </form>
       </div>
