@@ -67,19 +67,24 @@ export default async function ExplorePage({
       : filters.type === "poster"
         ? "Posters"
         : filters.sort === "newest"
-          ? "New arrivals"
-          : "Viral now";
+          ? "New looks"
+          : "Trending now";
 
   const subcopy = activeCategoryName
     ? `Curated ${filters.type ?? "filters and posters"} in the ${activeCategoryName} category.`
     : filters.sort === "newest"
       ? "The freshest presets added this week."
-      : "What the community is generating right now.";
+      : "The looks getting the most traction right now.";
 
   return (
     <main className="flex flex-1 flex-col px-4 py-10 sm:px-6 lg:py-12">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
+          {activeCategoryName && (
+            <p className="text-text-muted mb-1.5 text-[11px] font-semibold uppercase tracking-wider">
+              Category
+            </p>
+          )}
           <div className="mb-2 flex items-center gap-2">
             <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
               {heading}
@@ -129,10 +134,20 @@ export default async function ExplorePage({
         pageSize={filters.pageSize}
       />
 
-      <p className="text-text-muted mb-6 text-sm">
-        {totalCount} {totalCount === 1 ? "preset" : "presets"}
-        {filters.search ? ` matching "${filters.search}"` : ""}
-      </p>
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <p className="text-text-muted text-sm">
+          {totalCount} {totalCount === 1 ? "preset" : "presets"}
+          {filters.search ? ` matching "${filters.search}"` : ""}
+        </p>
+        {(filters.category || filters.type || filters.search) && (
+          <Link
+            href="/explore"
+            className="text-text-secondary hover:text-lime-400 text-[13px] font-medium transition-colors"
+          >
+            Explore all presets
+          </Link>
+        )}
+      </div>
 
       {products.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
@@ -152,7 +167,11 @@ export default async function ExplorePage({
         <>
           <section
             aria-label="Catalog presets"
-            className="columns-2 gap-5 md:columns-3 xl:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid"
+            className={
+              products.length <= 4
+                ? "grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-2"
+                : "columns-2 gap-5 md:columns-3 xl:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid"
+            }
           >
             {products.map((product, index) => (
               <ProductCard

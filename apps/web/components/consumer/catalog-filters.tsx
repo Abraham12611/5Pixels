@@ -22,7 +22,7 @@ const TYPE_OPTIONS: { value: ProductType | "all"; label: string }[] = [
 ];
 
 const SORT_OPTIONS: { value: CatalogSort; label: string }[] = [
-  { value: "featured", label: "Featured" },
+  { value: "featured", label: "Trending" },
   { value: "newest", label: "Newest" },
   { value: "name_asc", label: "Name A-Z" },
   { value: "name_desc", label: "Name Z-A" },

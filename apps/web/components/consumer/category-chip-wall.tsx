@@ -12,7 +12,7 @@ interface CategoryChipWallProps {
 }
 
 const SORT_CHIPS: { value: string; label: string; icon: typeof Fire }[] = [
-  { value: "featured", label: "Viral", icon: Fire },
+  { value: "featured", label: "Trending", icon: Fire },
   { value: "newest", label: "New", icon: Sparkle },
 ];
 

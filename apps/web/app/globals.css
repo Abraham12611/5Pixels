@@ -94,6 +94,14 @@
   animation: overlay-in 140ms var(--ease-out) both;
 }
 
+/* Hide scrollbars on horizontal media rails while keeping scroll */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 :root {
   color-scheme: dark;
 }
