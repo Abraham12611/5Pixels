@@ -4,28 +4,31 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ArrowCounterClockwise,
+  BookmarkSimple,
   Download,
   ShareNetwork,
   SlidersHorizontal,
   SquaresFour,
   Warning,
 } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { FavoriteButton } from "@/components/consumer/favorite-button";
 import { ShareActions } from "@/components/consumer/share-actions";
 import { regenerateGeneration } from "@/lib/generation/actions";
+import {
+  markGenerationDownloaded,
+  setGenerationSaved,
+} from "@/lib/library/actions";
 import { cn } from "@/lib/utils";
 
 interface ResultActionsProps {
   generationId: string;
-  productId: string;
   productSlug: string;
   /** Credit cost of running this transformation again. */
   creditCost: number;
   downloadUrl: string | null;
   initialShareId: string | null;
-  initialIsFavorite: boolean;
-  returnPath: string;
+  initialSaved: boolean;
 }
 
 /**
@@ -35,15 +38,14 @@ interface ResultActionsProps {
  */
 export function ResultActions({
   generationId,
-  productId,
   productSlug,
   creditCost,
   downloadUrl,
   initialShareId,
-  initialIsFavorite,
-  returnPath,
+  initialSaved,
 }: ResultActionsProps) {
   const [shareOpen, setShareOpen] = useState(Boolean(initialShareId));
+  const [saved, setSaved] = useState(initialSaved);
   const [regenError, setRegenError] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -56,12 +58,32 @@ export function ResultActions({
     });
   };
 
+  const handleSave = () => {
+    const next = !saved;
+    setSaved(next);
+    startTransition(async () => {
+      const result = await setGenerationSaved(generationId, next);
+      if (!result.success) {
+        setSaved(!next);
+        toast.error(result.error ?? "Could not update this result.");
+      } else if (next) {
+        toast("Saved to Library");
+      }
+    });
+  };
+
   return (
     <div className="shadow-border rounded-xl bg-charcoal-850 p-4">
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {downloadUrl && (
           <Button asChild variant="brand" className="col-span-2 sm:col-span-1">
-            <a href={downloadUrl} download target="_blank" rel="noreferrer">
+            <a
+              href={downloadUrl}
+              download
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => void markGenerationDownloaded(generationId)}
+            >
               <Download size={15} weight="bold" />
               Download
             </a>
@@ -101,13 +123,18 @@ export function ResultActions({
             <ShareNetwork size={15} weight="bold" />
             Share
           </Button>
-          <FavoriteButton
-            productId={productId}
-            initialIsFavorite={initialIsFavorite}
-            isAuthenticated
-            returnPath={returnPath}
-            compact
-          />
+          <Button
+            type="button"
+            variant={saved ? "secondary" : "tertiary"}
+            size="icon"
+            onClick={handleSave}
+            disabled={isPending}
+            aria-pressed={saved}
+            aria-label={saved ? "Remove from saved" : "Save to Library"}
+            className={cn(saved && "text-lime-300")}
+          >
+            <BookmarkSimple size={15} weight={saved ? "fill" : "bold"} />
+          </Button>
         </div>
       </div>
 

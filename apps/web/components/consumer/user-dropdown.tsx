@@ -210,7 +210,7 @@ export function UserDropdown({
           <>
             <DropdownMenuSeparator className="bg-cream-100/10 my-2" />
             <DropdownMenuItem asChild>
-              <Link href="/app/generations" className={ITEM_CLASS}>
+              <Link href="/app/library" className={ITEM_CLASS}>
                 <Lightning size={16} weight="fill" className="text-lime-400" />
                 <span className="flex-1">
                   {inProgressCount} transformation

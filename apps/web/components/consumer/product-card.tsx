@@ -17,6 +17,8 @@ interface ProductCardProps {
   priority?: boolean;
   /** grid = masonry cell; rail = fixed-width horizontal-scroll card. */
   variant?: "grid" | "rail";
+  /** Called after the server confirms a favorite toggle. */
+  onFavoriteChange?: (productId: string, isFavorite: boolean) => void;
 }
 
 function stillAsset(assets: PublicProductAsset[]): PublicProductAsset | null {
@@ -55,6 +57,7 @@ export function ProductCard({
   returnPath = `/explore`,
   priority = false,
   variant = "grid",
+  onFavoriteChange,
 }: ProductCardProps) {
   const still = stillAsset(product.public_assets);
   const video = videoAsset(product.public_assets);
@@ -111,6 +114,7 @@ export function ProductCard({
               isAuthenticated={isAuthenticated}
               returnPath={returnPath}
               compact
+              onToggled={(fav) => onFavoriteChange?.(product.id, fav)}
             />
           </span>
         </div>

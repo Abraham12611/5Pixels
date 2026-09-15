@@ -62,6 +62,17 @@ export type PublicProductDetail = PublicProductSummary & {
   public_assets: PublicProductAsset[];
 };
 
+/**
+ * A favorited preset. `isAvailable` is false when the preset has been retired
+ * or hidden since the user saved it — Favorites renders those as muted cards
+ * instead of dropping them silently.
+ */
+export interface FavoriteProduct {
+  product: PublicProductSummary;
+  isAvailable: boolean;
+  favoritedAt: string;
+}
+
 export interface CatalogFilters {
   type: ProductType | null;
   category: string | null;

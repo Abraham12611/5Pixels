@@ -12,6 +12,7 @@ import {
   uploadOutputImage,
 } from "@/lib/generation/upload";
 import type { SafeGenerationDetail } from "./types";
+import { mapSafeGenerationRow } from "./map";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
 
@@ -51,24 +52,7 @@ async function fetchSafeGeneration(
 function mapGenerationRow(rows: unknown[]): SafeGenerationDetail {
   const row = rows[0] as Record<string, unknown>;
   return {
-    id: row.id as string,
-    productId: row.product_id as string,
-    productName: row.product_name as string,
-    productSlug: row.product_slug as string,
-    productType: row.product_type as string,
-    status: row.status as string,
-    statusDetail: (row.status_detail as string | null) ?? null,
-    progress: (row.progress as Record<string, unknown> | null) ?? null,
-    creditCost: Number(row.credit_cost),
-    createdAt: (row.created_at as string) ?? "",
-    updatedAt: (row.updated_at as string) ?? "",
-    outputAssetId: (row.output_asset_id as string | null) ?? null,
-    outputRole: (row.output_role as string | null) ?? null,
-    outputBucket: (row.output_bucket as string | null) ?? null,
-    outputStorageKey: (row.output_storage_key as string | null) ?? null,
-    outputMimeType: (row.output_mime_type as string | null) ?? null,
-    outputWidth: (row.output_width as number | null) ?? null,
-    outputHeight: (row.output_height as number | null) ?? null,
+    ...mapSafeGenerationRow(row),
     sourceAssetId: (row.source_asset_id as string | null) ?? null,
     sourceBucket: (row.source_bucket as string | null) ?? null,
     sourceStorageKey: (row.source_storage_key as string | null) ?? null,

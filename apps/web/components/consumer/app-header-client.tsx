@@ -48,10 +48,12 @@ const DISCOVER: NavItem = {
 
 const AFTER_EXPLORE: NavItem[] = [
   {
-    href: "/app/generations",
+    href: "/app/library",
     label: "Library",
     isActive: (p) =>
-      p.startsWith("/app/generations") || p.startsWith("/app/results"),
+      p.startsWith("/app/library") ||
+      p.startsWith("/app/generations") ||
+      p.startsWith("/app/results"),
   },
   {
     href: "/app/favorites",

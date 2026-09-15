@@ -1,10 +1,28 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getPublicProducts, getUserFavoriteProductIds } from "@/lib/db/explore";
-import { ProductCard } from "@/components/consumer/product-card";
+import { getUserFavoriteProducts } from "@/lib/db/explore";
+import { FavoritesGrid } from "@/components/consumer/favorites-grid";
 import { Button } from "@/components/ui/button";
+import { FivePixelMark } from "@/components/consumer/five-pixel";
 import Link from "next/link";
-import { Heart } from "lucide-react";
+
+function GhostCards() {
+  const aspects = ["4 / 5", "1 / 1", "4 / 3", "3 / 4"];
+  return (
+    <div
+      aria-hidden
+      className="columns-2 gap-5 opacity-60 md:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid"
+    >
+      {aspects.map((aspect, i) => (
+        <div
+          key={i}
+          className="shadow-border rounded-xl bg-charcoal-850/50"
+          style={{ aspectRatio: aspect }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export default async function FavoritesPage() {
   const supabase = await createClient();
@@ -17,59 +35,53 @@ export default async function FavoritesPage() {
     redirect("/login?next=/app/favorites");
   }
 
-  const favoriteIds = await getUserFavoriteProductIds();
-  const { data: products, error } =
-    favoriteIds.length > 0
-      ? await getPublicProducts(undefined, undefined, favoriteIds)
-      : { data: [], error: undefined };
+  const { data: favorites, error } = await getUserFavoriteProducts();
 
   if (error) {
-    throw new Error("Unable to load favorites. Please try again.");
+    throw new Error(error);
   }
 
-  const favoriteIdSet = new Set(favoriteIds);
-
   return (
-    <main className="flex flex-1 flex-col px-4 py-10 sm:px-6 lg:py-12">
-      <div className="mb-8">
-        <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
-          Your favorites
-        </h1>
-        <p className="text-text-secondary mt-2">
-          Presets you have saved for quick access.
-        </p>
-      </div>
-
-      {products.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
-          <Heart className="text-text-muted h-12 w-12" aria-hidden />
-          <h2 className="text-cream-50 mt-4 text-xl font-semibold">
-            No favorites yet
-          </h2>
-          <p className="text-text-secondary mt-2 max-w-md">
-            Browse the catalog and tap the heart on any preset to save it here.
-          </p>
-          <Button asChild className="mt-6">
-            <Link href="/explore">Explore presets</Link>
-          </Button>
+    <main className="flex flex-1 flex-col">
+      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-cream-50 text-2xl font-bold sm:text-3xl">
+              Favorites
+            </h1>
+            <p className="text-text-secondary mt-1 text-sm">
+              {favorites.length === 0
+                ? "Looks you save live here."
+                : `${favorites.length} saved ${
+                    favorites.length === 1 ? "look" : "looks"
+                  }`}
+            </p>
+          </div>
+          {favorites.length > 0 && (
+            <span className="text-text-muted text-[13px]">Recently saved</span>
+          )}
         </div>
-      ) : (
-        <section
-          aria-label="Favorite presets"
-          className="columns-2 gap-5 md:columns-3 xl:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid"
-        >
-          {products.map((product, index) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              isAuthenticated
-              initialIsFavorite={favoriteIdSet.has(product.id)}
-              returnPath="/app/favorites"
-              priority={index < 4}
-            />
-          ))}
-        </section>
-      )}
+
+        {favorites.length === 0 ? (
+          <div className="relative">
+            <GhostCards />
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <FivePixelMark className="mb-4 opacity-70" />
+              <h2 className="text-cream-50 text-lg font-semibold">
+                Save looks you want to try later.
+              </h2>
+              <p className="text-text-secondary mt-1.5 max-w-sm text-sm">
+                Tap the heart on any preset and it will wait for you here.
+              </p>
+              <Button asChild className="mt-5">
+                <Link href="/explore">Explore presets</Link>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <FavoritesGrid favorites={favorites} />
+        )}
+      </div>
     </main>
   );
 }

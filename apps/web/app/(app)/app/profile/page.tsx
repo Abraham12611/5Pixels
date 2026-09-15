@@ -79,7 +79,7 @@ export default async function ProfilePage() {
                   Recent generations
                 </h2>
                 <Button asChild variant="ghost" size="sm">
-                  <Link href="/app/generations">View all</Link>
+                  <Link href="/app/library">View all</Link>
                 </Button>
               </div>
 
