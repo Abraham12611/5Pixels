@@ -278,7 +278,7 @@ export function TestLabForm({ product, initialBalance }: TestLabFormProps) {
               Your balance: {initialBalance} credits
             </p>
             {!canAfford && (
-              <p className="text-rose-400 mt-1 text-sm">
+              <p className="text-error mt-1 text-sm">
                 Insufficient credits. Adjust your balance on the Support page.
               </p>
             )}
@@ -299,7 +299,7 @@ export function TestLabForm({ product, initialBalance }: TestLabFormProps) {
       </section>
 
       {error && (
-        <div className="border-l-4 border-red-500 bg-red-950/20 p-4 text-sm text-red-200">
+        <div className="border-l-4 border-error bg-error/10 p-4 text-sm text-error">
           {error}
         </div>
       )}

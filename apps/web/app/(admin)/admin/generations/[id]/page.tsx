@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/db/admin";
 import { getAdminGenerationById } from "@/lib/db/generations-admin";
@@ -86,14 +87,15 @@ export default async function AdminGenerationDetailPage({
   if (!generation) notFound();
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-6 flex items-start justify-between">
         <div>
           <Link
             href="/admin/generations"
-            className="text-text-secondary hover:text-cream-100 text-sm transition"
+            className="text-text-muted hover:text-cream-100 inline-flex items-center gap-0.5 rounded-md py-0.5 text-[13px] transition-colors"
           >
-            ← Back to generations
+            <CaretLeft size={14} />
+            generations
           </Link>
           <h1 className="text-cream-50 mt-2 text-3xl font-bold">
             Generation {id.slice(0, 8)}
@@ -282,6 +284,6 @@ export default async function AdminGenerationDetailPage({
           </div>
         )}
       </Section>
-    </main>
+    </>
   );
 }

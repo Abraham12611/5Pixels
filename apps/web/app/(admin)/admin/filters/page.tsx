@@ -14,7 +14,7 @@ export default async function FiltersPage() {
   const filters = await getProducts("filter");
 
   return (
-    <main className="p-8">
+    <>
       <div className="flex items-center justify-between">
         <h1 className="text-cream-50 text-3xl font-bold">Filters</h1>
         <Button asChild>
@@ -27,7 +27,15 @@ export default async function FiltersPage() {
 
       <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border">
         {filters.length === 0 ? (
-          <p className="text-text-secondary p-6">No filters yet.</p>
+          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+            <p className="text-cream-50 text-sm font-medium">No filters yet</p>
+            <p className="text-text-secondary max-w-xs text-sm">
+              Create the first style preset to make it available in Explore.
+            </p>
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/admin/filters/new">New filter</Link>
+            </Button>
+          </div>
         ) : (
           <ul className="divide-cream-100/10 divide-y">
             {filters.map((filter) => (
@@ -62,6 +70,6 @@ export default async function FiltersPage() {
           </ul>
         )}
       </div>
-    </main>
+    </>
   );
 }

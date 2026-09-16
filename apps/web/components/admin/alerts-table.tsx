@@ -11,9 +11,9 @@ interface AlertsTableProps {
 function severityClass(severity: string): string {
   switch (severity) {
     case "critical":
-      return "text-rose-400";
+      return "text-error";
     case "warning":
-      return "text-amber-400";
+      return "text-warning";
     default:
       return "text-lime-400";
   }
@@ -36,7 +36,7 @@ export function AlertsTable({ alerts }: AlertsTableProps) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
+      <table className="w-full text-left text-sm tabular-nums">
         <thead>
           <tr className="text-text-secondary border-cream-100/10 border-b">
             <th className="pb-2 font-medium">Time</th>
@@ -93,7 +93,7 @@ export function AlertsTable({ alerts }: AlertsTableProps) {
                     <button
                       onClick={() => handleResolve(alert.id)}
                       disabled={isPending}
-                      className="text-rose-400 hover:text-rose-300 text-xs font-medium transition"
+                      className="text-error hover:text-error text-xs font-medium transition"
                     >
                       Resolve
                     </button>

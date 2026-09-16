@@ -31,7 +31,7 @@ export default async function AdminGenerationsPage() {
   const generations = await getAdminGenerations();
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Generation operations</h1>
         <p className="text-text-secondary mt-2">
@@ -41,7 +41,7 @@ export default async function AdminGenerationsPage() {
 
       <div className="border-cream-100/10 bg-charcoal-850 overflow-hidden rounded-2xl border">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm tabular-nums">
             <thead>
               <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-900/50">
                 <th className="px-4 py-3 font-medium">ID</th>
@@ -125,6 +125,6 @@ export default async function AdminGenerationsPage() {
           </table>
         </div>
       </div>
-    </main>
+    </>
   );
 }

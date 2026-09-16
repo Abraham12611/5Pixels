@@ -12,13 +12,13 @@ export default async function CategoriesPage() {
   const categories = await getCategoriesForAdmin();
 
   return (
-    <main className="p-8">
+    <>
       <CategoryManager
         categories={categories}
         onCreate={createCategory}
         onUpdate={updateCategory}
         onToggleActive={toggleCategoryActive}
       />
-    </main>
+    </>
   );
 }

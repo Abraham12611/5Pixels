@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { requireAdmin } from "@/lib/db/admin";
 import { getPublicProductBySlug } from "@/lib/db/explore";
 import { getUserCreditBalance } from "@/lib/generation/balance";
@@ -19,13 +20,14 @@ export default async function AdminTestLabDetailPage({
   const balance = await getUserCreditBalance();
 
   return (
-    <main className="p-8">
+    <>
       <Link
-        href="/admin/lab"
-        className="text-text-secondary hover:text-cream-100 text-sm transition"
-      >
-        ← Back to test lab
-      </Link>
+            href="/admin/lab"
+            className="text-text-muted hover:text-cream-100 inline-flex items-center gap-0.5 rounded-md py-0.5 text-[13px] transition-colors"
+          >
+            <CaretLeft size={14} />
+            test lab
+          </Link>
 
       <h1 className="text-cream-50 mt-4 text-3xl font-bold">
         Test {product.name}
@@ -34,13 +36,13 @@ export default async function AdminTestLabDetailPage({
         {product.short_description || product.long_description}
       </p>
 
-      <div className="mt-6 rounded-xl border border-amber-400/20 bg-amber-400/5 p-4">
-        <p className="text-amber-300 text-sm">
+      <div className="mt-6 rounded-xl border border-warning/30 bg-warning/10 p-4">
+        <p className="text-warning text-sm">
           <strong>Admin test run.</strong> This uses your personal credit balance and stores the result in your generation history. The output is processed by the same pipeline as a consumer generation.
         </p>
       </div>
 
       <TestLabForm product={product} initialBalance={balance} />
-    </main>
+    </>
   );
 }

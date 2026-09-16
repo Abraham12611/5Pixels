@@ -7,7 +7,7 @@ export default async function AdminTestLabPage() {
   const { data: products } = await getPublicProducts(undefined, undefined, undefined, undefined, "name_asc", 1, 100);
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Manual test lab</h1>
         <p className="text-text-secondary mt-2">
@@ -46,6 +46,6 @@ export default async function AdminTestLabPage() {
           </ul>
         )}
       </div>
-    </main>
+    </>
   );
 }

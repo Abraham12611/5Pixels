@@ -33,7 +33,7 @@ interface VersionListProps {
 
 const STATE_COLORS: Record<string, string> = {
   draft: "bg-charcoal-700 text-cream-100",
-  testing: "bg-blue-900/40 text-blue-300",
+  testing: "bg-cream-100/10 text-cream-100",
   active: "bg-lime-500/20 text-lime-400",
   retired: "bg-charcoal-700 text-text-muted",
 };

@@ -11,7 +11,7 @@ export default async function AdminAlertsPage() {
   ]);
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Alerts</h1>
         <p className="text-text-secondary mt-2">
@@ -34,6 +34,6 @@ export default async function AdminAlertsPage() {
           <AlertsTable alerts={history} />
         </div>
       </section>
-    </main>
+    </>
   );
 }

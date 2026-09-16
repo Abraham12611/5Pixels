@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/db/admin";
 import { getUserSupportSummary } from "@/lib/db/support";
@@ -38,13 +39,14 @@ export default async function AdminSupportUserPage({
   );
 
   return (
-    <main className="p-8">
+    <>
       <Link
-        href="/admin/support"
-        className="text-text-secondary hover:text-cream-100 text-sm transition"
-      >
-        ← Back to support
-      </Link>
+            href="/admin/support"
+            className="text-text-muted hover:text-cream-100 inline-flex items-center gap-0.5 rounded-md py-0.5 text-[13px] transition-colors"
+          >
+            <CaretLeft size={14} />
+            support
+          </Link>
 
       <div className="mt-4 mb-8 flex items-start justify-between">
         <div>
@@ -61,7 +63,7 @@ export default async function AdminSupportUserPage({
             </span>
           )}
           {user.isAdmin && !user.isOwner && (
-            <span className="bg-amber-400/10 text-amber-400 rounded-full px-3 py-1 text-xs font-medium">
+            <span className="bg-warning/10 text-warning rounded-full px-3 py-1 text-xs font-medium">
               Admin
             </span>
           )}
@@ -257,6 +259,6 @@ export default async function AdminSupportUserPage({
           </ul>
         )}
       </section>
-    </main>
+    </>
   );
 }

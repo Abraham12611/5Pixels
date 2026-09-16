@@ -32,7 +32,7 @@ export default async function AdminDashboardPage() {
   ]);
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Admin dashboard</h1>
         <p className="text-text-secondary mt-2">
@@ -41,14 +41,14 @@ export default async function AdminDashboardPage() {
       </div>
 
       {activeAlerts.length > 0 && (
-        <section className="bg-rose-950/20 border-rose-500/30 mb-8 rounded-2xl border p-4">
+        <section className="bg-error/10 border-error/30 mb-8 rounded-2xl border p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-rose-200 text-lg font-semibold">
+              <h2 className="text-error text-lg font-semibold">
                 {activeAlerts.length} active alert
                 {activeAlerts.length === 1 ? "" : "s"}
               </h2>
-              <p className="text-rose-300/80 mt-1 text-sm">
+              <p className="text-error/80 mt-1 text-sm">
                 {activeAlerts[0]?.message}
                 {activeAlerts.length > 1 &&
                   ` and ${activeAlerts.length - 1} more`}
@@ -56,7 +56,7 @@ export default async function AdminDashboardPage() {
             </div>
             <Link
               href="/admin/alerts"
-              className="text-rose-200 hover:text-rose-100 text-sm font-medium transition"
+              className="text-error hover:text-error/80 text-sm font-medium transition"
             >
               View alerts →
             </Link>
@@ -210,7 +210,7 @@ export default async function AdminDashboardPage() {
           <p className="text-text-secondary">No provider usage today.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm tabular-nums">
               <thead>
                 <tr className="text-text-secondary border-cream-100/10 border-b">
                   <th className="py-2 font-medium">Endpoint</th>
@@ -237,6 +237,6 @@ export default async function AdminDashboardPage() {
           </div>
         )}
       </section>
-    </main>
+    </>
   );
 }

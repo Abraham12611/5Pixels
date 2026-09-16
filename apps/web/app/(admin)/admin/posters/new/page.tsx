@@ -8,8 +8,8 @@ export default async function NewPosterPage() {
   const categories = await getCategories();
 
   return (
-    <main className="p-8">
+    <>
       <ProductForm type="poster" categories={categories} onSubmit={createProduct} />
-    </main>
+    </>
   );
 }

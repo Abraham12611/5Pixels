@@ -7,7 +7,7 @@ export default async function AdminUsersPage() {
   const users = await getAdminUsers();
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">User roles</h1>
         <p className="text-text-secondary mt-2">
@@ -17,6 +17,6 @@ export default async function AdminUsersPage() {
       </div>
 
       <UsersTable users={users} />
-    </main>
+    </>
   );
 }

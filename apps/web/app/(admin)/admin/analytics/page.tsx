@@ -57,7 +57,7 @@ export default async function AdminAnalyticsPage() {
   const data = await getAdminAnalytics();
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Analytics</h1>
         <p className="text-text-secondary mt-2">
@@ -102,7 +102,7 @@ export default async function AdminAnalyticsPage() {
         <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
           <h2 className="text-cream-100 text-lg font-semibold">Top products by volume</h2>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm tabular-nums">
               <thead>
                 <tr className="text-text-secondary border-cream-100/10 border-b">
                   <th className="pb-2 font-medium">Product</th>
@@ -133,7 +133,7 @@ export default async function AdminAnalyticsPage() {
                       </td>
                       <td className="py-3 text-cream-100">{p.total}</td>
                       <td className="py-3 text-lime-400">{p.completed}</td>
-                      <td className="py-3 text-rose-400">
+                      <td className="py-3 text-error">
                         {p.failed + p.blocked}
                       </td>
                       <td className="py-3 text-cream-100">
@@ -152,7 +152,7 @@ export default async function AdminAnalyticsPage() {
         <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
           <h2 className="text-cream-100 text-lg font-semibold">Provider endpoints</h2>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm tabular-nums">
               <thead>
                 <tr className="text-text-secondary border-cream-100/10 border-b">
                   <th className="pb-2 font-medium">Endpoint</th>
@@ -192,7 +192,7 @@ export default async function AdminAnalyticsPage() {
         <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
           <h2 className="text-cream-100 text-lg font-semibold">Failure codes</h2>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm tabular-nums">
               <thead>
                 <tr className="text-text-secondary border-cream-100/10 border-b">
                   <th className="pb-2 font-medium">Code</th>
@@ -221,6 +221,6 @@ export default async function AdminAnalyticsPage() {
           </div>
         </section>
       </div>
-    </main>
+    </>
   );
 }

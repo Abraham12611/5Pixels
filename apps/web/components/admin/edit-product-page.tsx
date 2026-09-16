@@ -19,6 +19,8 @@ import { VersionRollback } from "./version-rollback";
 import { VersionList, type VersionSummary } from "./version-list";
 import { ReferenceAssetManager } from "./reference-asset-manager";
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import type { ProductCreateInput } from "@5pixels/shared";
 import { validatePublishGates } from "@/lib/validation/publish-gates";
 
@@ -232,8 +234,23 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     })
   );
 
+  const listHref = type === "filter" ? "/admin/filters" : "/admin/posters";
+
   return (
-    <main className="p-8">
+    <>
+      <div className="mb-6">
+        <Link
+          href={listHref}
+          className="text-text-muted hover:text-cream-100 inline-flex items-center gap-0.5 rounded-md py-0.5 text-[13px] transition-colors"
+        >
+          <CaretLeft size={14} />
+          {type === "filter" ? "Filters" : "Posters"}
+        </Link>
+        <h1 className="text-cream-50 mt-2 text-3xl font-bold">
+          {product.name}
+        </h1>
+        <p className="text-text-muted mt-1 text-sm">{product.slug}</p>
+      </div>
       <div className="border-cream-100/10 bg-charcoal-850 mb-6 flex items-center justify-between rounded-2xl border p-4">
         <div className="space-y-1">
           <p className="text-text-secondary text-sm">
@@ -332,6 +349,6 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           onDetach={detachReferenceAsset}
         />
       </div>
-    </main>
+    </>
   );
 }

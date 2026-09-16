@@ -2,6 +2,9 @@
 
 import { useActionState, useMemo } from "react";
 import { adjustUserCredits } from "@/lib/db/support";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface CreditAdjustmentFormProps {
   userId: string;
@@ -27,58 +30,52 @@ export function CreditAdjustmentForm({
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
       <div>
-        <label
+        <Label
           htmlFor="amount"
           className="text-text-muted mb-1 block text-xs font-medium uppercase"
         >
           Amount
-        </label>
+        </Label>
         <p className="text-text-secondary mb-2 text-xs">
           Positive numbers add credits; negative numbers deduct.
         </p>
-        <input
+        <Input
           id="amount"
           name="amount"
           type="number"
           step="0.01"
           required
           defaultValue={0}
-          className="border-cream-100/10 bg-charcoal-900 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
         />
       </div>
 
       <div>
-        <label
+        <Label
           htmlFor="reason"
           className="text-text-muted mb-1 block text-xs font-medium uppercase"
         >
           Reason
-        </label>
-        <input
+        </Label>
+        <Input
           id="reason"
           name="reason"
           type="text"
           required
           minLength={4}
           placeholder="Customer support credit"
-          className="border-cream-100/10 bg-charcoal-900 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
         />
       </div>
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="bg-lime-400 text-charcoal-950 hover:bg-lime-300 disabled:opacity-50 rounded-xl px-4 py-2 text-sm font-semibold transition"
-      >
+      <Button type="submit" variant="brand" size="sm" disabled={pending}>
         {pending ? "Processing…" : "Adjust credits"}
-      </button>
+      </Button>
 
       {state.success ? (
         <p className="text-lime-400 text-sm">
           Credits adjusted. New balance: {(state.newBalance ?? 0).toFixed(2)} credits.
         </p>
       ) : state.error ? (
-        <p className="text-rose-400 text-sm">{state.error}</p>
+        <p className="text-error text-sm">{state.error}</p>
       ) : null}
 
       <p className="text-text-muted text-xs">

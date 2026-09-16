@@ -14,7 +14,7 @@ export default async function PostersPage() {
   const posters = await getProducts("poster");
 
   return (
-    <main className="p-8">
+    <>
       <div className="flex items-center justify-between">
         <h1 className="text-cream-50 text-3xl font-bold">Posters</h1>
         <Button asChild>
@@ -27,7 +27,15 @@ export default async function PostersPage() {
 
       <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border">
         {posters.length === 0 ? (
-          <p className="text-text-secondary p-6">No posters yet.</p>
+          <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+            <p className="text-cream-50 text-sm font-medium">No posters yet</p>
+            <p className="text-text-secondary max-w-xs text-sm">
+              Create the first poster preset to make it available in Explore.
+            </p>
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/admin/posters/new">New poster</Link>
+            </Button>
+          </div>
         ) : (
           <ul className="divide-cream-100/10 divide-y">
             {posters.map((poster) => (
@@ -62,6 +70,6 @@ export default async function PostersPage() {
           </ul>
         )}
       </div>
-    </main>
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/db/admin";
+import { Button } from "@/components/ui/button";
 import { getAdminAuditLogs, getAdminAuditLogFilters } from "@/lib/db/audit-log";
 
 function formatDate(iso: string) {
@@ -30,7 +31,7 @@ export default async function AdminAuditLogPage({
   ]);
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Audit log</h1>
         <p className="text-text-secondary mt-2">
@@ -69,17 +70,14 @@ export default async function AdminAuditLogPage({
           ))}
         </select>
 
-        <button
-          type="submit"
-          className="bg-lime-400 text-charcoal-950 hover:bg-lime-300 rounded-xl px-4 py-2 text-sm font-semibold transition"
-        >
+        <Button type="submit" variant="brand" size="sm">
           Filter
-        </button>
+        </Button>
       </form>
 
       <div className="border-cream-100/10 bg-charcoal-850 overflow-hidden rounded-2xl border">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm tabular-nums">
             <thead>
               <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-900/50">
                 <th className="px-4 py-3 font-medium">Time</th>
@@ -147,6 +145,6 @@ export default async function AdminAuditLogPage({
           </table>
         </div>
       </div>
-    </main>
+    </>
   );
 }

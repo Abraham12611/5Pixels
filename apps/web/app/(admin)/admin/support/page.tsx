@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/db/admin";
+import { Button } from "@/components/ui/button";
 import { searchUsers } from "@/lib/db/support";
 
 export default async function AdminSupportSearchPage({
@@ -12,7 +13,7 @@ export default async function AdminSupportSearchPage({
   const users = q ? await searchUsers(q) : [];
 
   return (
-    <main className="p-8">
+    <>
       <div className="mb-8">
         <h1 className="text-cream-50 text-3xl font-bold">Support</h1>
         <p className="text-text-secondary mt-2">
@@ -32,12 +33,9 @@ export default async function AdminSupportSearchPage({
           placeholder="email or user ID"
           className="border-cream-100/10 bg-charcoal-850 text-cream-50 placeholder:text-text-muted flex-1 rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
         />
-        <button
-          type="submit"
-          className="bg-lime-400 text-charcoal-950 hover:bg-lime-300 rounded-xl px-4 py-2 text-sm font-semibold transition"
-        >
+        <Button type="submit" variant="brand" size="sm">
           Search
-        </button>
+        </Button>
       </form>
 
       {q ? (
@@ -67,7 +65,7 @@ export default async function AdminSupportSearchPage({
                       </span>
                     )}
                     {user.isAdmin && !user.isOwner && (
-                      <span className="bg-amber-400/10 text-amber-400 rounded-full px-2 py-0.5 text-xs font-medium">
+                      <span className="bg-warning/10 text-warning rounded-full px-2 py-0.5 text-xs font-medium">
                         admin
                       </span>
                     )}
@@ -84,6 +82,6 @@ export default async function AdminSupportSearchPage({
           )}
         </div>
       ) : null}
-    </main>
+    </>
   );
 }

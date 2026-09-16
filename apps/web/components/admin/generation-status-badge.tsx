@@ -6,12 +6,12 @@ const statusClasses: Record<string, string> = {
   completed: "bg-lime-400/10 text-lime-400",
   created: "bg-charcoal-700 text-text-secondary",
   uploaded: "bg-charcoal-700 text-text-secondary",
-  validating: "bg-amber-400/10 text-amber-400",
-  queued: "bg-amber-400/10 text-amber-400",
-  generating: "bg-amber-400/10 text-amber-400",
-  post_processing: "bg-amber-400/10 text-amber-400",
-  failed: "bg-rose-400/10 text-rose-400",
-  blocked: "bg-rose-400/10 text-rose-400",
+  validating: "bg-warning/10 text-warning",
+  queued: "bg-warning/10 text-warning",
+  generating: "bg-warning/10 text-warning",
+  post_processing: "bg-warning/10 text-warning",
+  failed: "bg-error/10 text-error",
+  blocked: "bg-error/10 text-error",
   cancelled: "bg-charcoal-700 text-text-muted",
 };
 

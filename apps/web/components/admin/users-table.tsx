@@ -53,7 +53,7 @@ export function UsersTable({ users }: UsersTableProps) {
 
       <div className="border-cream-100/10 bg-charcoal-850 overflow-hidden rounded-2xl border">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-sm">
+          <table className="w-full min-w-[700px] text-left text-sm tabular-nums">
             <thead>
               <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-900/50">
                 <th className="px-4 py-3 font-medium">Email</th>

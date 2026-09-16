@@ -8,8 +8,8 @@ export default async function NewFilterPage() {
   const categories = await getCategories();
 
   return (
-    <main className="p-8">
+    <>
       <ProductForm type="filter" categories={categories} onSubmit={createProduct} />
-    </main>
+    </>
   );
 }
