@@ -43,7 +43,7 @@ export default async function AdminGenerationsPage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead>
-              <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-900/50">
+              <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-850/50">
                 <th className="px-4 py-3 font-medium">ID</th>
                 <th className="px-4 py-3 font-medium">User</th>
                 <th className="px-4 py-3 font-medium">Preset</th>

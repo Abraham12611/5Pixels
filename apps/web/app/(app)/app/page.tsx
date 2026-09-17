@@ -167,7 +167,7 @@ export default async function DiscoverPage() {
       <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">
         {isNewUser ? (
           /* Orientation for a brand-new user */
-          <section className="shadow-border from-charcoal-850 to-charcoal-900 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">
+          <section className="shadow-border from-charcoal-850 to-charcoal-850 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">
             <h1 className="text-cream-50 max-w-lg text-2xl font-bold sm:text-3xl">
               Pick a look. We&apos;ll handle the rest.
             </h1>

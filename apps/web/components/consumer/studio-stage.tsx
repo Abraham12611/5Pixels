@@ -165,7 +165,7 @@ export function StudioStage({
               "group flex min-h-[300px] w-full max-w-2xl cursor-pointer flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed text-center outline-none transition-colors",
               dragOver
                 ? "border-lime-400 bg-lime-400/5"
-                : "border-cream-100/15 bg-charcoal-900/60 hover:border-cream-100/30 hover:bg-charcoal-850",
+                : "border-cream-100/15 bg-charcoal-850/60 hover:border-cream-100/30 hover:bg-charcoal-850",
               disabled && "cursor-not-allowed opacity-60",
               "focus-visible:ring-lime-500/50 focus-visible:ring-2"
             )}

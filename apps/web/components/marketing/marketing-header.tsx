@@ -140,7 +140,7 @@ export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
                   Explore
                 </NavigationMenuTrigger>
                 <NavigationMenuContent>
-                  <div className="bg-charcoal-900 border-cream-100/10 grid w-[560px] gap-1 rounded-2xl border p-3 shadow-2xl md:grid-cols-2">
+                  <div className="bg-charcoal-850 border-cream-100/10 grid w-[560px] gap-1 rounded-2xl border p-3 shadow-2xl md:grid-cols-2">
                     {MEGA_SECTIONS.map((section) => (
                       <div key={section.title}>
                         <p className="text-text-muted px-2 pb-1 pt-2 text-[11px] font-semibold tracking-widest uppercase">

@@ -150,7 +150,7 @@ export function ResultFeedback({
             onChange={(e) => setNote(e.target.value)}
             placeholder="Anything else? (optional)"
             maxLength={280}
-            className="border-cream-100/10 bg-charcoal-900 text-cream-50 placeholder:text-text-muted focus-visible:ring-lime-500/50 h-9 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+            className="border-cream-100/10 bg-charcoal-850 text-cream-50 placeholder:text-text-muted focus-visible:ring-lime-500/50 h-9 w-full rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
           />
           <Button
             type="button"

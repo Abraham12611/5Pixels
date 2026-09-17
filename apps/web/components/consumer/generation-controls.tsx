@@ -197,7 +197,7 @@ function ControlTile({
             value={String(value ?? "1:1")}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
-            className="border-cream-100/10 bg-charcoal-900 text-cream-50 h-9 rounded-md text-sm"
+            className="border-cream-100/10 bg-charcoal-850 text-cream-50 h-9 rounded-md text-sm"
           />
         </SettingTile>
       );
@@ -221,7 +221,7 @@ function ControlTile({
               (field.validation?.maxLength as number | undefined) ?? undefined
             }
             disabled={disabled}
-            className="border-cream-100/10 bg-charcoal-900 text-cream-50 placeholder:text-text-muted h-9 rounded-md text-sm"
+            className="border-cream-100/10 bg-charcoal-850 text-cream-50 placeholder:text-text-muted h-9 rounded-md text-sm"
           />
         </SettingTile>
       );

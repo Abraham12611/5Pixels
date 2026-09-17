@@ -43,7 +43,7 @@ export function CreditAdjustmentForm({
           step="0.01"
           required
           defaultValue={0}
-          className="border-cream-100/10 bg-charcoal-900 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+          className="border-cream-100/10 bg-charcoal-850 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
         />
       </div>
 
@@ -61,7 +61,7 @@ export function CreditAdjustmentForm({
           required
           minLength={4}
           placeholder="Customer support credit"
-          className="border-cream-100/10 bg-charcoal-900 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+          className="border-cream-100/10 bg-charcoal-850 text-cream-50 w-full rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
         />
       </div>
 

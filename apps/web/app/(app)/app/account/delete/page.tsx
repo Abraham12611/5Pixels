@@ -66,7 +66,7 @@ export default function DeleteAccountPage() {
               value={confirmation}
               onChange={(e) => setConfirmation(e.target.value)}
               required
-              className="border-cream-100/10 bg-charcoal-900 text-cream-50 focus:ring-error w-full rounded-[10px] border px-4 py-2.5 text-sm focus:outline-none focus:ring-2"
+              className="border-cream-100/10 bg-charcoal-850 text-cream-50 focus:ring-error w-full rounded-[10px] border px-4 py-2.5 text-sm focus:outline-none focus:ring-2"
             />
           </div>
 
