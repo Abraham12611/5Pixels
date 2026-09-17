@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoMark } from "@/components/logo-mark";
 
 const nav = [
   { href: "/admin", label: "Dashboard" },
@@ -23,7 +24,11 @@ export default function AdminLayout({
     <div className="bg-ink-950 flex min-h-screen flex-col">
       <header className="border-cream-100/10 bg-charcoal-850 border-b">
         <div className="flex items-center justify-between px-8 py-4">
-          <Link href="/admin" className="text-lg font-bold text-lime-400">
+          <Link
+            href="/admin"
+            className="flex items-center gap-2 text-lg font-bold text-lime-400"
+          >
+            <LogoMark className="h-6 w-6" />
             5Pixels Admin
           </Link>
           <nav className="flex gap-2">
