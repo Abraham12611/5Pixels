@@ -8,6 +8,7 @@ import { UserDropdown } from "@/components/consumer/user-dropdown";
 import { GlobalSearch } from "@/components/consumer/global-search";
 import { ExploreMenu } from "@/components/consumer/explore-menu";
 import { FivePixelMark } from "@/components/consumer/five-pixel";
+import { LogoMark } from "@/components/logo-mark";
 import type { NotificationItem } from "@/lib/db/notifications";
 import type {
   SearchCategory,
@@ -93,18 +94,7 @@ export function AppHeaderClient({
           href="/app"
           className="focus-visible:ring-lime-500/50 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2"
         >
-          <span className="bg-lime-500 text-ink-950 flex h-7 w-7 items-center justify-center rounded-lg">
-            <span className="grid grid-cols-3 gap-0.5">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <span
-                  key={i}
-                  className={`h-1 w-1 rounded-full ${
-                    i === 2 ? "bg-lime-500" : "bg-ink-950"
-                  }`}
-                />
-              ))}
-            </span>
-          </span>
+          <LogoMark className="h-7 w-7" />
           <span className="text-cream-50 hidden text-lg font-bold tracking-tight sm:block">
             5Pixels
           </span>

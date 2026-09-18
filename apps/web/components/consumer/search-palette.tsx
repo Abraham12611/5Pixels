@@ -135,7 +135,7 @@ export function SearchPalette({
       loop
       label="Search presets, categories, and your library"
       overlayClassName="bg-ink-950/85 animate-overlay-in fixed inset-0 z-50 backdrop-blur-sm"
-      contentClassName="bg-charcoal-900 animate-dialog-in fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[8vh] sm:h-auto sm:max-h-[84vh] sm:w-[min(56rem,92vw)] sm:-translate-x-1/2 sm:rounded-xl sm:border sm:border-cream-100/10 sm:shadow-elevated"
+      contentClassName="bg-charcoal-850 animate-dialog-in fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[8vh] sm:h-auto sm:max-h-[84vh] sm:w-[min(56rem,92vw)] sm:-translate-x-1/2 sm:rounded-xl sm:border sm:border-cream-100/10 sm:shadow-elevated"
       className="flex min-h-0 flex-1 flex-col"
     >
       {/* Sticky search header */}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LogoMark } from "@/components/logo-mark";
 
 interface MarketingFooterProps {
   isAuthenticated: boolean;
@@ -39,6 +40,7 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:py-20">
         <div className="grid gap-12 lg:grid-cols-6">
           <div className="lg:col-span-2">
+            <LogoMark tone="ink" className="mb-3 h-10 w-10" />
             <p className="text-ink-950 mb-3 text-2xl font-bold tracking-tight">
               AI-NATIVE CREATIVE SUITE
             </p>

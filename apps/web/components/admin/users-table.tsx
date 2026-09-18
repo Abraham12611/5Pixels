@@ -55,7 +55,7 @@ export function UsersTable({ users }: UsersTableProps) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-left text-sm tabular-nums">
             <thead>
-              <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-900/50">
+              <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-850/50">
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Admin</th>
@@ -86,7 +86,7 @@ export function UsersTable({ users }: UsersTableProps) {
                         onChange={(e) =>
                           toggle(user.id, "status", e.target.value)
                         }
-                        className="border-cream-100/10 bg-charcoal-900 text-cream-50 rounded-lg border px-2 py-1 text-xs"
+                        className="border-cream-100/10 bg-charcoal-850 text-cream-50 rounded-lg border px-2 py-1 text-xs"
                       >
                         <option value="active">active</option>
                         <option value="suspended">suspended</option>

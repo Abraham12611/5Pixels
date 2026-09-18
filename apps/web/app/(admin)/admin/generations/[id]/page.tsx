@@ -254,7 +254,7 @@ export default async function AdminGenerationDetailPage({
             {generation.outputs.map((output) => (
               <div
                 key={output.assetId}
-                className="border-cream-100/10 bg-charcoal-900 rounded-xl border p-3"
+                className="border-cream-100/10 bg-charcoal-850 rounded-xl border p-3"
               >
                 {output.publicUrl ? (
                   <Image

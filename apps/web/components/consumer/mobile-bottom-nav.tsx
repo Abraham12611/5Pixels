@@ -29,7 +29,7 @@ export function MobileBottomNav() {
   return (
     <nav
       aria-label="Primary"
-      className="border-cream-100/10 bg-charcoal-900/90 supports-[backdrop-filter]:bg-charcoal-900/80 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur-md md:hidden"
+      className="border-cream-100/10 bg-charcoal-850/90 supports-[backdrop-filter]:bg-charcoal-850/80 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur-md md:hidden"
     >
       <div className="grid grid-cols-5 px-2 pb-[max(env(safe-area-inset-bottom),4px)] pt-1.5">
         {LEFT_ITEMS.map((item) => (

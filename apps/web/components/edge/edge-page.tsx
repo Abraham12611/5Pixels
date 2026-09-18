@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FivePixelMark } from "@/components/consumer/five-pixel";
+import { LogoMark } from "@/components/logo-mark";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -23,7 +23,7 @@ export function EdgePage({
 }) {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-5 py-14 text-center">
-      <FivePixelMark className="text-text-muted" />
+      <LogoMark className="h-10 w-10 opacity-80" />
       <h1 className="text-cream-50 mt-6 text-2xl font-semibold tracking-tight">
         {title}
       </h1>

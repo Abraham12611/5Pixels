@@ -64,6 +64,7 @@
 
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-playfair), Georgia, serif;
 }
 
 /* 1px white/10 inner outline for all meaningful media (better-ui rule) */
@@ -92,6 +93,18 @@
 
 @utility animate-overlay-in {
   animation: overlay-in 140ms var(--ease-out) both;
+}
+
+/* Bottom-sheet entrance — slides up from the screen edge */
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@utility animate-sheet-in {
+  animation: sheet-in 220ms var(--ease-drawer) both;
 }
 
 /* Hide scrollbars on horizontal media rails while keeping scroll */

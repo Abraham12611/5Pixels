@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FivePixelMark } from "@/components/consumer/five-pixel";
+import { LogoMark } from "@/components/logo-mark";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,7 +30,7 @@ export function AuthShell({
         aria-label="5Pixels home"
         className="mb-6 transition-opacity hover:opacity-80"
       >
-        <FivePixelMark className="text-lime-400" />
+        <LogoMark className="h-9 w-9" />
       </Link>
       <div
         className={cn(

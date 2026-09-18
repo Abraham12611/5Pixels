@@ -103,7 +103,7 @@ export function NotificationDropdown({
       </TooltipProvider>
 
       <PopoverContent
-        className="w-96 border-cream-100/10 bg-charcoal-900 p-0 text-cream-50"
+        className="w-96 border-cream-100/10 bg-charcoal-850 p-0 text-cream-50"
         align="end"
         sideOffset={8}
       >

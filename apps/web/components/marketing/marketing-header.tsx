@@ -21,6 +21,7 @@ import {
   NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
 import { Button } from "@/components/ui/button";
+import { LogoMark } from "@/components/logo-mark";
 import { cn } from "@/lib/utils";
 
 interface MarketingHeaderProps {
@@ -111,23 +112,7 @@ export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
             className="flex items-center gap-2"
             aria-label="5Pixels home"
           >
-            <span className="bg-lime-500 text-ink-950 flex h-8 w-8 items-center justify-center rounded-lg">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                className="h-5 w-5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="5" cy="5" r="2" />
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="19" cy="5" r="2" />
-                <circle cx="5" cy="12" r="2" />
-                <circle cx="12" cy="12" r="2" />
-              </svg>
-            </span>
+            <LogoMark className="h-8 w-8" />
             <span className="text-cream-50 text-xl font-bold tracking-tight">
               5Pixels
             </span>
@@ -140,7 +125,7 @@ export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
                   Explore
                 </NavigationMenuTrigger>
                 <NavigationMenuContent>
-                  <div className="bg-charcoal-900 border-cream-100/10 grid w-[560px] gap-1 rounded-2xl border p-3 shadow-2xl md:grid-cols-2">
+                  <div className="bg-charcoal-850 border-cream-100/10 grid w-[560px] gap-1 rounded-2xl border p-3 shadow-2xl md:grid-cols-2">
                     {MEGA_SECTIONS.map((section) => (
                       <div key={section.title}>
                         <p className="text-text-muted px-2 pb-1 pt-2 text-[11px] font-semibold tracking-widest uppercase">

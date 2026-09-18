@@ -104,7 +104,7 @@ export function AspectRatioMenu({
       <DropdownMenuContent
         align="start"
         sideOffset={8}
-        className="w-64 border-cream-100/10 bg-charcoal-900 p-1.5 text-cream-50"
+        className="w-64 border-cream-100/10 bg-charcoal-850 p-1.5 text-cream-50"
       >
         <DropdownMenuLabel className="text-text-muted px-2 py-1 text-[11px] font-semibold tracking-wide uppercase">
           Aspect ratio

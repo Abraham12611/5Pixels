@@ -79,7 +79,7 @@ export default async function AdminAuditLogPage({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm tabular-nums">
             <thead>
-              <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-900/50">
+              <tr className="text-text-secondary border-cream-100/10 border-b bg-charcoal-850/50">
                 <th className="px-4 py-3 font-medium">Time</th>
                 <th className="px-4 py-3 font-medium">Admin</th>
                 <th className="px-4 py-3 font-medium">Action</th>
@@ -126,7 +126,7 @@ export default async function AdminAuditLogPage({
                         <summary className="text-lime-400 cursor-pointer text-xs font-medium transition hover:text-lime-300">
                           View
                         </summary>
-                        <div className="bg-charcoal-900 mt-2 max-w-xl rounded-lg p-3 font-mono text-xs">
+                        <div className="bg-charcoal-850 mt-2 max-w-xl rounded-lg p-3 font-mono text-xs">
                           <p className="text-text-muted mb-1">Before</p>
                           <pre className="text-cream-100 whitespace-pre-wrap">
                             {formatJson(log.before)}

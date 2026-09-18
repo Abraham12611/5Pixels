@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowSquareOut } from "@phosphor-icons/react/dist/ssr";
 import { AdminNav } from "@/components/admin/admin-nav";
+import { LogoMark } from "@/components/logo-mark";
 
 export default function AdminLayout({
   children,
@@ -16,17 +17,7 @@ export default function AdminLayout({
             className="flex items-center gap-2.5"
             aria-label="5Pixels admin home"
           >
-            <span
-              aria-hidden="true"
-              className="inline-flex items-center gap-[2.5px]"
-            >
-              {[0, 1, 2, 3, 4].map((i) => (
-                <span
-                  key={i}
-                  className="bg-lime-400 h-2 w-[3px] rounded-[1px]"
-                />
-              ))}
-            </span>
+            <LogoMark className="h-6 w-6" />
             <span className="text-cream-50 text-sm font-semibold">
               5Pixels Admin
             </span>

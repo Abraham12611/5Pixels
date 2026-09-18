@@ -1,94 +1,50 @@
-import { LandingHero } from "./landing-hero";
-import { CuratedPresets } from "./curated-presets";
-import { SignUpCTA } from "./sign-up-cta";
-import { OnePhotoFiveDirections } from "./one-photo-five-directions";
-import { NoPromptRequired } from "./no-prompt-required";
-import { HowItWorks } from "./how-it-works";
-import { CollectionSpotlight } from "./collection-spotlight";
-import { BrandBillboard } from "./brand-billboard";
-import { TrustSection } from "./trust-section";
-import { PricingTeaser } from "./pricing-teaser";
-import { FAQSection } from "./faq-section";
-import { FinalCTA } from "./final-cta";
-import { MarketingFooter } from "./marketing-footer";
 import { PromoCountdownBar } from "./promo-countdown-bar";
-import { HeroCarousel } from "./hero-carousel";
-import { WhatWouldYouCreate } from "./what-would-you-create";
 import { MarketingHeader } from "./marketing-header";
-import { CategoryTagCloud } from "./category-tag-cloud";
+import { HeroLanding } from "./hero-landing";
+import { LookGallery } from "./look-gallery";
+import { FanShowcase } from "./fan-showcase";
+import { CinematicSpotlight } from "./cinematic-spotlight";
+import { ProfessionalLooks } from "./professional-looks";
+import { CoversShowcase } from "./covers-showcase";
+import { PresetPreview } from "./preset-preview";
+import { FeatureHowItWorks } from "./feature-how-it-works";
+import { CategoryFaq } from "./category-faq";
+import { LightBreak } from "./light-break";
+import { MarketingFooter } from "./marketing-footer";
+import { LandingMobile } from "./mobile/landing-mobile";
 import type { PublicProductSummary } from "@/types/catalog";
-
-interface LandingPageProps {
-  isAuthenticated: boolean;
-  categories: { slug: string; name: string }[];
-  curatedProducts: PublicProductSummary[];
-  portraitProducts: PublicProductSummary[];
-  cinematicProducts: PublicProductSummary[];
-  coverProducts: PublicProductSummary[];
-}
 
 export function LandingPage({
   isAuthenticated,
+  products,
   categories,
-  curatedProducts,
-  portraitProducts,
-  cinematicProducts,
-  coverProducts,
-}: LandingPageProps) {
-  const getCategoryHref = (products: PublicProductSummary[], fallback: string) => {
-    if (products.length > 0 && products[0]?.category_slug) {
-      return `/explore?category=${products[0].category_slug}`;
-    }
-    return fallback;
-  };
-
+}: {
+  isAuthenticated: boolean;
+  products: PublicProductSummary[];
+  categories: { slug: string; name: string }[];
+}) {
   return (
     <div className="flex min-h-screen flex-col">
       <PromoCountdownBar />
       <MarketingHeader isAuthenticated={isAuthenticated} />
 
-      <main className="flex-1">
-        <LandingHero />
-        <HeroCarousel products={curatedProducts} />
-        <CuratedPresets products={curatedProducts} />
-        <WhatWouldYouCreate />
-        <SignUpCTA />
-        <OnePhotoFiveDirections />
-        <NoPromptRequired />
-        <HowItWorks />
+      {/* Desktop composition — untouched editorial sections */}
+      <main className="hidden flex-1 lg:block">
+        <HeroLanding />
+        <LookGallery />
+        <FanShowcase />
+        <CinematicSpotlight />
+        <ProfessionalLooks />
+        <CoversShowcase />
+        <PresetPreview />
+        <FeatureHowItWorks />
+        <CategoryFaq />
+        <LightBreak />
+      </main>
 
-        <CollectionSpotlight
-          title="For your profile"
-          eyebrow="Portraits"
-          description="Professional, cinematic, and expressive portrait presets."
-          products={portraitProducts}
-          exploreHref={getCategoryHref(portraitProducts, "/explore?type=filter")}
-        />
-
-        <BrandBillboard />
-
-        <CollectionSpotlight
-          title="Make it a movie"
-          eyebrow="Cinematic"
-          description="Dramatic lighting, mood, and scene transformations."
-          products={cinematicProducts}
-          exploreHref={getCategoryHref(cinematicProducts, "/explore?type=filter")}
-        />
-
-        <CollectionSpotlight
-          title="Make the cover"
-          eyebrow="Posters & Covers"
-          description="Magazine, album, event, and film poster layouts with exact text."
-          products={coverProducts}
-          exploreHref={getCategoryHref(coverProducts, "/explore?type=poster")}
-        />
-
-        <CategoryTagCloud categories={categories} />
-
-        <TrustSection />
-        <PricingTeaser />
-        <FAQSection />
-        <FinalCTA />
+      {/* Mobile composition — tappable feed-first flow */}
+      <main className="flex-1 lg:hidden">
+        <LandingMobile products={products} categories={categories} />
       </main>
 
       <MarketingFooter isAuthenticated={isAuthenticated} />
