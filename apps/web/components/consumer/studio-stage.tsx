@@ -4,10 +4,13 @@ import { useCallback, useRef, useState } from "react";
 import Image from "next/image";
 import {
   ArrowClockwise,
+  Camera,
+  FolderOpen,
   Images,
   Trash,
 } from "@phosphor-icons/react";
 import { GenerationPixelProgress } from "@/components/consumer/five-pixel";
+import { useDialogA11y } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const STEP_STRIP = ["Add a photo", "Adjust the look", "Generate"] as const;
@@ -47,11 +50,23 @@ export function StudioStage({
   onClear,
 }: StudioStageProps) {
   const [dragOver, setDragOver] = useState(false);
+  const [sourceSheetOpen, setSourceSheetOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const cameraRef = useRef<HTMLInputElement | null>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  useDialogA11y(sourceSheetOpen, sheetRef);
 
   const openPicker = useCallback(() => {
     if (disabled || submitting) return;
-    inputRef.current?.click();
+    // Touch devices get the source-action sheet (camera vs gallery);
+    // desktops go straight to the file dialog.
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    if (coarse) {
+      setSourceSheetOpen(true);
+    } else {
+      inputRef.current?.click();
+    }
   }, [disabled, submitting]);
 
   const onDrop = useCallback(
@@ -75,15 +90,103 @@ export function StudioStage({
   };
 
   const fileInput = (
-    <input
-      ref={inputRef}
-      type="file"
-      accept="image/jpeg,image/png,image/webp"
-      className="hidden"
-      disabled={disabled || submitting}
-      onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
-    />
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        disabled={disabled || submitting}
+        onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+      />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        disabled={disabled || submitting}
+        onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+      />
+    </>
   );
+
+  const sourceSheet = sourceSheetOpen ? (
+    <div
+      ref={overlayRef}
+      role="presentation"
+      className="bg-ink-950/80 animate-overlay-in fixed inset-0 z-50 flex items-end justify-center"
+      onClick={(e) => {
+        if (e.target === overlayRef.current) setSourceSheetOpen(false);
+      }}
+    >
+      <div
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add a photo"
+        tabIndex={-1}
+        className="border-cream-100/10 bg-charcoal-850 animate-sheet-in w-full max-w-lg rounded-t-2xl border-x border-t px-5 pb-[max(env(safe-area-inset-bottom),1.25rem)] pt-3 outline-none"
+      >
+        <div
+          aria-hidden
+          className="bg-charcoal-700 mx-auto mb-4 h-1 w-10 rounded-full"
+        />
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSourceSheetOpen(false);
+              cameraRef.current?.click();
+            }}
+            className="border-cream-100/10 bg-charcoal-800 hover:border-cream-100/25 flex w-full items-center gap-3.5 rounded-xl border p-4 text-left transition-colors"
+          >
+            <span className="border-lime-400/40 text-lime-400 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border">
+              <Camera size={18} weight="bold" />
+            </span>
+            <span>
+              <span className="text-cream-50 block text-sm font-semibold">
+                Take a photo
+              </span>
+              <span className="text-text-muted block text-xs">
+                Use your camera now
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSourceSheetOpen(false);
+              inputRef.current?.click();
+            }}
+            className="border-cream-100/10 bg-charcoal-800 hover:border-cream-100/25 flex w-full items-center gap-3.5 rounded-xl border p-4 text-left transition-colors"
+          >
+            <span className="border-lime-400/40 text-lime-400 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border">
+              <FolderOpen size={18} weight="bold" />
+            </span>
+            <span>
+              <span className="text-cream-50 block text-sm font-semibold">
+                Choose from gallery
+              </span>
+              <span className="text-text-muted block text-xs">
+                JPEG, PNG, or WebP · up to 20 MB
+              </span>
+            </span>
+          </button>
+        </div>
+        <p className="text-text-muted mt-4 text-center text-[11px]">
+          Your photo stays private — used only for this result.
+        </p>
+        <button
+          type="button"
+          onClick={() => setSourceSheetOpen(false)}
+          className="text-text-secondary hover:text-cream-50 mt-3 w-full rounded-xl py-2.5 text-sm font-medium transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="relative flex min-h-[420px] flex-1 flex-col lg:min-h-full">
@@ -247,6 +350,7 @@ export function StudioStage({
       )}
 
       {fileInput}
+      {sourceSheet}
     </div>
   );
 }

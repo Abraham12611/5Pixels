@@ -95,6 +95,18 @@
   animation: overlay-in 140ms var(--ease-out) both;
 }
 
+/* Bottom-sheet entrance — slides up from the screen edge */
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@utility animate-sheet-in {
+  animation: sheet-in 220ms var(--ease-drawer) both;
+}
+
 /* Hide scrollbars on horizontal media rails while keeping scroll */
 @utility scrollbar-none {
   scrollbar-width: none;

@@ -11,6 +11,8 @@ import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
 import { InsufficientCreditsDialog } from "@/components/consumer/insufficient-credits-dialog";
+import { AuthGateModal } from "@/components/consumer/auth-gate-modal";
+import { PaywallSheet } from "@/components/consumer/paywall-sheet";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import { validateGenerationOptions } from "@/lib/generation/validation";
@@ -24,8 +26,14 @@ import {
   finalizeSourceUpload,
   prepareSourceUpload,
 } from "@/lib/generation/upload";
+import {
+  clearStudioDraft,
+  loadStudioDraft,
+  saveStudioDraft,
+} from "@/lib/anonymous-draft";
 import { cn } from "@/lib/utils";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
+import type { PlanForPurchase } from "@/lib/db/plans";
 
 interface ReusedSource {
   assetId: string;
@@ -34,7 +42,8 @@ interface ReusedSource {
 }
 
 interface CreateGenerationFormProps {
-  userId: string;
+  /** null when anonymous — the studio works without an account until Generate. */
+  userId: string | null;
   product: PublicProductDetail;
   initialBalance: number;
   /** Whether the user has any prior generation — drives first-run cost confirmation. */
@@ -45,6 +54,8 @@ interface CreateGenerationFormProps {
   initialSource?: ReusedSource | null;
   initialOptions?: Record<string, unknown> | null;
   initialSize?: OutputSizeOption | null;
+  /** Purchasable plans for the credits paywall (insufficient balance). */
+  plans: PlanForPurchase[];
 }
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -79,7 +90,9 @@ export function CreateGenerationForm({
   initialSource,
   initialOptions,
   initialSize,
+  plans,
 }: CreateGenerationFormProps) {
+  const isAnonymous = userId === null;
   const [file, setFile] = useState<File | null>(null);
   const [reusedSource, setReusedSource] = useState<ReusedSource | null>(
     initialSource ?? null
@@ -100,11 +113,14 @@ export function CreateGenerationForm({
   const [error, setError] = useState<string>("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
+  const [authGateOpen, setAuthGateOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
-  const canAfford =
-    estimatedCost !== null && estimatedCost > 0
+  const canAfford = isAnonymous
+    ? true
+    : estimatedCost !== null && estimatedCost > 0
       ? initialBalance >= estimatedCost
       : initialBalance >= product.credit_cost;
 
@@ -139,6 +155,67 @@ export function CreateGenerationForm({
     if (!asset) return null;
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
   }, [product.public_assets]);
+
+  // Narrow viewport → paywall sheet; wide → the existing dialog.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsNarrow(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Restore a staged draft after the auth round trip (?draft=1).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("draft") !== "1") return;
+    let cancelled = false;
+
+    void loadStudioDraft(product.slug).then((draft) => {
+      if (cancelled || !draft) return;
+      const restored = new File([draft.file], draft.fileName, {
+        type: draft.fileType,
+      });
+      setFile(restored);
+      setReusedSource(null);
+      setOptions((prev) => ({ ...prev, ...draft.options }));
+      if (draft.sizeName) {
+        const match = product.output_sizes?.find(
+          (s) => s.name === draft.sizeName
+        );
+        if (match) setSelectedSize(match);
+      }
+      params.delete("draft");
+      const qs = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${qs ? `?${qs}` : ""}`
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.slug]);
+
+  // Anonymous setups persist to IndexedDB so the auth redirect can't lose them.
+  useEffect(() => {
+    if (!isAnonymous) return;
+    const handle = setTimeout(() => {
+      if (!file) return;
+      void saveStudioDraft({
+        slug: product.slug,
+        file,
+        fileName: file.name,
+        fileType: file.type,
+        options,
+        sizeName: selectedSize.name ?? null,
+      });
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [isAnonymous, file, options, selectedSize, product.slug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,10 +287,6 @@ export function CreateGenerationForm({
     if (generationPaused) {
       return;
     }
-    if (!canAfford) {
-      setInsufficientOpen(true);
-      return;
-    }
 
     const validation = validateGenerationOptions(
       product.active_fields,
@@ -221,6 +294,26 @@ export function CreateGenerationForm({
     );
     if (validation) {
       setError(validation.message);
+      return;
+    }
+
+    // Deferred auth: anonymous setups are fully prepared first — the account
+    // prompt only appears at the moment of intent.
+    if (isAnonymous) {
+      void saveStudioDraft({
+        slug: product.slug,
+        file: file!,
+        fileName: file!.name,
+        fileType: file!.type,
+        options,
+        sizeName: selectedSize.name ?? null,
+      });
+      setAuthGateOpen(true);
+      return;
+    }
+
+    if (!canAfford) {
+      setInsufficientOpen(true);
       return;
     }
 
@@ -284,6 +377,7 @@ export function CreateGenerationForm({
       }
 
       setProgress("Starting generation...");
+      void clearStudioDraft();
       const idempotencyKey = `create:${userId}:${product.id}:${uuidv4()}`;
       const result = await createAndSubmitGeneration({
         productId: product.id,
@@ -431,17 +525,24 @@ export function CreateGenerationForm({
               {displayCost} {displayCost === 1 ? "credit" : "credits"}
             </span>
           </div>
-          <div className="mb-3 flex items-baseline justify-between text-[13px]">
-            <span className="text-text-secondary">Balance</span>
-            <span
-              className={cn(
-                "tabular-nums",
-                canAfford ? "text-text-secondary" : "text-error"
-              )}
-            >
-              {initialBalance} {initialBalance === 1 ? "credit" : "credits"}
-            </span>
-          </div>
+          {!isAnonymous && (
+            <div className="mb-3 flex items-baseline justify-between text-[13px]">
+              <span className="text-text-secondary">Balance</span>
+              <span
+                className={cn(
+                  "tabular-nums",
+                  canAfford ? "text-text-secondary" : "text-error"
+                )}
+              >
+                {initialBalance} {initialBalance === 1 ? "credit" : "credits"}
+              </span>
+            </div>
+          )}
+          {isAnonymous && (
+            <p className="text-text-muted mb-3 text-[11px]">
+              No account needed to prepare — sign in only when you generate.
+            </p>
+          )}
           {generationPaused && (
             <p
               role="status"
@@ -487,13 +588,40 @@ export function CreateGenerationForm({
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
-      <InsufficientCreditsDialog
-        open={insufficientOpen}
-        onOpenChange={setInsufficientOpen}
-        required={displayCost}
-        balance={initialBalance}
-        presetName={product.name}
-        presetThumbUrl={presetThumb}
+      {isNarrow ? (
+        <PaywallSheet
+          open={insufficientOpen}
+          onOpenChange={setInsufficientOpen}
+          plans={plans}
+          required={displayCost}
+          presetName={product.name}
+        />
+      ) : (
+        <InsufficientCreditsDialog
+          open={insufficientOpen}
+          onOpenChange={setInsufficientOpen}
+          required={displayCost}
+          balance={initialBalance}
+          presetName={product.name}
+          presetThumbUrl={presetThumb}
+        />
+      )}
+      <AuthGateModal
+        open={authGateOpen}
+        onOpenChange={setAuthGateOpen}
+        nextPath={`/app/create/${product.slug}?draft=1`}
+        onBeforeLeave={() =>
+          file
+            ? saveStudioDraft({
+                slug: product.slug,
+                file,
+                fileName: file.name,
+                fileType: file.type,
+                options,
+                sizeName: selectedSize.name ?? null,
+              })
+            : undefined
+        }
       />
     </form>
   );

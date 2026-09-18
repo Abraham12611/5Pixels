@@ -40,7 +40,11 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  if (pathname.startsWith("/app") && !user) {
+  // Anonymous users may enter the Create studio — browsing, uploading, and
+  // preparing a look are free; auth is deferred to the Generate action.
+  const anonAllowed = pathname.startsWith("/app/create/");
+
+  if (pathname.startsWith("/app") && !user && !anonAllowed) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set(
       "next",

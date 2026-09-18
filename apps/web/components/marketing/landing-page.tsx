@@ -11,18 +11,25 @@ import { FeatureHowItWorks } from "./feature-how-it-works";
 import { CategoryFaq } from "./category-faq";
 import { LightBreak } from "./light-break";
 import { MarketingFooter } from "./marketing-footer";
+import { LandingMobile } from "./mobile/landing-mobile";
+import type { PublicProductSummary } from "@/types/catalog";
 
 export function LandingPage({
   isAuthenticated,
+  products,
+  categories,
 }: {
   isAuthenticated: boolean;
+  products: PublicProductSummary[];
+  categories: { slug: string; name: string }[];
 }) {
   return (
     <div className="flex min-h-screen flex-col">
       <PromoCountdownBar />
       <MarketingHeader isAuthenticated={isAuthenticated} />
 
-      <main className="flex-1">
+      {/* Desktop composition — untouched editorial sections */}
+      <main className="hidden flex-1 lg:block">
         <HeroLanding />
         <LookGallery />
         <FanShowcase />
@@ -33,6 +40,11 @@ export function LandingPage({
         <FeatureHowItWorks />
         <CategoryFaq />
         <LightBreak />
+      </main>
+
+      {/* Mobile composition — tappable feed-first flow */}
+      <main className="flex-1 lg:hidden">
+        <LandingMobile products={products} categories={categories} />
       </main>
 
       <MarketingFooter isAuthenticated={isAuthenticated} />
