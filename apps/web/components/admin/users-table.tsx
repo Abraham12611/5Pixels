@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateUserRole } from "@/lib/db/admin-users";
 import type { AdminUser } from "@/lib/db/admin-users";
+import { RichSelect } from "@/components/ui/rich-select";
 
 interface UsersTableProps {
   users: AdminUser[];
@@ -80,18 +81,18 @@ export function UsersTable({ users }: UsersTableProps) {
                       {user.email ?? "no email"}
                     </td>
                     <td className="px-4 py-3">
-                      <select
+                      <RichSelect
+                        aria-label={`Status for ${user.email ?? "user"}`}
                         value={user.status ?? "active"}
                         disabled={pending}
-                        onChange={(e) =>
-                          toggle(user.id, "status", e.target.value)
-                        }
-                        className="border-cream-100/10 bg-charcoal-850 text-cream-50 rounded-lg border px-2 py-1 text-xs"
-                      >
-                        <option value="active">active</option>
-                        <option value="suspended">suspended</option>
-                        <option value="deleted">deleted</option>
-                      </select>
+                        onValueChange={(v) => toggle(user.id, "status", v)}
+                        className="w-32 rounded-lg px-2.5 py-1.5 text-xs"
+                        options={[
+                          { value: "active", label: "Active" },
+                          { value: "suspended", label: "Suspended" },
+                          { value: "deleted", label: "Deleted" },
+                        ]}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <input

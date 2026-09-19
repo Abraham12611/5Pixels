@@ -8,14 +8,13 @@ import type { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AssetUploader } from "./asset-uploader";
 import { FieldEditor } from "./field-editor";
 import { ProviderStrategyFields } from "./provider-strategy-fields";
-import { normalizeEmptyCategory } from "@/lib/utils/category";
+import { FormRichSelect } from "./form-rich-select";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
 export interface ProductAssetPreview {
@@ -260,20 +259,21 @@ export function ProductForm({
                 Manage categories
               </Link>
             </div>
-            <Select
-              id="category_id"
-              {...register("category_id", {
-                setValueAs: normalizeEmptyCategory,
-              })}
-              className="mt-2"
-            >
-              <option value="">No category</option>
-              {categoryList.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
+            <div className="mt-2">
+              <FormRichSelect
+                name="category_id"
+                label="Category"
+                noneLabel="No category"
+                emptyToUndefined
+                searchable={categoryList.length > 12}
+                searchPlaceholder="Search categories…"
+                placeholder="No category"
+                options={categoryList.map((c) => ({
+                  value: c.id,
+                  label: c.name,
+                }))}
+              />
+            </div>
             {errors.category_id && (
               <p className="text-error mt-1 text-sm">
                 {errors.category_id.message}
@@ -283,32 +283,36 @@ export function ProductForm({
 
           <div>
             <Label htmlFor="public_status">Status</Label>
-            <Select
-              id="public_status"
-              {...register("public_status")}
-              className="mt-2"
-            >
-              <option value="draft">Draft</option>
-              <option value="internal_test">Internal test</option>
-              <option value="private_beta">Private beta</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
-              <option value="retired">Retired</option>
-            </Select>
+            <div className="mt-2">
+              <FormRichSelect
+                name="public_status"
+                label="Status"
+                options={[
+                  { value: "draft", label: "Draft", description: "Work in progress — not public" },
+                  { value: "internal_test", label: "Internal test", description: "Staff and admins only" },
+                  { value: "private_beta", label: "Private beta", description: "Limited beta audience" },
+                  { value: "scheduled", label: "Scheduled", description: "Goes live on a set date" },
+                  { value: "active", label: "Active", description: "Live for everyone" },
+                  { value: "paused", label: "Paused", description: "Temporarily hidden" },
+                  { value: "retired", label: "Retired", description: "Permanently removed" },
+                ]}
+              />
+            </div>
           </div>
 
           <div>
             <Label htmlFor="visibility">Visibility</Label>
-            <Select
-              id="visibility"
-              {...register("visibility")}
-              className="mt-2"
-            >
-              <option value="public">Public</option>
-              <option value="internal">Internal</option>
-              <option value="beta">Beta</option>
-            </Select>
+            <div className="mt-2">
+              <FormRichSelect
+                name="visibility"
+                label="Visibility"
+                options={[
+                  { value: "public", label: "Public", description: "Visible to all users" },
+                  { value: "internal", label: "Internal", description: "Staff and admins only" },
+                  { value: "beta", label: "Beta", description: "Beta testers only" },
+                ]}
+              />
+            </div>
           </div>
 
           <div>
@@ -422,31 +426,35 @@ export function ProductForm({
               <Label htmlFor="filter_config.identity_preservation">
                 Identity preservation
               </Label>
-              <Select
-                id="filter_config.identity_preservation"
-                {...register("filter_config.identity_preservation")}
-                className="mt-2"
-              >
-                <option value="very_high">Very high</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="creative">Creative</option>
-              </Select>
+              <div className="mt-2">
+                <FormRichSelect
+                  name="filter_config.identity_preservation"
+                  label="Identity preservation"
+                  options={[
+                    { value: "very_high", label: "Very high", description: "Face stays closest to source" },
+                    { value: "high", label: "High", description: "Strong likeness, light styling" },
+                    { value: "medium", label: "Medium", description: "Balanced look and likeness" },
+                    { value: "creative", label: "Creative", description: "Most stylized result" },
+                  ]}
+                />
+              </div>
             </div>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2">
             <div>
               <Label htmlFor="poster_config.layout_template">Layout</Label>
-              <Select
-                id="poster_config.layout_template"
-                {...register("poster_config.layout_template")}
-                className="mt-2"
-              >
-                <option value="portrait">Portrait</option>
-                <option value="square">Square</option>
-                <option value="landscape">Landscape</option>
-              </Select>
+              <div className="mt-2">
+                <FormRichSelect
+                  name="poster_config.layout_template"
+                  label="Layout"
+                  options={[
+                    { value: "portrait", label: "Portrait", description: "Tall 3:4-style layout" },
+                    { value: "square", label: "Square", description: "1:1 feed-friendly layout" },
+                    { value: "landscape", label: "Landscape", description: "Wide banner layout" },
+                  ]}
+                />
+              </div>
               {errors.poster_config?.layout_template && (
                 <p className="text-error mt-1 text-sm">
                   {errors.poster_config.layout_template.message}
@@ -457,14 +465,16 @@ export function ProductForm({
               <Label htmlFor="poster_config.background_handling">
                 Background
               </Label>
-              <Select
-                id="poster_config.background_handling"
-                {...register("poster_config.background_handling")}
-                className="mt-2"
-              >
-                <option value="replace">Replace</option>
-                <option value="preserve">Preserve</option>
-              </Select>
+              <div className="mt-2">
+                <FormRichSelect
+                  name="poster_config.background_handling"
+                  label="Background"
+                  options={[
+                    { value: "replace", label: "Replace", description: "AI regenerates the backdrop" },
+                    { value: "preserve", label: "Preserve", description: "Keep the source background" },
+                  ]}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -742,16 +752,18 @@ export function ProductForm({
             <Label htmlFor="version.post_process_config.format">
               Output format
             </Label>
-            <Select
-              id="version.post_process_config.format"
-              {...register("version.post_process_config.format")}
-              className="mt-2"
-            >
-              <option value="webp">WebP</option>
-              <option value="png">PNG</option>
-              <option value="jpeg">JPEG</option>
-              <option value="jpg">JPG</option>
-            </Select>
+            <div className="mt-2">
+              <FormRichSelect
+                name="version.post_process_config.format"
+                label="Output format"
+                options={[
+                  { value: "webp", label: "WebP", description: "Smallest files, wide support" },
+                  { value: "png", label: "PNG", description: "Lossless, larger files" },
+                  { value: "jpeg", label: "JPEG", description: "Universal compatibility" },
+                  { value: "jpg", label: "JPG", description: "JPEG alias for legacy pipelines" },
+                ]}
+              />
+            </div>
           </div>
           <div>
             <Label htmlFor="version.post_process_config.quality">

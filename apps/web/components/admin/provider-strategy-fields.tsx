@@ -4,19 +4,23 @@ import { useMemo, useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  RichSelect,
+  type RichSelectGroup,
+} from "@/components/ui/rich-select";
+import { Cpu } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
 /**
  * Provider/model pickers for the preset editor. Admins choose from the seeded
- * `provider_model_pricing` catalog instead of typing endpoints by hand; a
- * "Custom value…" escape hatch reveals a plain input for values outside the
- * catalog (legacy rows, providers not yet priced).
+ * `provider_model_pricing` catalog via searchable popover menus — the same
+ * grammar as the lab's model picker; a "Custom value…" escape hatch reveals a
+ * plain input for values outside the catalog (legacy rows, unpriced
+ * providers).
  */
 
 const CUSTOM_VALUE = "__custom__";
-const NONE_VALUE = "";
 
 /** Strategy-facing provider value for each catalog provider id. */
 const PROVIDER_VALUE_MAP: Record<string, string> = {
@@ -29,6 +33,14 @@ function providerValue(provider: string): string {
 
 function providerLabel(provider: string): string {
   return provider === "fal" ? "fal.ai" : provider;
+}
+
+/** Friendly group label for a pricing source category. */
+function categoryLabel(category: string): string {
+  return category
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 interface ProviderFieldProps {
@@ -66,7 +78,7 @@ function ProviderSelect({
             type="button"
             onClick={() => {
               setManual(false);
-              setValue(name, optional ? NONE_VALUE : knownValues[0] ?? "", {
+              setValue(name, optional ? "" : (knownValues[0] ?? ""), {
                 shouldDirty: true,
               });
             }}
@@ -76,29 +88,31 @@ function ProviderSelect({
           </button>
         </div>
       ) : (
-        <>
-          <Select
+        <div className="mt-2">
+          <RichSelect
             id={name}
-            value={value ?? NONE_VALUE}
-            onChange={(e) => {
-              const next = e.target.value;
+            aria-label={label}
+            value={value ?? ""}
+            onValueChange={(next) => {
               if (next === CUSTOM_VALUE) {
                 setManual(true);
                 return;
               }
               setValue(name, next, { shouldDirty: true });
             }}
-            className="mt-2"
-          >
-            {optional && <option value={NONE_VALUE}>None</option>}
-            {providers.map((p) => (
-              <option key={p} value={providerValue(p)}>
-                {providerLabel(p)}
-              </option>
-            ))}
-            <option value={CUSTOM_VALUE}>Custom value…</option>
-          </Select>
-        </>
+            noneLabel={optional ? "None" : undefined}
+            options={providers.map((p) => ({
+              value: providerValue(p),
+              label: providerLabel(p),
+              icon: <Cpu size={15} />,
+            }))}
+            footerOption={{
+              value: CUSTOM_VALUE,
+              label: "Custom value…",
+              description: "Type a provider not in the catalog",
+            }}
+          />
+        </div>
       )}
     </div>
   );
@@ -121,7 +135,6 @@ function ModelSelect({
 }: ModelSelectProps) {
   const { register, setValue, control } = useFormContext();
   const value = useWatch({ control, name }) as string | undefined;
-  const [query, setQuery] = useState("");
   const knownIds = useMemo(
     () => new Set(models.map((m) => m.endpointId)),
     [models]
@@ -130,25 +143,26 @@ function ModelSelect({
     () => Boolean(value) && !knownIds.has(value as string)
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return models;
-    return models.filter(
-      (m) =>
-        m.displayName.toLowerCase().includes(q) ||
-        m.endpointId.toLowerCase().includes(q)
-    );
-  }, [models, query]);
-
-  const grouped = useMemo(() => {
+  const groups = useMemo<RichSelectGroup[]>(() => {
     const map = new Map<string, ProviderModelOption[]>();
-    for (const m of filtered) {
+    for (const m of models) {
       const list = map.get(m.category) ?? [];
       list.push(m);
       map.set(m.category, list);
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [filtered]);
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([category, items]) => ({
+        label: categoryLabel(category),
+        options: items.map((m) => ({
+          value: m.endpointId,
+          label: m.displayName,
+          description: m.endpointId,
+          hint: `$${m.unitPrice.toFixed(3)}/${m.unit === "image" ? "img" : m.unit}`,
+          keywords: `${m.endpointId} ${m.provider}`,
+        })),
+      }));
+  }, [models]);
 
   return (
     <div>
@@ -159,15 +173,13 @@ function ModelSelect({
             id={name}
             {...register(name)}
             placeholder="e.g. fal-ai/flux/dev/image-to-image"
-            className="flex-1"
+            className="flex-1 font-mono text-xs"
           />
           <button
             type="button"
             onClick={() => {
               setManual(false);
-              setValue(name, optional ? NONE_VALUE : "", {
-                shouldDirty: true,
-              });
+              setValue(name, "", { shouldDirty: true });
             }}
             className="text-text-muted hover:text-cream-100 shrink-0 text-xs underline underline-offset-2"
           >
@@ -175,21 +187,12 @@ function ModelSelect({
           </button>
         </div>
       ) : (
-        <div className="mt-2 space-y-2">
-          {models.length > 40 && (
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter models…"
-              aria-label={`Filter ${label}`}
-              className="h-8 text-xs"
-            />
-          )}
-          <Select
+        <div className="mt-2">
+          <RichSelect
             id={name}
-            value={value ?? NONE_VALUE}
-            onChange={(e) => {
-              const next = e.target.value;
+            aria-label={label}
+            value={value ?? ""}
+            onValueChange={(next) => {
               if (next === CUSTOM_VALUE) {
                 setManual(true);
                 return;
@@ -203,22 +206,21 @@ function ModelSelect({
                 });
               }
             }}
-          >
-            {optional && <option value={NONE_VALUE}>None</option>}
-            {grouped.map(([category, items]) => (
-              <optgroup key={category} label={category}>
-                {items.map((m) => (
-                  <option key={m.endpointId} value={m.endpointId}>
-                    {m.displayName} — {m.endpointId}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-            <option value={CUSTOM_VALUE}>Custom value…</option>
-          </Select>
-          {query && (
-            <p className="text-text-muted text-xs">
-              {filtered.length} of {models.length} models
+            noneLabel={optional ? "None" : undefined}
+            groups={groups}
+            searchable
+            searchPlaceholder="Search models or endpoints…"
+            placeholder="Select a model…"
+            footerOption={{
+              value: CUSTOM_VALUE,
+              label: "Custom value…",
+              description: "Type an endpoint not in the catalog",
+            }}
+            panelClassName="min-w-72"
+          />
+          {value && knownIds.has(value) && (
+            <p className="text-text-muted mt-1.5 truncate font-mono text-[11px]">
+              {value}
             </p>
           )}
         </div>

@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { RichSelect } from "@/components/ui/rich-select";
 import { GenerationControls } from "@/components/consumer/generation-controls";
 import { LabModelPicker } from "./lab-model-picker";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
@@ -14,7 +14,13 @@ import {
   prepareSourceUpload,
 } from "@/lib/generation/upload";
 import { pollLabGeneration, runLabGeneration } from "@/lib/lab/actions";
-import { CloudArrowUp, Spinner, WarningCircle } from "@phosphor-icons/react";
+import {
+  CloudArrowUp,
+  Rectangle,
+  Spinner,
+  Square,
+  WarningCircle,
+} from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
@@ -387,24 +393,33 @@ export function LabWorkspace({
             <Label htmlFor="output-size" className="sr-only">
               Output size
             </Label>
-            <Select
+            <RichSelect
               id="output-size"
+              aria-label="Output size"
               value={sizeKey(selectedSize)}
-              onChange={(e) => {
-                const next = outputSizes.find(
-                  (s) => sizeKey(s) === e.target.value
-                );
+              onValueChange={(key) => {
+                const next = outputSizes.find((s) => sizeKey(s) === key);
                 if (next) setSelectedSize(next);
               }}
               disabled={busy}
-              className="w-full sm:w-auto"
-            >
-              {outputSizes.map((size) => (
-                <option key={sizeKey(size)} value={sizeKey(size)}>
-                  {size.name} ({size.width} × {size.height})
-                </option>
-              ))}
-            </Select>
+              options={outputSizes.map((size) => {
+                const ratio = size.width / size.height;
+                return {
+                  value: sizeKey(size),
+                  label: size.name,
+                  description: `${size.width} × ${size.height}`,
+                  icon:
+                    Math.abs(ratio - 1) < 0.01 ? (
+                      <Square size={15} />
+                    ) : ratio > 1 ? (
+                      <Rectangle size={15} />
+                    ) : (
+                      <Rectangle size={15} className="rotate-90" />
+                    ),
+                };
+              })}
+              className="w-full sm:w-72"
+            />
           </div>
         </section>
       </div>
