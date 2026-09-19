@@ -289,10 +289,6 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           <VersionList
             versions={versionSummaries}
             selectedVersionId={initialData.version.id}
-            onSelect={() => {
-              // Version switching is handled via the edit form save flow.
-              // The list is primarily for visibility and diff comparison.
-            }}
           />
         </div>
       )}

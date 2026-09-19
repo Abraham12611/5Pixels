@@ -71,6 +71,8 @@ async function getLabRecipe(
   versionId: string
 ): Promise<LabRecipe | null> {
   const service = createServiceClient();
+  // Admin-gated by the caller — drafts and testing versions are valid lab
+  // targets, so no public_status/state filters here.
   const { data, error } = await service
     .from("product_versions")
     .select(
@@ -79,15 +81,11 @@ async function getLabRecipe(
       private_instruction_template,
       private_negative_instruction,
       provider_strategy,
-      model_config,
-      products!inner(public_status, visibility)
+      model_config
     `
     )
     .eq("id", versionId)
     .eq("product_id", productId)
-    .eq("state", "active")
-    .eq("products.public_status", "active")
-    .eq("products.visibility", "public")
     .single();
 
   if (error || !data) {

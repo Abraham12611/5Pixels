@@ -2,20 +2,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { CaretRight, Flask } from "@phosphor-icons/react/dist/ssr";
 import { requireAdmin } from "@/lib/db/admin";
-import { getPublicProducts } from "@/lib/db/explore";
-import { getProductAssetPreviews } from "@/lib/db/products";
+import {
+  getAdminLabProducts,
+  getProductAssetPreviews,
+} from "@/lib/db/products";
 
 export default async function AdminLabPage() {
   await requireAdmin();
-  const { data: products } = await getPublicProducts(
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    "name_asc",
-    1,
-    100
-  );
+  const products = await getAdminLabProducts();
 
   const previews = await getProductAssetPreviews(
     products.map((p) => p.hero_asset_id)
@@ -27,9 +21,9 @@ export default async function AdminLabPage() {
         <h1 className="text-cream-50 text-3xl font-bold">Test lab</h1>
       </div>
       <p className="text-text-secondary mt-2 max-w-2xl">
-        Run any live preset against one or more provider models and compare the
-        results side by side. Uses your personal credit balance at each
-        model&apos;s real rate.
+        Run any preset — including drafts — against one or more provider models
+        and compare the results side by side. Uses your personal credit balance
+        at each model&apos;s real rate.
       </p>
 
       {products.length === 0 ? (
@@ -38,10 +32,10 @@ export default async function AdminLabPage() {
             <Flask size={24} />
           </span>
           <p className="text-cream-50 text-sm font-medium">
-            No live presets to test
+            No presets to test
           </p>
           <p className="text-text-secondary max-w-xs text-sm">
-            Publish a filter or poster to make it available in the lab.
+            Create a filter or poster to make it available in the lab.
           </p>
         </div>
       ) : (
@@ -75,6 +69,11 @@ export default async function AdminLabPage() {
                     <span className="bg-charcoal-900/80 text-cream-100 absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide backdrop-blur">
                       {product.type}
                     </span>
+                    {product.public_status !== "active" && (
+                      <span className="bg-charcoal-900/80 text-warning absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide backdrop-blur">
+                        {product.public_status}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center justify-between gap-2 p-3">
                     <div className="min-w-0">

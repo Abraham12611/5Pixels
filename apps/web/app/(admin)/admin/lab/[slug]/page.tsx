@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { requireAdmin } from "@/lib/db/admin";
-import { getPublicProductBySlug } from "@/lib/db/explore";
+import { getAdminProductBySlug } from "@/lib/db/products";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { getProviderEndpoint } from "@/lib/ai/provider-routing";
@@ -18,7 +18,7 @@ export default async function AdminTestLabDetailPage({
   const { supabase, user } = await requireAdmin();
   const { slug } = await params;
 
-  const { data: product } = await getPublicProductBySlug(slug);
+  const product = await getAdminProductBySlug(slug);
   if (!product) notFound();
 
   const [balance, catalog, markupResult] = await Promise.all([
