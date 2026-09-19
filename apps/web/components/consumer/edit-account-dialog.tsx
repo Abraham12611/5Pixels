@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateProfile, type PublicProfile } from "@/lib/profile/actions";
+import type { DefaultAvatar } from "@/lib/profile/default-avatars";
 import { AvatarUploader } from "./avatar-uploader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +14,13 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { X } from "@phosphor-icons/react";
+import { Check, X } from "@phosphor-icons/react";
+import { cn } from "@/lib/utils";
 
 interface EditAccountDialogProps {
   profile: Pick<PublicProfile, "display_name" | "avatar_asset_id">;
   avatarUrl: string | null;
+  defaultAvatars?: DefaultAvatar[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -25,10 +29,12 @@ interface EditAccountDialogProps {
 export function EditAccountButton({
   profile,
   avatarUrl,
+  defaultAvatars = [],
   label = "Edit profile",
 }: {
   profile: Pick<PublicProfile, "display_name" | "avatar_asset_id">;
   avatarUrl: string | null;
+  defaultAvatars?: DefaultAvatar[];
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,6 +46,7 @@ export function EditAccountButton({
       <EditAccountDialog
         profile={profile}
         avatarUrl={avatarUrl}
+        defaultAvatars={defaultAvatars}
         open={open}
         onOpenChange={setOpen}
       />
@@ -54,6 +61,7 @@ export function EditAccountButton({
 export function EditAccountDialog({
   profile,
   avatarUrl,
+  defaultAvatars = [],
   open,
   onOpenChange,
 }: EditAccountDialogProps) {
@@ -67,6 +75,12 @@ export function EditAccountDialog({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const pickDefault = (avatar: DefaultAvatar) => {
+    setAvatarAssetId(avatar.id);
+    setAvatarPreviewUrl(avatar.url);
+    setError(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,6 +131,60 @@ export function EditAccountDialog({
               onError={setError}
             />
           </div>
+
+          {defaultAvatars.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <Label>Or pick a profile picture</Label>
+                <span className="text-text-muted text-xs">
+                  {defaultAvatars.length} to choose from
+                </span>
+              </div>
+              <div
+                role="listbox"
+                aria-label="Default profile pictures"
+                className="grid max-h-52 grid-cols-6 gap-2 overflow-y-auto pr-1"
+              >
+                {defaultAvatars.map((avatar) => {
+                  const isSelected = avatar.id === avatarAssetId;
+                  return (
+                    <button
+                      key={avatar.id}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      aria-label={avatar.label}
+                      onClick={() => pickDefault(avatar)}
+                      className={cn(
+                        "relative aspect-square overflow-hidden rounded-full border-2 transition",
+                        isSelected
+                          ? "border-lime-500"
+                          : "border-cream-100/10 hover:border-cream-100/40"
+                      )}
+                    >
+                      <Image
+                        src={avatar.url}
+                        alt={avatar.label}
+                        fill
+                        unoptimized
+                        className="object-cover"
+                        sizes="56px"
+                      />
+                      {isSelected && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-ink-950/40">
+                          <Check
+                            size={18}
+                            weight="bold"
+                            className="text-lime-400"
+                          />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="edit-display-name">Display name</Label>

@@ -14,7 +14,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AssetUploader } from "./asset-uploader";
 import { FieldEditor } from "./field-editor";
+import { ProviderStrategyFields } from "./provider-strategy-fields";
 import { normalizeEmptyCategory } from "@/lib/utils/category";
+import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
 export interface ProductAssetPreview {
   publicUrl: string;
@@ -61,6 +63,7 @@ interface ProductFormProps {
     >
   >;
   headerAction?: React.ReactNode;
+  modelCatalog?: ProviderModelOption[];
 }
 
 export function ProductForm({
@@ -70,6 +73,7 @@ export function ProductForm({
   onSubmit,
   assetPreviews,
   headerAction,
+  modelCatalog = [],
 }: ProductFormProps) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string>();
@@ -468,52 +472,7 @@ export function ProductForm({
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
         <h2 className="text-cream-50 mb-4 text-lg font-semibold">AI recipe</h2>
-        <div className="grid gap-6 md:grid-cols-2">
-          <div>
-            <Label htmlFor="version.provider_strategy.primary_provider">
-              Primary provider
-            </Label>
-            <Input
-              id="version.provider_strategy.primary_provider"
-              {...register("version.provider_strategy.primary_provider")}
-              className="mt-2"
-              placeholder="e.g. fal-ai"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.provider_strategy.primary_model">
-              Primary model
-            </Label>
-            <Input
-              id="version.provider_strategy.primary_model"
-              {...register("version.provider_strategy.primary_model")}
-              className="mt-2"
-              placeholder="e.g. flux/dev/image-to-image"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.provider_strategy.fallback_provider">
-              Fallback provider (optional)
-            </Label>
-            <Input
-              id="version.provider_strategy.fallback_provider"
-              {...register("version.provider_strategy.fallback_provider")}
-              className="mt-2"
-              placeholder="e.g. fal-ai"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.provider_strategy.fallback_model">
-              Fallback model (optional)
-            </Label>
-            <Input
-              id="version.provider_strategy.fallback_model"
-              {...register("version.provider_strategy.fallback_model")}
-              className="mt-2"
-              placeholder="e.g. flux-pro/image-to-image"
-            />
-          </div>
-        </div>
+        <ProviderStrategyFields catalog={modelCatalog} />
         <div className="mt-6">
           <Label htmlFor="version.private_instruction_template">
             Private instruction template

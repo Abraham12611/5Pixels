@@ -12,6 +12,7 @@ import {
   updateProduct,
   selectEditableVersion,
 } from "@/lib/db/products";
+import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { ProductForm } from "./product-form";
 import { PublishButton } from "./publish-button";
 import { ProductActions } from "./product-actions";
@@ -23,6 +24,7 @@ import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import type { ProductCreateInput } from "@5pixels/shared";
 import { validatePublishGates } from "@/lib/validation/publish-gates";
+import { coerceCreditCost } from "@/lib/admin/coerce";
 
 interface EditProductPageProps {
   id: string;
@@ -34,16 +36,18 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const product = await getProductById(id);
   if (!product || product.type !== type) notFound();
 
-  const [categories, assetPreviewById, referenceAssets] = await Promise.all([
-    getCategories(),
-    getProductAssetPreviews([
-      product.hero_asset_id,
-      product.poster_asset_id,
-      product.preview_video_asset_id,
-      product.preview_gif_asset_id,
-    ]),
-    getProductReferenceAssets(id),
-  ]);
+  const [categories, assetPreviewById, referenceAssets, modelCatalog] =
+    await Promise.all([
+      getCategories(),
+      getProductAssetPreviews([
+        product.hero_asset_id,
+        product.poster_asset_id,
+        product.preview_video_asset_id,
+        product.preview_gif_asset_id,
+      ]),
+      getProductReferenceAssets(id),
+      getProviderModelCatalog(),
+    ]);
 
   const versions = Array.isArray(product.product_versions)
     ? product.product_versions
@@ -64,6 +68,10 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const fields = Array.isArray(product.product_fields)
     ? product.product_fields
     : [];
+
+  // Postgres NUMERIC columns deserialize as strings (e.g. "1.0000") — coerce
+  // once so the string never reaches zod's z.number() validation.
+  const versionCreditCost = coerceCreditCost(version?.credit_cost);
 
   const metadata = (product.metadata ?? {}) as {
     filter_config?: ProductCreateInput["filter_config"];
@@ -86,7 +94,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     preview_gif_asset_id: product.preview_gif_asset_id ?? undefined,
     likeness_level: product.likeness_level ?? undefined,
     featured_rank: product.featured_rank ?? undefined,
-    credit_cost: version?.credit_cost ?? product.credit_cost ?? 0,
+    credit_cost: versionCreditCost ?? Number(product.credit_cost ?? 0),
     version: {
       id: version?.id as string | undefined,
       version_number: (version?.version_number as number) ?? 1,
@@ -125,7 +133,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         block_public_figures: true,
         block_minors: true,
       },
-      credit_cost: (version?.credit_cost as number) ?? 1,
+      credit_cost: versionCreditCost ?? 1,
     },
     fields: fields.map(
       (f: {
@@ -198,7 +206,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         primary_provider: "",
         primary_model: "",
       },
-      credit_cost: (version?.credit_cost as number) ?? 0,
+      credit_cost: versionCreditCost ?? 0,
       safety_config: (version?.safety_config as Record<string, unknown>) ?? {},
     },
     initialData.fields
@@ -293,6 +301,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         type={type}
         initialData={initialData}
         categories={categories}
+        modelCatalog={modelCatalog}
         assetPreviews={{
           hero: product.hero_asset_id
             ? assetPreviewById[product.hero_asset_id]

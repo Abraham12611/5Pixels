@@ -107,6 +107,22 @@ export async function updateProfile(
     return { success: false, error: validation };
   }
 
+  // Avatar must be one the user owns or a shared default.
+  if (input.avatar_asset_id !== undefined && input.avatar_asset_id !== null) {
+    const { data: avatarAsset } = await supabase
+      .from("assets")
+      .select("id, owner_user_id, source_type")
+      .eq("id", input.avatar_asset_id)
+      .maybeSingle();
+    const allowed =
+      avatarAsset &&
+      (avatarAsset.owner_user_id === user.id ||
+        avatarAsset.source_type === "default_avatar");
+    if (!allowed) {
+      return { success: false, error: "That profile picture isn't available." };
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (input.display_name !== undefined) updates.display_name = input.display_name;
   if (input.username !== undefined) updates.username = input.username?.trim().toLowerCase() || null;
@@ -154,13 +170,25 @@ export async function getAvatarUrl(
 
   const { data, error } = await supabase
     .from("assets")
-    .select("storage_key, bucket, owner_user_id")
+    .select("storage_key, bucket, owner_user_id, source_type, visibility")
     .eq("id", assetId)
     .maybeSingle();
 
   if (error || !data) {
     console.error("[getAvatarUrl] asset lookup failed", error?.message);
     return null;
+  }
+
+  // Shared default avatars — no owner check or signing needed. Rows with the
+  // 'default-avatars' pseudo-bucket are served from the app's public dir.
+  if (data.source_type === "default_avatar") {
+    if (data.bucket === "default-avatars") {
+      return `/avatars/${data.storage_key}`;
+    }
+    const { data: pub } = supabase.storage
+      .from(data.bucket)
+      .getPublicUrl(data.storage_key);
+    return pub?.publicUrl ?? null;
   }
 
   if (data.owner_user_id !== user.id) {

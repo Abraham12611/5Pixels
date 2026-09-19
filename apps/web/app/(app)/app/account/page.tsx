@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
 import { getMyProfile, getAvatarUrl } from "@/lib/profile/actions";
+import { listDefaultAvatars } from "@/lib/profile/default-avatars";
 import { getUserSettings } from "@/lib/db/settings";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getActivePlan } from "@/lib/billing/entitlements";
@@ -38,7 +39,10 @@ export default async function AccountPage() {
     redirect("/app");
   }
 
-  const avatarUrl = await getAvatarUrl(profile.avatar_asset_id);
+  const [avatarUrl, defaultAvatars] = await Promise.all([
+    getAvatarUrl(profile.avatar_asset_id),
+    listDefaultAvatars(),
+  ]);
   const name =
     profile.display_name ??
     (user.user_metadata?.name as string | null) ??
@@ -93,6 +97,7 @@ export default async function AccountPage() {
           <EditAccountButton
             profile={profile}
             avatarUrl={avatarUrl}
+            defaultAvatars={defaultAvatars}
             label="Edit"
           />
         </div>
