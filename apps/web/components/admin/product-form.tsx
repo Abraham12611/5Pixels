@@ -15,6 +15,7 @@ import { AssetUploader } from "./asset-uploader";
 import { FieldEditor } from "./field-editor";
 import { ProviderStrategyFields } from "./provider-strategy-fields";
 import { FormRichSelect } from "./form-rich-select";
+import { optionalNumberInput } from "./form-utils";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
 export interface ProductAssetPreview {
@@ -520,9 +521,7 @@ export function ProductForm({
             <Input
               id="version.model_config.width"
               type="number"
-              {...register("version.model_config.width", {
-                valueAsNumber: true,
-              })}
+              {...register("version.model_config.width", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -531,9 +530,7 @@ export function ProductForm({
             <Input
               id="version.model_config.height"
               type="number"
-              {...register("version.model_config.height", {
-                valueAsNumber: true,
-              })}
+              {...register("version.model_config.height", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -545,9 +542,7 @@ export function ProductForm({
               id="version.model_config.guidance_scale"
               type="number"
               step="any"
-              {...register("version.model_config.guidance_scale", {
-                valueAsNumber: true,
-              })}
+              {...register("version.model_config.guidance_scale", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -558,9 +553,7 @@ export function ProductForm({
             <Input
               id="version.model_config.num_inference_steps"
               type="number"
-              {...register("version.model_config.num_inference_steps", {
-                valueAsNumber: true,
-              })}
+              {...register("version.model_config.num_inference_steps", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -669,9 +662,7 @@ export function ProductForm({
             <Input
               id="version.input_validation_config.min_width"
               type="number"
-              {...register("version.input_validation_config.min_width", {
-                valueAsNumber: true,
-              })}
+              {...register("version.input_validation_config.min_width", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -682,9 +673,7 @@ export function ProductForm({
             <Input
               id="version.input_validation_config.min_height"
               type="number"
-              {...register("version.input_validation_config.min_height", {
-                valueAsNumber: true,
-              })}
+              {...register("version.input_validation_config.min_height", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -695,9 +684,7 @@ export function ProductForm({
             <Input
               id="version.input_validation_config.max_people_count"
               type="number"
-              {...register("version.input_validation_config.max_people_count", {
-                valueAsNumber: true,
-              })}
+              {...register("version.input_validation_config.max_people_count", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -708,9 +695,7 @@ export function ProductForm({
             <Input
               id="version.input_validation_config.max_face_count"
               type="number"
-              {...register("version.input_validation_config.max_face_count", {
-                valueAsNumber: true,
-              })}
+              {...register("version.input_validation_config.max_face_count", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -729,9 +714,7 @@ export function ProductForm({
             <Input
               id="version.post_process_config.resize_width"
               type="number"
-              {...register("version.post_process_config.resize_width", {
-                valueAsNumber: true,
-              })}
+              {...register("version.post_process_config.resize_width", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -742,9 +725,7 @@ export function ProductForm({
             <Input
               id="version.post_process_config.resize_height"
               type="number"
-              {...register("version.post_process_config.resize_height", {
-                valueAsNumber: true,
-              })}
+              {...register("version.post_process_config.resize_height", optionalNumberInput)}
               className="mt-2"
             />
           </div>
@@ -774,9 +755,7 @@ export function ProductForm({
               type="number"
               min={1}
               max={100}
-              {...register("version.post_process_config.quality", {
-                valueAsNumber: true,
-              })}
+              {...register("version.post_process_config.quality", optionalNumberInput)}
               className="mt-2"
             />
           </div>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RichSelect } from "@/components/ui/rich-select";
+import { optionalNumberInput } from "./form-utils";
 import type { ProductCreateInput } from "@5pixels/shared";
 
 const FIELD_TYPES = [
@@ -167,7 +168,7 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
             <Input
               id={`fields.${index}.sort_order`}
               type="number"
-              {...register(`fields.${index}.sort_order`, { valueAsNumber: true })}
+              {...register(`fields.${index}.sort_order`, optionalNumberInput)}
               className="mt-0 w-20"
             />
           </div>
@@ -357,7 +358,7 @@ function RangeConfigEditor({
         <Input
           id={`fields.${index}.config.min`}
           type="number"
-          {...register(`fields.${index}.config.min`, { valueAsNumber: true })}
+          {...register(`fields.${index}.config.min`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -366,7 +367,7 @@ function RangeConfigEditor({
         <Input
           id={`fields.${index}.config.max`}
           type="number"
-          {...register(`fields.${index}.config.max`, { valueAsNumber: true })}
+          {...register(`fields.${index}.config.max`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -376,7 +377,7 @@ function RangeConfigEditor({
           id={`fields.${index}.config.step`}
           type="number"
           step="any"
-          {...register(`fields.${index}.config.step`, { valueAsNumber: true })}
+          {...register(`fields.${index}.config.step`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -385,9 +386,7 @@ function RangeConfigEditor({
         <Input
           id={`fields.${index}.config.default`}
           type="number"
-          {...register(`fields.${index}.config.default`, {
-            valueAsNumber: true,
-          })}
+          {...register(`fields.${index}.config.default`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -419,9 +418,7 @@ function ShortTextValidationEditor({
         <Input
           id={`fields.${index}.validation.minLength`}
           type="number"
-          {...register(`fields.${index}.validation.minLength`, {
-            valueAsNumber: true,
-          })}
+          {...register(`fields.${index}.validation.minLength`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -432,9 +429,7 @@ function ShortTextValidationEditor({
         <Input
           id={`fields.${index}.validation.maxLength`}
           type="number"
-          {...register(`fields.${index}.validation.maxLength`, {
-            valueAsNumber: true,
-          })}
+          {...register(`fields.${index}.validation.maxLength`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
