@@ -27,17 +27,27 @@ export default async function AdminTestLabDetailPage({
     supabase.rpc("get_user_markup_multiplier", { p_user_id: user.id }),
   ]);
 
-  // The preset's configured primary endpoint is pre-checked in the picker.
+  // The preset's configured primary endpoint is pre-checked in the picker, and
+  // its private recipe is shown (admin-only) so tests can override it.
   let defaultEndpointId: string | null = null;
+  let recipe: { instruction: string; negative: string | null } | null = null;
   if (product.version_id) {
     const service = createServiceClient();
     const { data: version } = await service
       .from("product_versions")
-      .select("provider_strategy")
+      .select(
+        "provider_strategy, private_instruction_template, private_negative_instruction"
+      )
       .eq("id", product.version_id)
       .single();
     const strategy = version?.provider_strategy as ProviderStrategy | undefined;
     defaultEndpointId = strategy ? getProviderEndpoint(strategy) : null;
+    recipe = {
+      instruction:
+        (version?.private_instruction_template as string | null) ?? "",
+      negative:
+        (version?.private_negative_instruction as string | null) ?? null,
+    };
   }
 
   // Presets transform a source photo — only image-to-image endpoints can run.
@@ -84,6 +94,7 @@ export default async function AdminTestLabDetailPage({
         defaultEndpointId={defaultEndpointId}
         initialBalance={balance}
         markup={markup}
+        recipe={recipe}
       />
     </>
   );

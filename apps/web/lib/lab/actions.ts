@@ -106,6 +106,9 @@ export interface LabRunInput {
   outputSize: OutputSizeOption;
   /** Explicit provider endpoint to test (e.g. "fal-ai/flux/dev/image-to-image"). */
   endpointId: string;
+  /** Optional instruction overrides — let admins test prompt variations without touching the saved recipe. */
+  instructionOverride?: string;
+  negativeOverride?: string;
 }
 
 export interface LabRunResult {
@@ -192,7 +195,7 @@ export async function runLabGeneration(
   try {
     const sourceUrl = await getSignedSourceUrlByAssetId(input.sourceAssetId);
     const prompt = compilePrompt(
-      recipe.private_instruction_template,
+      input.instructionOverride?.trim() || recipe.private_instruction_template,
       input.options
     );
 
@@ -210,7 +213,10 @@ export async function runLabGeneration(
     const submitResult = await provider.submit({
       endpoint: input.endpointId,
       prompt,
-      negativePrompt: recipe.private_negative_instruction ?? undefined,
+      negativePrompt:
+        input.negativeOverride?.trim() ||
+        recipe.private_negative_instruction ||
+        undefined,
       sourceImageUrl: sourceUrl,
       options: input.options,
       modelConfig,

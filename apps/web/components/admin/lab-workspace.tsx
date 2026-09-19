@@ -40,6 +40,8 @@ interface LabWorkspaceProps {
   defaultEndpointId: string | null;
   initialBalance: number;
   markup: number;
+  /** The preset's saved private recipe — shown for reference, overridable per run. */
+  recipe: { instruction: string; negative: string | null } | null;
 }
 
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
@@ -74,9 +76,13 @@ export function LabWorkspace({
   defaultEndpointId,
   initialBalance,
   markup,
+  recipe,
 }: LabWorkspaceProps) {
+  const isPoster = product.type === "poster";
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [instructionOverride, setInstructionOverride] = useState("");
+  const [negativeOverride, setNegativeOverride] = useState("");
   const [options, setOptions] = useState<Record<string, unknown>>(() => {
     const defaults: Record<string, unknown> = {};
     for (const field of sortFields(product.active_fields)) {
@@ -275,6 +281,8 @@ export function LabWorkspace({
             options,
             outputSize: selectedSize,
             endpointId: m.endpointId,
+            instructionOverride: instructionOverride.trim() || undefined,
+            negativeOverride: negativeOverride.trim() || undefined,
           }),
         }))
       );
@@ -314,7 +322,9 @@ export function LabWorkspace({
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Source photo */}
         <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-          <h2 className="text-cream-50 text-lg font-semibold">Source photo</h2>
+          <h2 className="text-cream-50 text-lg font-semibold">
+            1. Source photo
+          </h2>
           <p className="text-text-secondary mt-1 text-sm">
             Shared across every model run below.
           </p>
@@ -369,7 +379,7 @@ export function LabWorkspace({
 
         {/* Output size */}
         <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-          <h2 className="text-cream-50 text-lg font-semibold">Output size</h2>
+          <h2 className="text-cream-50 text-lg font-semibold">2. Output size</h2>
           <p className="text-text-secondary mt-1 text-sm">
             Applied to every run; per-model cost scales with size.
           </p>
@@ -402,7 +412,7 @@ export function LabWorkspace({
       {/* Controls */}
       {product.active_fields.length > 0 && (
         <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-          <h2 className="text-cream-50 text-lg font-semibold">Controls</h2>
+          <h2 className="text-cream-50 text-lg font-semibold">3. Controls</h2>
           <p className="text-text-secondary mt-1 text-sm">
             The same options a consumer would set.
           </p>
@@ -416,11 +426,79 @@ export function LabWorkspace({
         </section>
       )}
 
+      {/* Recipe — saved instruction template + per-run overrides */}
+      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+        <h2 className="text-cream-50 text-lg font-semibold">
+          4. Recipe override
+        </h2>
+        <p className="text-text-secondary mt-1 text-sm">
+          The preset&apos;s saved instruction template. Leave blank to test it
+          as-is, or paste a variation to try a different prompt across every
+          model — without changing what&apos;s published.
+        </p>
+        <div className="mt-4 space-y-4">
+          {recipe?.instruction && (
+            <div>
+              <p className="text-text-secondary mb-1.5 text-xs font-medium">
+                Saved instruction template
+              </p>
+              <pre className="border-cream-100/10 bg-charcoal-900 text-text-secondary max-h-36 overflow-y-auto rounded-[10px] border p-3.5 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                {recipe.instruction}
+              </pre>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="instruction-override" className="text-xs">
+              Instruction override{" "}
+              <span className="text-text-muted font-normal">(optional)</span>
+            </Label>
+            <textarea
+              id="instruction-override"
+              value={instructionOverride}
+              onChange={(e) => setInstructionOverride(e.target.value)}
+              disabled={busy}
+              rows={4}
+              placeholder={
+                recipe?.instruction
+                  ? "Overrides the saved template for these runs…"
+                  : "Instruction template for these runs…"
+              }
+              className="border-cream-100/10 bg-charcoal-800 text-cream-50 placeholder:text-text-muted focus:border-lime-500/50 mt-1.5 w-full rounded-[10px] border px-3.5 py-2.5 font-mono text-xs leading-relaxed focus:outline-none disabled:opacity-60"
+            />
+          </div>
+          <div>
+            <Label htmlFor="negative-override" className="text-xs">
+              Negative instruction override{" "}
+              <span className="text-text-muted font-normal">(optional)</span>
+            </Label>
+            <textarea
+              id="negative-override"
+              value={negativeOverride}
+              onChange={(e) => setNegativeOverride(e.target.value)}
+              disabled={busy}
+              rows={2}
+              placeholder={
+                recipe?.negative
+                  ? `Saved: ${recipe.negative}`
+                  : "e.g. blurry, distorted face, watermark…"
+              }
+              className="border-cream-100/10 bg-charcoal-800 text-cream-50 placeholder:text-text-muted focus:border-lime-500/50 mt-1.5 w-full rounded-[10px] border px-3.5 py-2.5 font-mono text-xs leading-relaxed focus:outline-none disabled:opacity-60"
+            />
+          </div>
+          {(instructionOverride || negativeOverride) && (
+            <p className="bg-warning/10 text-warning rounded-[10px] px-3.5 py-2 text-xs">
+              Overrides active — these runs use your edited recipe, not the
+              saved one.
+            </p>
+          )}
+        </div>
+      </section>
+
       {/* Models */}
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h2 className="text-cream-50 text-lg font-semibold">Models</h2>
+            <h2 className="text-cream-50 text-lg font-semibold">5. Models</h2>
             <p className="text-text-secondary mt-1 text-sm">
               Every selected model gets its own generation — results land side
               by side below.
@@ -468,6 +546,11 @@ export function LabWorkspace({
                 : `Run ${selected.size > 0 ? selected.size : ""} test${selected.size === 1 ? "" : "s"}`}
           </Button>
         </div>
+        {isPoster && (
+          <p className="text-text-secondary mt-3 text-sm">
+            Poster generation includes deterministic text rendering.
+          </p>
+        )}
         {error && (
           <div className="border-error/30 bg-error/10 text-error mt-3 flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-sm">
             <WarningCircle size={16} className="mt-0.5 shrink-0" />
@@ -563,6 +646,13 @@ export function LabWorkspace({
                           className="text-text-secondary hover:text-cream-100 underline underline-offset-2"
                         >
                           detail
+                        </a>
+                        {" · "}
+                        <a
+                          href={`/app/results/${run.generationId}`}
+                          className="text-text-secondary hover:text-cream-100 underline underline-offset-2"
+                        >
+                          open result
                         </a>
                       </>
                     )}
