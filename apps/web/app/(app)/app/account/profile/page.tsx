@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
 import { getMyProfile, getAvatarUrl } from "@/lib/profile/actions";
+import { listDefaultAvatars } from "@/lib/profile/default-avatars";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard, SettingRow } from "@/components/consumer/setting-card";
 import { EditAccountButton } from "@/components/consumer/edit-account-dialog";
@@ -21,7 +22,10 @@ export default async function AccountProfilePage() {
     redirect("/app");
   }
 
-  const avatarUrl = await getAvatarUrl(profile.avatar_asset_id);
+  const [avatarUrl, defaultAvatars] = await Promise.all([
+    getAvatarUrl(profile.avatar_asset_id),
+    listDefaultAvatars(),
+  ]);
   const name =
     profile.display_name ??
     (user.user_metadata?.name as string | null) ??
@@ -48,7 +52,11 @@ export default async function AccountProfilePage() {
           title="Your profile"
           description="Your name and photo are used across your account only."
           action={
-            <EditAccountButton profile={profile} avatarUrl={avatarUrl} />
+            <EditAccountButton
+              profile={profile}
+              avatarUrl={avatarUrl}
+              defaultAvatars={defaultAvatars}
+            />
           }
         >
           <div className="flex items-center gap-4">

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { updateUserSettings } from "@/lib/db/settings";
-import { cn } from "@/lib/utils";
+import { RichSelect } from "@/components/ui/rich-select";
 
 interface RetentionControlsProps {
   originalsDays: number | null;
@@ -45,27 +45,17 @@ export function RetentionControls({
     onChange: (v: number | null) => void,
     settingKey: "autoDeleteOriginalsDays" | "autoDeleteOutputsDays"
   ) => (
-    <select
+    <RichSelect
       id={id}
       value={value == null ? "" : String(value)}
       disabled={pending}
-      onChange={(e) => {
-        const next = e.target.value === "" ? null : Number(e.target.value);
+      onValueChange={(v) => {
+        const next = v === "" ? null : Number(v);
         onChange(next);
         save(settingKey, next);
       }}
-      className={cn(
-        "border-cream-100/10 bg-charcoal-800 text-cream-50 rounded-[10px] border px-3 py-2 text-sm transition-colors",
-        "focus:border-lime-500/50 focus:outline-none",
-        pending && "opacity-60"
-      )}
-    >
-      {OPTIONS.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+      options={OPTIONS}
+    />
   );
 
   return (

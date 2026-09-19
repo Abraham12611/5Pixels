@@ -150,6 +150,21 @@ describe("validatePublishGates", () => {
     );
   });
 
+  it("rejects a numeric-string credit cost (Postgres NUMERIC arrives as a string)", () => {
+    // Regression: edit pages must coerce with coerceCreditCost — Postgres
+    // NUMERIC deserializes to a string at runtime despite the TS type.
+    const version = {
+      ...validVersion(),
+      credit_cost: "1.0000" as unknown as number,
+    };
+    const result = validatePublishGates(validProduct(), version, []);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.some((f) => f.code === "INVALID_CREDIT_COST")).toBe(
+      true
+    );
+  });
+
   it("rejects missing safety config booleans", () => {
     const version = {
       ...validVersion(),
