@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseFalImageUrl, createFalAdapter } from "../fal";
 import { createMockProvider } from "../mock";
+
+const queueStub = vi.hoisted(() => ({
+  submit: vi.fn(),
+  status: vi.fn(),
+  result: vi.fn(),
+}));
+
+vi.mock("@fal-ai/client", () => ({
+  createFalClient: vi.fn(() => ({ queue: queueStub })),
+}));
+
+beforeEach(() => {
+  queueStub.submit.mockReset();
+  queueStub.status.mockReset();
+  queueStub.result.mockReset();
+});
 
 describe("parseFalImageUrl", () => {
   it("extracts the first image from an images array", () => {
@@ -60,6 +76,44 @@ describe("createFalAdapter downloadImage SSRF protection", () => {
     await expect(
       provider.downloadImage("https://fal.media/image.png")
     ).rejects.toThrow(); // will fail at HEAD, but host passes validation
+  });
+});
+
+describe("createFalAdapter status", () => {
+  it("treats a 4xx result fetch as terminal failure", async () => {
+    process.env.FAL_KEY = "test-key";
+    queueStub.status.mockResolvedValue({ status: "COMPLETED" });
+    queueStub.result.mockRejectedValue(
+      Object.assign(new Error("Unprocessable Entity"), { status: 422 })
+    );
+
+    const provider = createFalAdapter();
+    const result = await provider.status("fal-ai/nano-banana-2/edit", "req-1");
+    expect(result.status).toBe("failed");
+  });
+
+  it("maps COMPLETED-with-error payloads to failed", async () => {
+    process.env.FAL_KEY = "test-key";
+    queueStub.status.mockResolvedValue({
+      status: "COMPLETED",
+      error: "content_policy_violation",
+    });
+    queueStub.result.mockResolvedValue({ data: {} });
+
+    const provider = createFalAdapter();
+    const result = await provider.status("fal-ai/test", "req-2");
+    expect(result.status).toBe("failed");
+    expect(queueStub.result).not.toHaveBeenCalled();
+  });
+
+  it("keeps transient result-fetch errors retryable", async () => {
+    process.env.FAL_KEY = "test-key";
+    queueStub.status.mockResolvedValue({ status: "COMPLETED" });
+    queueStub.result.mockRejectedValue(new Error("socket hangup"));
+
+    const provider = createFalAdapter();
+    const result = await provider.status("fal-ai/test", "req-3");
+    expect(result.status).toBe("unknown");
   });
 });
 

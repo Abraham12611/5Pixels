@@ -111,7 +111,11 @@ export function createFalAdapter(): ImageProviderAdapter {
       assertAllowedEndpoint(input.endpoint);
 
       const body: Record<string, unknown> = {
+        // Endpoints differ on the source-image field: flux-style models take
+        // `image_url`, the nano-banana family requires `image_urls` (array).
+        // Send both — providers ignore fields their schema doesn't use.
         image_url: input.sourceImageUrl,
+        image_urls: [input.sourceImageUrl],
         prompt: input.prompt,
       };
 
@@ -157,11 +161,43 @@ export function createFalAdapter(): ImageProviderAdapter {
 
         const status = normalizeStatus(statusResult.status);
 
+        // fal reports provider-side failures as COMPLETED + error fields.
+        if (
+          status === "completed" &&
+          (statusResult as { error?: unknown }).error
+        ) {
+          return { status: "failed", logs };
+        }
+
         if (status !== "completed") {
           return { status, logs };
         }
 
-        const result = await queue.result(endpoint, { requestId });
+        let result: { data: unknown };
+        try {
+          result = await queue.result(endpoint, { requestId });
+        } catch (resultError) {
+          // A 4xx on the result fetch means the stored response can never be
+          // retrieved (e.g. the request's input was invalid for the endpoint).
+          // That is terminal — return 'failed' so the run refunds instead of
+          // retrying 'unknown' forever.
+          const statusCode = (resultError as { status?: number }).status;
+          if (
+            typeof statusCode === "number" &&
+            statusCode >= 400 &&
+            statusCode < 500
+          ) {
+            console.error(
+              "[fal status] result fetch rejected",
+              statusCode,
+              resultError instanceof Error
+                ? resultError.message
+                : String(resultError)
+            );
+            return { status: "failed", logs };
+          }
+          throw resultError;
+        }
         const imageUrl = parseFalImageUrl(result.data);
 
         if (!imageUrl) {

@@ -16,6 +16,9 @@ import { mapSafeGenerationRow } from "./map";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
 
+/** Rows that never reached the provider are dead after this age — fail+refund. */
+const UNSUBMITTED_STALE_MS = 15 * 60 * 1000;
+
 export interface PollResult {
   generation: SafeGenerationDetail | null;
   error?: string;
@@ -33,6 +36,35 @@ async function readProcessingToken(
   return (
     cookieStore.get(`${TOKEN_COOKIE_PREFIX}${generationId}`)?.value ?? null
   );
+}
+
+/**
+ * Re-issue a processing token for a non-terminal generation owned by the
+ * caller, and store it in the cookie jar. Recoverability path for runs whose
+ * original token cookie was lost (closed tab, 4h expiry, another browser) —
+ * without this the generation could never be polled again.
+ */
+async function resumeProcessingToken(
+  generationId: string
+): Promise<string | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("resume_generation", {
+    p_generation_id: generationId,
+  });
+  const token = Array.isArray(data) ? data[0]?.processing_token : null;
+  if (error || typeof token !== "string" || token.length === 0) {
+    return null;
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.set(`${TOKEN_COOKIE_PREFIX}${generationId}`, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    sameSite: "strict",
+    maxAge: 60 * 60 * 4,
+  });
+  return token;
 }
 
 async function fetchSafeGeneration(
@@ -233,7 +265,12 @@ export async function pollGenerationStatus(
     return { generation };
   }
 
-  const token = await readProcessingToken(generationId);
+  let token = await readProcessingToken(generationId);
+  if (!token) {
+    // The original token cookie is gone — mint a fresh one and continue so
+    // orphaned runs reconcile instead of staying stuck forever.
+    token = await resumeProcessingToken(generationId);
+  }
   if (!token) {
     return {
       generation,
@@ -244,6 +281,30 @@ export async function pollGenerationStatus(
 
   const providerRow = await getProviderRow(generationId);
   if (!providerRow) {
+    // Never submitted to the provider. Give the submit path a grace window,
+    // then fail + refund — there is nothing to poll for.
+    const ageMs =
+      Date.now() - new Date(generation.createdAt).getTime();
+    if (ageMs > UNSUBMITTED_STALE_MS) {
+      const { error: failError } = await supabase.rpc(
+        "fail_generation_refund",
+        {
+          p_generation_id: generationId,
+          p_token: token,
+          p_failure_code: "submission_interrupted",
+          p_failure_stage: "provider_submit",
+        }
+      );
+      if (failError) {
+        console.error(
+          "[poll] stale unsubmitted refund failed",
+          failError.message
+        );
+        return { generation, error: "Unable to finalize failed generation." };
+      }
+      const updated = await fetchSafeGeneration(generationId);
+      return { generation: updated ?? generation };
+    }
     return { generation, error: "Generation has not been submitted yet." };
   }
 
