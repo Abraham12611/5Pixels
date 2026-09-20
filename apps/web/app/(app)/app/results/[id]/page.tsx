@@ -3,9 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
-import { ResultCompare } from "@/components/consumer/result-compare";
-import { ResultActions } from "@/components/consumer/result-actions";
-import { ResultFeedback } from "@/components/consumer/result-feedback";
+import { ResultView } from "@/components/consumer/result-view";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 
 export default async function ResultPage({
@@ -130,37 +128,25 @@ export default async function ResultPage({
       </div>
 
       {/* Stage + action rail */}
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-        {outputUrl ? (
-          <ResultCompare
-            resultUrl={outputUrl}
-            originalUrl={sourceUrl}
-            resultAlt={`${generation.product_name} result`}
-            className="min-h-[52dvh] flex-1 rounded-2xl lg:min-h-0"
-          />
-        ) : (
-          <div className="media-frame bg-charcoal-850 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">
-            <p className="text-text-muted text-sm">No output image found.</p>
-          </div>
-        )}
-
-        <aside className="w-full shrink-0 space-y-4 lg:w-[320px] lg:overflow-y-auto lg:pr-1 xl:w-[350px]">
-          <ResultActions
-            generationId={generation.id}
-            productSlug={generation.product_slug}
-            productName={generation.product_name}
-            creditCost={creditCost}
-            downloadUrl={outputUrl}
-            initialShareId={shareMeta?.public_share_id ?? null}
-            initialSaved={Boolean(generation.saved_at)}
-          />
-          <ResultFeedback
-            generationId={id}
-            initialRating={myFeedback?.rating ?? null}
-            initialNotes={myFeedback?.notes ?? null}
-          />
-        </aside>
-      </div>
+      {outputUrl ? (
+        <ResultView
+          resultUrl={outputUrl}
+          originalUrl={sourceUrl}
+          resultAlt={`${generation.product_name} result`}
+          generationId={generation.id}
+          productSlug={generation.product_slug}
+          productName={generation.product_name}
+          creditCost={creditCost}
+          initialShareId={shareMeta?.public_share_id ?? null}
+          initialSaved={Boolean(generation.saved_at)}
+          initialRating={myFeedback?.rating ?? null}
+          initialNotes={myFeedback?.notes ?? null}
+        />
+      ) : (
+        <div className="media-frame bg-charcoal-850 mt-4 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">
+          <p className="text-text-muted text-sm">No output image found.</p>
+        </div>
+      )}
     </main>
   );
 }
