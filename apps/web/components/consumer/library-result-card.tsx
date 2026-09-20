@@ -134,6 +134,7 @@ export function LibraryResultCard({
             src={item.outputUrl}
             alt={`Result made with ${item.productName}`}
             fill
+            unoptimized
             priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="object-cover"
