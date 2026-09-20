@@ -13,7 +13,11 @@ import {
   finalizeSourceUpload,
   prepareSourceUpload,
 } from "@/lib/generation/upload";
-import { pollLabGeneration, runLabGeneration } from "@/lib/lab/actions";
+import {
+  pollLabGeneration,
+  runLabGeneration,
+  type LabRunResult,
+} from "@/lib/lab/actions";
 import {
   CloudArrowUp,
   Rectangle,
@@ -27,7 +31,13 @@ import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 20 * 1024 * 1024;
-const TERMINAL = new Set(["completed", "failed", "cancelled", "blocked"]);
+const TERMINAL = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "blocked",
+  "error",
+]);
 const POLL_INTERVAL_MS = 3500;
 
 interface LabRun {
@@ -107,6 +117,15 @@ export function LabWorkspace({
   const [error, setError] = useState("");
   const [balance, setBalance] = useState(initialBalance);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const runsRef = useRef<LabRun[]>([]);
+  const pollInFlightRef = useRef(false);
+
+  // Mirror runs into a ref so the poll interval always sees fresh state —
+  // the effect only re-runs when hasActiveRuns flips, so closure-captured
+  // `runs` goes stale as soon as generationIds arrive.
+  useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
 
   const outputSizes = useMemo(
     () =>
@@ -184,38 +203,53 @@ export function LabWorkspace({
     let cancelled = false;
 
     const tick = async () => {
-      const active = runs.filter(
+      if (pollInFlightRef.current) return;
+      // Read via ref — `runs` in this closure is stale once generationIds
+      // arrive, because the effect only re-runs when hasActiveRuns flips.
+      const active = runsRef.current.filter(
         (r) => r.generationId && !TERMINAL.has(r.status)
       );
-      const updates = await Promise.all(
-        active.map(async (r) => {
-          const res = await pollLabGeneration(r.generationId!);
-          return { endpointId: r.endpointId, res };
-        })
-      );
-      if (cancelled) return;
-      setRuns((prev) =>
-        prev.map((r) => {
-          const update = updates.find((u) => u.endpointId === r.endpointId);
-          if (!update) return r;
-          const { res } = update;
-          if (res.error && !res.status) {
-            return { ...r, status: "error", error: res.error };
-          }
-          const status = res.status ?? r.status;
-          return {
-            ...r,
-            status: TERMINAL.has(status)
-              ? status === "completed"
-                ? "completed"
-                : "failed"
-              : "running",
-            imageUrl: res.imageUrl ?? r.imageUrl,
-            error: status === "completed" ? undefined : (res.failureCode ?? res.error ?? r.error),
-            creditCost: res.creditCost ?? r.creditCost,
-          };
-        })
-      );
+      if (active.length === 0) return;
+      pollInFlightRef.current = true;
+      try {
+        const updates = await Promise.all(
+          active.map(async (r) => {
+            const res = await pollLabGeneration(r.generationId!);
+            return { generationId: r.generationId!, res };
+          })
+        );
+        if (cancelled) return;
+        setRuns((prev) =>
+          prev.map((r) => {
+            if (!r.generationId) return r;
+            const update = updates.find(
+              (u) => u.generationId === r.generationId
+            );
+            if (!update) return r;
+            const { res } = update;
+            if (res.error && !res.status) {
+              return { ...r, status: "error", error: res.error };
+            }
+            const status = res.status ?? r.status;
+            return {
+              ...r,
+              status: TERMINAL.has(status)
+                ? status === "completed"
+                  ? "completed"
+                  : "failed"
+                : "running",
+              imageUrl: res.imageUrl ?? r.imageUrl,
+              error:
+                status === "completed"
+                  ? undefined
+                  : (res.failureCode ?? res.error ?? r.error),
+              creditCost: res.creditCost ?? r.creditCost,
+            };
+          })
+        );
+      } finally {
+        pollInFlightRef.current = false;
+      }
     };
 
     const interval = setInterval(tick, POLL_INTERVAL_MS);
@@ -224,7 +258,6 @@ export function LabWorkspace({
       cancelled = true;
       clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasActiveRuns]);
 
   const runTests = async () => {
@@ -278,19 +311,29 @@ export function LabWorkspace({
       setPhase("running");
 
       const results = await Promise.all(
-        selectedModels.map(async (m) => ({
-          endpointId: m.endpointId,
-          res: await runLabGeneration({
-            productId: product.id,
-            productVersionId: product.version_id!,
-            sourceAssetId,
-            options,
-            outputSize: selectedSize,
-            endpointId: m.endpointId,
-            instructionOverride: instructionOverride.trim() || undefined,
-            negativeOverride: negativeOverride.trim() || undefined,
-          }),
-        }))
+        selectedModels.map(async (m) => {
+          try {
+            const res = await runLabGeneration({
+              productId: product.id,
+              productVersionId: product.version_id!,
+              sourceAssetId,
+              options,
+              outputSize: selectedSize,
+              endpointId: m.endpointId,
+              instructionOverride: instructionOverride.trim() || undefined,
+              negativeOverride: negativeOverride.trim() || undefined,
+            });
+            return { endpointId: m.endpointId, res };
+          } catch (err) {
+            const res: LabRunResult = {
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Run failed to start.",
+            };
+            return { endpointId: m.endpointId, res };
+          }
+        })
       );
 
       setRuns((prev) =>
@@ -317,7 +360,14 @@ export function LabWorkspace({
         .at(-1);
       if (lastBalance !== undefined) setBalance(lastBalance);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      const message =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      setRuns((prev) =>
+        prev.map((r) =>
+          TERMINAL.has(r.status) ? r : { ...r, status: "error", error: message }
+        )
+      );
     } finally {
       setPhase("idle");
     }
