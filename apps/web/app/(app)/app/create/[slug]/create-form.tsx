@@ -107,6 +107,11 @@ export function CreateGenerationForm({
   const [selectedSize, setSelectedSize] = useState<OutputSizeOption>(
     () => initialSize ?? getDefaultSize(product.output_sizes)
   );
+  // Real dims of the loaded photo — drives "Match photo" previews/estimates.
+  const [sourceDims, setSourceDims] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string>("");
@@ -141,6 +146,25 @@ export function CreateGenerationForm({
     if (file) return URL.createObjectURL(file);
     return reusedSource?.url ?? null;
   }, [file, reusedSource]);
+
+  // Decode the preview once to learn the photo's real dimensions.
+  useEffect(() => {
+    if (!previewUrl) return;
+    let cancelled = false;
+    const img = new window.Image();
+    img.onload = () => {
+      if (!cancelled && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setSourceDims({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+      }
+    };
+    img.src = previewUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [previewUrl]);
 
   useEffect(() => {
     return () => {
@@ -222,10 +246,16 @@ export function CreateGenerationForm({
 
     async function loadEstimate() {
       if (!product.version_id) return;
+      // "Match photo" is billed on the resolved source dims — estimate with
+      // the measured photo size when we have it.
+      const estimateSize =
+        selectedSize.match_source && sourceDims
+          ? { ...selectedSize, ...sourceDims }
+          : selectedSize;
       const { estimatedCredits, providerEndpoint } =
         await estimateGenerationCost({
           productVersionId: product.version_id,
-          outputSize: selectedSize,
+          outputSize: estimateSize,
         });
 
       if (cancelled) return;
@@ -244,10 +274,11 @@ export function CreateGenerationForm({
     return () => {
       cancelled = true;
     };
-  }, [product.version_id, product.credit_cost, selectedSize]);
+  }, [product.version_id, product.credit_cost, selectedSize, sourceDims]);
 
   const handleFileSelected = useCallback((selected: File | null) => {
     setError("");
+    setSourceDims(null);
     if (!selected) {
       setFile(null);
       return;
@@ -269,6 +300,7 @@ export function CreateGenerationForm({
   const handleClearSource = useCallback(() => {
     setFile(null);
     setReusedSource(null);
+    setSourceDims(null);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -502,6 +534,7 @@ export function CreateGenerationForm({
               selected={selectedSize}
               disabled={loading}
               onChange={setSelectedSize}
+              sourceDims={sourceDims}
             />
           </SettingTile>
         </div>
@@ -569,9 +602,13 @@ export function CreateGenerationForm({
         previewUrl={previewUrl}
         sourceName={file?.name ?? reusedSource?.name ?? null}
         aspectRatio={
-          selectedSize.width && selectedSize.height
-            ? selectedSize.width / selectedSize.height
-            : null
+          selectedSize.match_source
+            ? sourceDims
+              ? sourceDims.width / sourceDims.height
+              : null
+            : selectedSize.width && selectedSize.height
+              ? selectedSize.width / selectedSize.height
+              : null
         }
         disabled={loading}
         submitting={loading}

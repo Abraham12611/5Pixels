@@ -11,10 +11,15 @@ import type { OutputSizeOption } from "@/types/catalog";
 import { cn } from "@/lib/utils";
 
 export function outputSizeKey(size: OutputSizeOption): string {
-  return `${size.name}:${size.width}:${size.height}`;
+  return `${size.name}:${size.width}:${size.height}:${size.match_source ? "src" : "fix"}`;
+}
+
+export function isMatchSource(size: OutputSizeOption): boolean {
+  return size.match_source === true;
 }
 
 function aspectLabel(size: OutputSizeOption): string {
+  if (size.match_source) return "Match photo";
   const w = size.width as number | undefined;
   const h = size.height as number | undefined;
   if (w && h) {
@@ -29,11 +34,32 @@ function MiniFrame({
   width,
   height,
   active,
+  matchSource,
 }: {
   width?: number;
   height?: number;
   active: boolean;
+  matchSource?: boolean;
 }) {
+  if (matchSource) {
+    // Dashed frame — the shape adapts to the uploaded photo.
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "flex h-5 w-6 shrink-0 items-center justify-center rounded-[3px] transition",
+          active ? "text-lime-400" : "text-text-muted"
+        )}
+      >
+        <span
+          className={cn(
+            "h-[18px] w-[18px] rounded-[2px] border border-dashed transition",
+            active ? "border-lime-400" : "border-current"
+          )}
+        />
+      </span>
+    );
+  }
   const w = Math.max(1, Number(width ?? 1));
   const h = Math.max(1, Number(height ?? 1));
   const ratio = w / h;
@@ -65,6 +91,8 @@ interface AspectRatioMenuProps {
   selected: OutputSizeOption;
   disabled?: boolean;
   onChange: (size: OutputSizeOption) => void;
+  /** Real dims of the loaded photo — shown on "Match photo" when known. */
+  sourceDims?: { width: number; height: number } | null;
 }
 
 export function AspectRatioMenu({
@@ -72,8 +100,10 @@ export function AspectRatioMenu({
   selected,
   disabled,
   onChange,
+  sourceDims,
 }: AspectRatioMenuProps) {
   const selectedKey = outputSizeKey(selected);
+  const selectedMatch = isMatchSource(selected);
 
   return (
     <DropdownMenu>
@@ -91,7 +121,11 @@ export function AspectRatioMenu({
           <Columns size={13} weight="bold" className="text-lime-400" />
           <span className="truncate">{aspectLabel(selected)}</span>
           <span className="text-text-muted hidden sm:inline">
-            {selected.width} × {selected.height}
+            {selectedMatch
+              ? sourceDims
+                ? `${sourceDims.width} × ${sourceDims.height}`
+                : "Same shape as your photo"
+              : `${selected.width} × ${selected.height}`}
           </span>
           <CaretDown
             size={12}
@@ -137,11 +171,16 @@ export function AspectRatioMenu({
                   width={size.width}
                   height={size.height}
                   active={isSelected}
+                  matchSource={isMatchSource(size)}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{size.name}</span>
                   <span className="text-text-muted block text-xs">
-                    {aspectLabel(size)} · {size.width} × {size.height}
+                    {isMatchSource(size)
+                      ? sourceDims
+                        ? `Same shape as your photo · ${sourceDims.width} × ${sourceDims.height}`
+                        : "Same shape as your photo"
+                      : `${aspectLabel(size)} · ${size.width} × ${size.height}`}
                   </span>
                 </span>
               </button>

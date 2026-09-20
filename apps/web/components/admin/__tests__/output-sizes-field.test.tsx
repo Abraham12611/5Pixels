@@ -141,12 +141,19 @@ describe("OutputSizesField", () => {
     expect(onSubmit).toHaveBeenCalled();
     const sizes = onSubmit.mock.calls[0][0].version.output_sizes;
     expect(sizes).toEqual([
-      { name: "Square (1:1)", width: 1024, height: 1024, is_default: true },
+      {
+        name: "Square (1:1)",
+        width: 1024,
+        height: 1024,
+        is_default: true,
+        match_source: false,
+      },
       {
         name: "Portrait (4:5)",
         width: 1024,
         height: 1280,
         is_default: false,
+        match_source: false,
       },
     ]);
   });

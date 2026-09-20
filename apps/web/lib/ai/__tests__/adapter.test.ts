@@ -139,6 +139,38 @@ describe("createFalAdapter submit", () => {
     });
     expect(lastSubmitBody().aspect_ratio).toBe("3:2");
   });
+
+  it("appends preset reference images after the source in image_urls", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      referenceImageUrls: [
+        "https://fal.media/files/style-ref.png",
+        "https://fal.media/files/composition-ref.png",
+      ],
+    });
+    const body = lastSubmitBody();
+    expect(body.image_url).toBe(baseInput.sourceImageUrl);
+    expect(body.image_urls).toEqual([
+      baseInput.sourceImageUrl,
+      "https://fal.media/files/style-ref.png",
+      "https://fal.media/files/composition-ref.png",
+    ]);
+  });
+
+  it("passes aspect_ratio 'auto' through for match-source sizes", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: {
+        image_size: { width: 3000, height: 4000 },
+        aspect_ratio: "auto",
+      },
+    });
+    const body = lastSubmitBody();
+    expect(body.aspect_ratio).toBe("auto");
+    expect(body.resolution).toBe("4K");
+  });
 });
 
 describe("createFalAdapter status", () => {

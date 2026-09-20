@@ -3,13 +3,15 @@
 import { cookies } from "next/headers";
 import { v4 as uuidv4 } from "uuid";
 import { createFalAdapter } from "@/lib/ai/fal";
-import { compilePrompt } from "@/lib/ai/prompt";
+import { compilePrompt, referencePromptClause } from "@/lib/ai/prompt";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   getSignedAssetUrl,
   getSignedSourceUrlByAssetId,
 } from "@/lib/generation/upload";
+import { getSignedReferenceAssets } from "@/lib/generation/reference-assets";
+import { resolveOutputSize } from "@/lib/generation/output-size";
 import { pollGenerationStatus } from "@/lib/generation/poll";
 import { isValidLabEndpoint, isValidLabOutputSize } from "@/lib/lab/validate";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -136,6 +138,14 @@ export async function runLabGeneration(
   if (!isValidLabOutputSize(input.outputSize)) {
     return { error: "Invalid output size." };
   }
+  // "Match photo" sizes resolve from the lab's uploaded source image.
+  const outputSize = await resolveOutputSize(
+    input.outputSize,
+    input.sourceAssetId
+  );
+  if (!outputSize) {
+    return { error: "Invalid output size." };
+  }
 
   const recipe = await getLabRecipe(input.productId, input.productVersionId);
   if (!recipe) {
@@ -151,8 +161,8 @@ export async function runLabGeneration(
       p_options: input.options,
       p_idempotency_key: `lab:${ctx.userId}:${uuidv4()}`,
       p_provider_endpoint: input.endpointId,
-      p_output_width: input.outputSize.width,
-      p_output_height: input.outputSize.height,
+      p_output_width: outputSize.width,
+      p_output_height: outputSize.height,
     }
   );
 
@@ -191,21 +201,29 @@ export async function runLabGeneration(
   await setProcessingTokenCookie(row.generation_id, row.processing_token);
 
   try {
-    const sourceUrl = await getSignedSourceUrlByAssetId(input.sourceAssetId);
-    const prompt = compilePrompt(
-      input.instructionOverride?.trim() || recipe.private_instruction_template,
-      input.options
-    );
+    const [sourceUrl, references] = await Promise.all([
+      getSignedSourceUrlByAssetId(input.sourceAssetId),
+      getSignedReferenceAssets(input.productId),
+    ]);
+    const prompt =
+      compilePrompt(
+        input.instructionOverride?.trim() ||
+          recipe.private_instruction_template,
+        input.options
+      ) + referencePromptClause(references.map((r) => r.role));
 
     const modelConfig: Record<string, unknown> = {
       ...recipe.model_config,
-      width: input.outputSize.width,
-      height: input.outputSize.height,
+      width: outputSize.width,
+      height: outputSize.height,
       image_size: {
-        width: input.outputSize.width,
-        height: input.outputSize.height,
+        width: outputSize.width,
+        height: outputSize.height,
       },
     };
+    if (outputSize.matchSource && modelConfig.aspect_ratio === undefined) {
+      modelConfig.aspect_ratio = "auto";
+    }
 
     const provider = createFalAdapter();
     const submitResult = await provider.submit({
@@ -216,6 +234,7 @@ export async function runLabGeneration(
         recipe.private_negative_instruction ||
         undefined,
       sourceImageUrl: sourceUrl,
+      referenceImageUrls: references.map((r) => r.url),
       options: input.options,
       modelConfig,
     });

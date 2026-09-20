@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import {
   CaretDown,
   Check,
+  Crop,
   Plus,
   Rectangle,
   Square,
@@ -17,7 +18,12 @@ import {
 import { cn } from "@/lib/utils";
 
 type FormValues = z.input<typeof productCreateSchema>;
-type SizeValue = { name: string; width: number; height: number };
+type SizeValue = {
+  name: string;
+  width: number;
+  height: number;
+  match_source?: boolean;
+};
 
 /**
  * Curated output-size options. All stay under the schema's 4 MP cap; dims are
@@ -33,6 +39,17 @@ const PRESET_SIZES: SizeValue[] = [
   { name: "Landscape (16:9)", width: 1820, height: 1024 },
 ];
 
+/**
+ * "Match photo" — output keeps the uploaded photo's aspect ratio. Dims are a
+ * server-side fallback only; real dims resolve from the source image.
+ */
+const MATCH_SOURCE_SIZE: SizeValue = {
+  name: "Match photo",
+  width: 1024,
+  height: 1024,
+  match_source: true,
+};
+
 function aspectIcon(width: number, height: number) {
   const ratio = width / height;
   if (Math.abs(ratio - 1) < 0.01) return <Square size={15} />;
@@ -42,6 +59,7 @@ function aspectIcon(width: number, height: number) {
 }
 
 function isPreset(v: Partial<SizeValue> | undefined): boolean {
+  if (v?.match_source) return true;
   return PRESET_SIZES.some(
     (s) =>
       s.name === v?.name &&
@@ -68,12 +86,14 @@ export function OutputSizesField() {
   const sizeErrors = formState.errors.version?.output_sizes;
 
   const indexOfPreset = (s: SizeValue) =>
-    live.findIndex(
-      (v) =>
-        v?.name === s.name &&
-        Number(v?.width) === s.width &&
-        Number(v?.height) === s.height
-    );
+    s.match_source
+      ? live.findIndex((v) => v?.match_source === true)
+      : live.findIndex(
+          (v) =>
+            v?.name === s.name &&
+            Number(v?.width) === s.width &&
+            Number(v?.height) === s.height
+        );
 
   const setDefault = (index: number) => {
     live.forEach((_, i) =>
@@ -203,6 +223,51 @@ export function OutputSizesField() {
                   </button>
                 );
               })}
+              {/* Special option — output follows the source photo's aspect. */}
+              {(() => {
+                const matchSelected = indexOfPreset(MATCH_SOURCE_SIZE) >= 0;
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={matchSelected}
+                    onClick={() => togglePreset(MATCH_SOURCE_SIZE)}
+                    className={cn(
+                      "hover:bg-cream-100/5 focus:bg-cream-100/5 flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left outline-none transition-colors",
+                      matchSelected && "bg-lime-500/[0.07]"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]",
+                        matchSelected
+                          ? "bg-lime-500/15 text-lime-300"
+                          : "bg-charcoal-800 text-text-secondary"
+                      )}
+                    >
+                      <Crop size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="text-cream-50 block text-sm font-medium">
+                        Match photo
+                      </span>
+                      <span className="text-text-muted mt-0.5 block text-xs">
+                        Output keeps the uploaded photo&apos;s aspect ratio
+                      </span>
+                    </span>
+                    <Check
+                      size={15}
+                      weight="bold"
+                      className={cn(
+                        "shrink-0 transition-opacity",
+                        matchSelected
+                          ? "text-lime-400 opacity-100"
+                          : "opacity-0"
+                      )}
+                    />
+                  </button>
+                );
+              })()}
             </div>
             <div className="border-cream-100/10 border-t p-1.5">
               <button
@@ -233,6 +298,7 @@ export function OutputSizesField() {
           {fields.map((field, index) => {
             const v = live[index];
             const preset = isPreset(v);
+            const matchSource = v?.match_source === true;
             return (
               <div
                 key={field.id}
@@ -244,14 +310,20 @@ export function OutputSizesField() {
                 {preset ? (
                   <>
                     <span className="bg-charcoal-800 text-text-secondary flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]">
-                      {aspectIcon(Number(v?.width), Number(v?.height))}
+                      {matchSource ? (
+                        <Crop size={15} />
+                      ) : (
+                        aspectIcon(Number(v?.width), Number(v?.height))
+                      )}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="text-cream-50 block truncate text-sm font-medium">
                         {v?.name}
                       </span>
                       <span className="text-text-muted font-mono text-[11px]">
-                        {Number(v?.width)} × {Number(v?.height)}
+                        {matchSource
+                          ? "Matches the uploaded photo"
+                          : `${Number(v?.width)} × ${Number(v?.height)}`}
                       </span>
                     </span>
                   </>

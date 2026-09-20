@@ -20,6 +20,7 @@ import {
 } from "@/lib/lab/actions";
 import {
   CloudArrowUp,
+  Crop,
   Rectangle,
   Spinner,
   Square,
@@ -457,15 +458,18 @@ export function LabWorkspace({
                 return {
                   value: sizeKey(size),
                   label: size.name,
-                  description: `${size.width} × ${size.height}`,
-                  icon:
-                    Math.abs(ratio - 1) < 0.01 ? (
-                      <Square size={15} />
-                    ) : ratio > 1 ? (
-                      <Rectangle size={15} />
-                    ) : (
-                      <Rectangle size={15} className="rotate-90" />
-                    ),
+                  description: size.match_source
+                    ? "Matches the uploaded photo"
+                    : `${size.width} × ${size.height}`,
+                  icon: size.match_source ? (
+                    <Crop size={15} />
+                  ) : Math.abs(ratio - 1) < 0.01 ? (
+                    <Square size={15} />
+                  ) : ratio > 1 ? (
+                    <Rectangle size={15} />
+                  ) : (
+                    <Rectangle size={15} className="rotate-90" />
+                  ),
                 };
               })}
               className="w-full sm:w-72"

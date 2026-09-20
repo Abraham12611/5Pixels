@@ -10,9 +10,11 @@ import {
   isRetryableSubmitError,
   type ProviderStrategy,
 } from "@/lib/ai/provider-routing";
-import { compilePrompt } from "@/lib/ai/prompt";
+import { compilePrompt, referencePromptClause } from "@/lib/ai/prompt";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getSignedReferenceAssets } from "./reference-assets";
+import { resolveOutputSize } from "./output-size";
 import type { CreateGenerationInput } from "./types";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
@@ -100,7 +102,13 @@ export async function createAndSubmitGeneration(
     return { error: "Please sign in to continue." };
   }
 
-  if (!input.outputSize || input.outputSize.width * input.outputSize.height > 4_000_000) {
+  // "Match photo" sizes resolve from the uploaded source image (clamped to
+  // the 4 MP cap); fixed sizes are validated as-is.
+  const outputSize = await resolveOutputSize(
+    input.outputSize,
+    input.sourceAssetId
+  );
+  if (!outputSize) {
     return { error: "Invalid output size." };
   }
 
@@ -125,8 +133,8 @@ export async function createAndSubmitGeneration(
       p_options: input.options,
       p_idempotency_key: input.idempotencyKey,
       p_provider_endpoint: endpoint,
-      p_output_width: input.outputSize.width,
-      p_output_height: input.outputSize.height,
+      p_output_width: outputSize.width,
+      p_output_height: outputSize.height,
     }
   );
 
@@ -164,24 +172,33 @@ export async function createAndSubmitGeneration(
 
   try {
     const fallbackEndpoint = getFallbackEndpoint(recipe.provider_strategy);
-    const sourceUrl = await import("./upload").then((m) =>
-      m.getSignedSourceUrlByAssetId(input.sourceAssetId)
-    );
+    const [sourceUrl, references] = await Promise.all([
+      import("./upload").then((m) =>
+        m.getSignedSourceUrlByAssetId(input.sourceAssetId)
+      ),
+      getSignedReferenceAssets(input.productId),
+    ]);
+    const referenceImageUrls = references.map((r) => r.url);
 
-    const prompt = compilePrompt(
-      recipe.private_instruction_template,
-      input.options
-    );
+    const prompt =
+      compilePrompt(recipe.private_instruction_template, input.options) +
+      referencePromptClause(references.map((r) => r.role));
 
     const modelConfig: Record<string, unknown> = {
       ...recipe.model_config,
-      width: input.outputSize.width,
-      height: input.outputSize.height,
+      width: outputSize.width,
+      height: outputSize.height,
       image_size: {
-        width: input.outputSize.width,
-        height: input.outputSize.height,
+        width: outputSize.width,
+        height: outputSize.height,
       },
     };
+    // "Match photo" maps to aspect_ratio "auto" on endpoints that honor it
+    // (nano-banana keeps the source's exact aspect); the resolved dims still
+    // drive image_size everywhere else and billing in the RPC.
+    if (outputSize.matchSource && modelConfig.aspect_ratio === undefined) {
+      modelConfig.aspect_ratio = "auto";
+    }
 
     const provider = createFalAdapter();
     let submitResult;
@@ -193,6 +210,7 @@ export async function createAndSubmitGeneration(
         prompt,
         negativePrompt: recipe.private_negative_instruction ?? undefined,
         sourceImageUrl: sourceUrl,
+        referenceImageUrls,
         options: input.options,
         modelConfig,
       });
@@ -208,6 +226,7 @@ export async function createAndSubmitGeneration(
           prompt,
           negativePrompt: recipe.private_negative_instruction ?? undefined,
           sourceImageUrl: sourceUrl,
+          referenceImageUrls,
           options: input.options,
           modelConfig,
         });

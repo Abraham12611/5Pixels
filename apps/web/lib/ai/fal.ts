@@ -154,7 +154,13 @@ export function createFalAdapter(): ImageProviderAdapter {
         // `image_url`, the nano-banana family requires `image_urls` (array).
         // Send both — providers ignore fields their schema doesn't use.
         image_url: input.sourceImageUrl,
-        image_urls: [input.sourceImageUrl],
+        // Reference assets ride along in image_urls: multi-image endpoints
+        // (nano-banana, gpt-image) use them as style/composition context,
+        // single-image endpoints just read the first entry.
+        image_urls: [
+          input.sourceImageUrl,
+          ...(input.referenceImageUrls ?? []),
+        ],
         prompt: input.prompt,
       };
 

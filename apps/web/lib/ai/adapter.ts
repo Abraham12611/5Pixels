@@ -3,6 +3,10 @@ export interface ProviderSubmitInput {
   prompt: string;
   negativePrompt?: string;
   sourceImageUrl: string;
+  /** Private preset reference images — style/composition/layout guides the
+   *  model should adapt the source photo toward. Only endpoints that accept
+   *  multiple `image_urls` make use of them; others ignore the extras. */
+  referenceImageUrls?: string[];
   options?: Record<string, unknown>;
   modelConfig?: Record<string, unknown>;
 }

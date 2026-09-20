@@ -2,9 +2,14 @@ export type ProductType = "filter" | "poster";
 
 export interface OutputSizeOption {
   name: string;
+  /** Fallback/preview dimensions. When `match_source` is set the server
+   *  resolves real dims from the uploaded photo and these act as a fallback. */
   width: number;
   height: number;
   is_default?: boolean;
+  /** The result keeps the uploaded photo's aspect ratio ("auto" on providers
+   *  that support it, resolved source dims elsewhere). */
+  match_source?: boolean;
 }
 
 export interface PublicProductSummary {
