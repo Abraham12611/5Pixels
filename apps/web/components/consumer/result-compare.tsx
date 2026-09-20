@@ -2,7 +2,11 @@
 
 import { useCallback, useRef, useState } from "react";
 import Image from "next/image";
-import { ArrowsLeftRight } from "@phosphor-icons/react";
+import {
+  ArrowsLeftRight,
+  Camera,
+  Image as ImageIcon,
+} from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
 type CompareMode = "result" | "original" | "compare";
@@ -11,20 +15,27 @@ interface ResultCompareProps {
   resultUrl: string;
   originalUrl: string | null;
   resultAlt: string;
-  width: number;
-  height: number;
+  className?: string;
 }
 
+const VIEWS = [
+  { id: "result", label: "Result", icon: ImageIcon },
+  { id: "original", label: "Original", icon: Camera },
+  { id: "compare", label: "Compare", icon: ArrowsLeftRight },
+] as const;
+
 /**
- * Result-first media viewer. Comparison is opt-in — "Result" is the default
- * mode; "Original" and the drag handle only appear when a source exists.
+ * Full-bleed result stage. The media fills the stage — single views use
+ * `object-contain` over a blurred copy of the same image so every aspect
+ * ratio looks cinematic without cropping; Compare runs edge-to-edge with a
+ * draggable divider. The view switcher floats as a vertical rail (horizontal
+ * pill on small screens).
  */
 export function ResultCompare({
   resultUrl,
   originalUrl,
   resultAlt,
-  width,
-  height,
+  className,
 }: ResultCompareProps) {
   const [mode, setMode] = useState<CompareMode>("result");
   const [position, setPosition] = useState(50);
@@ -60,47 +71,58 @@ export function ResultCompare({
     }
   };
 
+  const comparing = mode === "compare" && originalUrl;
   const shownUrl = mode === "original" && originalUrl ? originalUrl : resultUrl;
   const shownAlt = mode === "original" ? "Original photo" : resultAlt;
 
-  return (
-    <div>
-      {originalUrl && (
-        <div className="mb-3 flex justify-center">
-          <div
-            role="tablist"
-            aria-label="View"
-            className="shadow-border inline-flex rounded-lg bg-charcoal-800/80 p-1"
+  const switcher = (vertical: boolean, className: string) =>
+    originalUrl && (
+      <div
+        role="tablist"
+        aria-label="View"
+        aria-orientation={vertical ? "vertical" : "horizontal"}
+        className={cn(
+          "border-cream-100/10 bg-ink-950/70 shadow-elevated absolute z-10 flex gap-1 rounded-2xl border p-1.5 backdrop-blur-md",
+          vertical ? "flex-col" : "flex-row",
+          className
+        )}
+      >
+        {VIEWS.map((v) => (
+          <button
+            key={v.id}
+            role="tab"
+            aria-selected={mode === v.id}
+            onClick={() => setMode(v.id)}
+            className={cn(
+              "flex items-center justify-center gap-1.5 rounded-xl text-[11px] font-medium transition-colors",
+              vertical ? "w-16 flex-col py-2.5" : "px-3 py-1.5",
+              mode === v.id
+                ? "bg-cream-100/15 text-cream-50"
+                : "text-text-secondary hover:text-cream-100"
+            )}
           >
-            {(["result", "original", "compare"] as const).map((m) => (
-              <button
-                key={m}
-                role="tab"
-                aria-selected={mode === m}
-                onClick={() => setMode(m)}
-                className={cn(
-                  "rounded-md px-3.5 py-1.5 text-[13px] font-medium capitalize transition-colors",
-                  mode === m
-                    ? "bg-cream-100/10 text-cream-50"
-                    : "text-text-secondary hover:text-cream-100"
-                )}
-              >
-                {m === "compare" ? "Compare" : m}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+            <v.icon size={15} weight={mode === v.id ? "fill" : "bold"} />
+            {v.label}
+          </button>
+        ))}
+      </div>
+    );
 
-      {mode === "compare" && originalUrl ? (
+  return (
+    <div
+      className={cn(
+        "media-frame bg-charcoal-900 relative overflow-hidden",
+        className
+      )}
+    >
+      {comparing ? (
         <div
           ref={frameRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          className="media-frame relative w-full cursor-ew-resize touch-none overflow-hidden rounded-xl select-none"
-          style={{ aspectRatio: `${width} / ${height}` }}
+          className="absolute inset-0 cursor-ew-resize touch-none select-none"
         >
           <Image
             src={originalUrl}
@@ -149,20 +171,32 @@ export function ResultCompare({
           </div>
         </div>
       ) : (
-        <div
-          className="media-frame relative w-full overflow-hidden rounded-xl"
-          style={{ aspectRatio: `${width} / ${height}` }}
-        >
+        <>
+          {/* Blurred backdrop fills the letterbox so any aspect ratio reads
+              as a full-bleed stage without cropping the result. */}
+          <Image
+            src={shownUrl}
+            alt=""
+            aria-hidden
+            fill
+            className="scale-125 object-cover opacity-40 blur-2xl saturate-150"
+            unoptimized
+          />
+          <div className="bg-ink-950/40 absolute inset-0" />
           <Image
             src={shownUrl}
             alt={shownAlt}
             fill
-            className="object-cover"
+            className="object-contain"
             unoptimized
             priority
           />
-        </div>
+        </>
       )}
+
+      {/* View switcher — horizontal pill on small screens, vertical rail on sm+ */}
+      {switcher(false, "left-1/2 top-3 -translate-x-1/2 sm:hidden")}
+      {switcher(true, "left-4 top-1/2 hidden -translate-y-1/2 sm:flex")}
     </div>
   );
 }

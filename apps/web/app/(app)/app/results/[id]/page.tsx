@@ -95,70 +95,71 @@ export default async function ResultPage({
     : null;
 
   return (
-    <main className="flex flex-1 flex-col items-center px-4 py-8 sm:px-6">
-      <div className="w-full max-w-4xl space-y-5">
-        {/* Context row */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <Link
-            href="/app/library"
-            className="text-text-muted hover:text-cream-100 -ml-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[13px] transition-colors"
-          >
-            <CaretLeft className="h-3.5 w-3.5" />
-            Library
-          </Link>
-          <span className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
-            Result
-          </span>
-          <Link
-            href={`/presets/${generation.product_slug}`}
-            className="text-cream-50 hover:text-lime-400 text-sm font-semibold transition-colors"
-          >
-            {generation.product_name}
-          </Link>
-          <span className="text-text-muted text-xs">
-            {[
-              createdLabel,
-              creditCost > 0
-                ? `${creditCost} ${creditCost === 1 ? "credit" : "credits"}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        </div>
+    <main className="flex flex-1 flex-col px-4 py-4 sm:px-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:overflow-hidden">
+      {/* Context row */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Link
+          href="/app/library"
+          className="text-text-muted hover:text-cream-100 -ml-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[13px] transition-colors"
+        >
+          <CaretLeft className="h-3.5 w-3.5" />
+          Library
+        </Link>
+        <span className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
+          Result
+        </span>
+        <Link
+          href={`/presets/${generation.product_slug}`}
+          className="text-cream-50 hover:text-lime-400 text-sm font-semibold transition-colors"
+        >
+          {generation.product_name}
+        </Link>
+        <span className="text-text-muted text-xs">
+          {[
+            createdLabel,
+            generation.output_width && generation.output_height
+              ? `${generation.output_width}×${generation.output_height}`
+              : null,
+            creditCost > 0
+              ? `${creditCost} ${creditCost === 1 ? "credit" : "credits"}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      </div>
 
-        {/* Hero media + optional compare */}
+      {/* Stage + action rail */}
+      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         {outputUrl ? (
           <ResultCompare
             resultUrl={outputUrl}
             originalUrl={sourceUrl}
             resultAlt={`${generation.product_name} result`}
-            width={generation.output_width ?? 1024}
-            height={generation.output_height ?? 1024}
+            className="min-h-[52dvh] flex-1 rounded-2xl lg:min-h-0"
           />
         ) : (
-          <div className="media-frame bg-charcoal-850 flex aspect-video w-full items-center justify-center rounded-xl">
+          <div className="media-frame bg-charcoal-850 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">
             <p className="text-text-muted text-sm">No output image found.</p>
           </div>
         )}
 
-        {/* Action console */}
-        <ResultActions
-          generationId={generation.id}
-          productSlug={generation.product_slug}
-          productName={generation.product_name}
-          creditCost={creditCost}
-          downloadUrl={outputUrl}
-          initialShareId={shareMeta?.public_share_id ?? null}
-          initialSaved={Boolean(generation.saved_at)}
-        />
-
-        {/* Feedback strip */}
-        <ResultFeedback
-          generationId={id}
-          initialRating={myFeedback?.rating ?? null}
-          initialNotes={myFeedback?.notes ?? null}
-        />
+        <aside className="w-full shrink-0 space-y-4 lg:w-[320px] lg:overflow-y-auto lg:pr-1 xl:w-[350px]">
+          <ResultActions
+            generationId={generation.id}
+            productSlug={generation.product_slug}
+            productName={generation.product_name}
+            creditCost={creditCost}
+            downloadUrl={outputUrl}
+            initialShareId={shareMeta?.public_share_id ?? null}
+            initialSaved={Boolean(generation.saved_at)}
+          />
+          <ResultFeedback
+            generationId={id}
+            initialRating={myFeedback?.rating ?? null}
+            initialNotes={myFeedback?.notes ?? null}
+          />
+        </aside>
       </div>
     </main>
   );
