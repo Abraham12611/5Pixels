@@ -79,6 +79,68 @@ describe("createFalAdapter downloadImage SSRF protection", () => {
   });
 });
 
+describe("createFalAdapter submit", () => {
+  const baseInput = {
+    endpoint: "fal-ai/nano-banana-2/edit",
+    prompt: "make it glow",
+    sourceImageUrl: "https://fal.media/files/source.png",
+  };
+
+  function lastSubmitBody() {
+    return queueStub.submit.mock.calls.at(-1)?.[1]?.input as Record<
+      string,
+      unknown
+    >;
+  }
+
+  beforeEach(() => {
+    queueStub.submit.mockResolvedValue({
+      request_id: "req-1",
+      status_url: "https://queue.fal.run/x",
+    });
+  });
+
+  it("sends both image_url and image_urls for endpoint compatibility", async () => {
+    const provider = createFalAdapter();
+    await provider.submit(baseInput);
+    const body = lastSubmitBody();
+    expect(body.image_url).toBe(baseInput.sourceImageUrl);
+    expect(body.image_urls).toEqual([baseInput.sourceImageUrl]);
+  });
+
+  it("translates image_size into aspect_ratio + resolution for nano-banana", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { image_size: { width: 1820, height: 1024 } },
+    });
+    const body = lastSubmitBody();
+    expect(body.aspect_ratio).toBe("16:9");
+    expect(body.resolution).toBe("2K");
+  });
+
+  it("snaps portrait sizes to the nearest ratio", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { image_size: { width: 1024, height: 1280 } },
+    });
+    expect(lastSubmitBody().aspect_ratio).toBe("4:5");
+  });
+
+  it("does not override an explicit model_config aspect_ratio", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: {
+        image_size: { width: 1820, height: 1024 },
+        aspect_ratio: "3:2",
+      },
+    });
+    expect(lastSubmitBody().aspect_ratio).toBe("3:2");
+  });
+});
+
 describe("createFalAdapter status", () => {
   it("treats a 4xx result fetch as terminal failure", async () => {
     process.env.FAL_KEY = "test-key";

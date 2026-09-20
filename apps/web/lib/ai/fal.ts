@@ -60,6 +60,45 @@ function normalizeStatus(raw: string): ProviderJobStatus {
   }
 }
 
+// The nano-banana family only understands these ratios — "auto" preserves
+// the source image's aspect, which is why outputs previously always matched
+// the upload's orientation. Snap requested dims to the nearest enum value.
+const NANO_ASPECT_RATIOS: ReadonlyArray<readonly [number, string]> = [
+  [21 / 9, "21:9"],
+  [16 / 9, "16:9"],
+  [3 / 2, "3:2"],
+  [4 / 3, "4:3"],
+  [5 / 4, "5:4"],
+  [1, "1:1"],
+  [4 / 5, "4:5"],
+  [3 / 4, "3:4"],
+  [2 / 3, "2:3"],
+  [9 / 16, "9:16"],
+];
+
+function nearestAspectRatio(width: number, height: number): string {
+  const target = width / height;
+  let best = "1:1";
+  let bestDelta = Infinity;
+  for (const [ratio, label] of NANO_ASPECT_RATIOS) {
+    const delta = Math.abs(ratio - target);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = label;
+    }
+  }
+  return best;
+}
+
+// Resolution tiers shared by nano-banana-2/pro (1K is also valid on -pro,
+// which lacks 0.5K). Round up so the delivered pixels meet the requested
+// size; extra fields are ignored by endpoints that don't support them.
+function nanoResolutionTier(pixels: number): string {
+  if (pixels <= 1_100_000) return "1K";
+  if (pixels <= 4_500_000) return "2K";
+  return "4K";
+}
+
 function isAllowedImageHost(url: URL): boolean {
   if (url.protocol !== "https:") return false;
   if (url.username || url.password) return false;
@@ -124,6 +163,25 @@ export function createFalAdapter(): ImageProviderAdapter {
       }
 
       const merged = { ...input.modelConfig, ...body };
+
+      // Endpoints disagree on size fields: flux/gpt-image/qwen honor
+      // `image_size` {width,height}, while nano-banana models ignore it and
+      // only read `aspect_ratio` + `resolution`. Translate so the chosen size
+      // reaches every endpoint; unknown fields are ignored elsewhere. An
+      // explicit model_config value always wins.
+      const size = merged.image_size;
+      if (size !== null && typeof size === "object") {
+        const { width: w, height: h } = size as Record<string, unknown>;
+        if (
+          typeof w === "number" &&
+          typeof h === "number" &&
+          w > 0 &&
+          h > 0
+        ) {
+          merged.aspect_ratio ??= nearestAspectRatio(w, h);
+          merged.resolution ??= nanoResolutionTier(w * h);
+        }
+      }
 
       try {
         const result = await queue.submit(input.endpoint, {
