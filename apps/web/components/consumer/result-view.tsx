@@ -5,6 +5,7 @@ import { ResultCompare, type CompareMode } from "./result-compare";
 import { ResultViewSwitch } from "./result-view-switch";
 import { ResultActions } from "./result-actions";
 import { ResultFeedback } from "./result-feedback";
+import { ResultDetails, type ResultDetailsData } from "./result-details";
 import { cn } from "@/lib/utils";
 
 interface ResultViewProps {
@@ -19,6 +20,7 @@ interface ResultViewProps {
   initialSaved: boolean;
   initialRating: number | null;
   initialNotes: string | null;
+  details: ResultDetailsData;
   stageClassName?: string;
 }
 
@@ -39,6 +41,7 @@ export function ResultView({
   initialSaved,
   initialRating,
   initialNotes,
+  details,
   stageClassName,
 }: ResultViewProps) {
   const [mode, setMode] = useState<CompareMode>("result");
@@ -66,6 +69,7 @@ export function ResultView({
         {originalUrl && (
           <ResultViewSwitch mode={mode} onChange={setMode} />
         )}
+        <ResultDetails details={details} />
         <ResultFeedback
           generationId={generationId}
           initialRating={initialRating}

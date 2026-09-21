@@ -57,7 +57,7 @@ export default async function ResultPage({
   let outputUrl: string | null = null;
   let sourceUrl: string | null = null;
 
-  const [myFeedback, shareMetaResult] = await Promise.all([
+  const [myFeedback, shareMetaResult, outputAssetResult] = await Promise.all([
     getMyFeedbackForGeneration(id),
     supabase
       .from("generations")
@@ -65,8 +65,16 @@ export default async function ResultPage({
       .eq("id", id)
       .eq("user_id", user.id)
       .single(),
+    generation.output_asset_id
+      ? supabase
+          .from("assets")
+          .select("mime_type, bytes")
+          .eq("id", generation.output_asset_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const shareMeta = shareMetaResult.data;
+  const outputAsset = outputAssetResult.data;
 
   if (generation.output_bucket && generation.output_storage_key) {
     outputUrl = await getSignedAssetUrl(
@@ -91,6 +99,16 @@ export default async function ResultPage({
         day: "numeric",
       })
     : null;
+
+  const details = {
+    createdAt: generation.created_at,
+    productName: generation.product_name,
+    width: generation.output_width,
+    height: generation.output_height,
+    mimeType: outputAsset?.mime_type ?? null,
+    bytes: outputAsset?.bytes != null ? Number(outputAsset.bytes) : null,
+    creditCost,
+  };
 
   return (
     <main className="flex flex-1 flex-col px-4 py-4 sm:px-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:overflow-hidden">
@@ -141,6 +159,7 @@ export default async function ResultPage({
           initialSaved={Boolean(generation.saved_at)}
           initialRating={myFeedback?.rating ?? null}
           initialNotes={myFeedback?.notes ?? null}
+          details={details}
         />
       ) : (
         <div className="media-frame bg-charcoal-850 mt-4 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">
