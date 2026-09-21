@@ -42,10 +42,11 @@ export function referencePromptClause(roles: string[]): string {
       ? guides[0]
       : `${guides.slice(0, -1).join(", ")}, and ${guides[guides.length - 1]}`;
   return (
-    ` Additional reference image${roles.length > 1 ? "s are" : " is"} provided` +
-    ` only as a guide for ${list}. Apply that to the person in the first image` +
-    ` while preserving their identity, facial features, and likeness — do not` +
-    ` copy the reference subject's face or identity.`
+    ` The first image is the person's own photo — they are the subject whose` +
+    ` identity, facial features, and likeness must carry through. Each` +
+    ` additional image is a preset reference guiding only ${list}; apply that` +
+    ` guidance to the person in the first image — do not copy a reference` +
+    ` subject's face or identity.`
   );
 }
 

@@ -182,7 +182,7 @@ export async function createAndSubmitGeneration(
 
     const prompt =
       compilePrompt(recipe.private_instruction_template, input.options) +
-      referencePromptClause(references.map((r) => r.role));
+      referencePromptClause(references.flatMap((r) => r.roles));
 
     const modelConfig: Record<string, unknown> = {
       ...recipe.model_config,
