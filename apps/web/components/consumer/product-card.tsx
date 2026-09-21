@@ -119,17 +119,6 @@ export function ProductCard({
           </span>
         </div>
 
-        {/* Credit chip — authenticated surfaces only */}
-        {isAuthenticated && (
-          <span className="bg-ink-950/70 text-cream-50 absolute bottom-2.5 right-2.5 z-20 rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums backdrop-blur-sm">
-            {product.credit_cost
-              ? `${product.credit_cost} ${
-                  product.credit_cost === 1 ? "credit" : "credits"
-                }`
-              : "Free"}
-          </span>
-        )}
-
         {/* Hover/focus action */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center bg-gradient-to-t from-black/70 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100">
           <Link

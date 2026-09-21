@@ -143,10 +143,6 @@ export function ProductVideoCard({
                 {product.name}
               </Link>
             </h3>
-            <span className="bg-charcoal-700 text-cream-100 shrink-0 rounded-full px-2.5 py-1 text-xs font-medium">
-              {product.credit_cost || "Free"}
-              {product.credit_cost ? " cr" : ""}
-            </span>
           </div>
           <p className="text-text-secondary mt-1 line-clamp-2 text-sm">
             {product.short_description}
