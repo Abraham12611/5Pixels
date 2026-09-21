@@ -10,6 +10,9 @@ export interface OutputSizeOption {
   /** The result keeps the uploaded photo's aspect ratio ("auto" on providers
    *  that support it, resolved source dims elsewhere). */
   match_source?: boolean;
+  /** The result keeps the preset reference asset's aspect ratio — resolved
+   *  server-side from the first attached reference's real dimensions. */
+  match_reference?: boolean;
 }
 
 export interface PublicProductSummary {

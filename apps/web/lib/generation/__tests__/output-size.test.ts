@@ -13,6 +13,50 @@ vi.mock("@/lib/supabase/service", () => ({
   }),
 }));
 
+function mockLookups(opts: {
+  productAssetRows?: Array<{ asset_id: string }>;
+  asset: {
+    width: number | null;
+    height: number | null;
+    bucket: string;
+    storage_key: string;
+  } | null;
+  objectMetadata?: Record<string, unknown> | null;
+}) {
+  serviceStub.from.mockImplementation((table: string) => {
+    if (table === "product_assets") {
+      return {
+        select: () => ({
+          eq: () => ({
+            in: () => ({
+              order: () => ({
+                limit: () =>
+                  Promise.resolve({ data: opts.productAssetRows ?? [] }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    return {
+      select: () => ({
+        eq: () => ({
+          maybeSingle: () => Promise.resolve({ data: opts.asset }),
+        }),
+      }),
+    };
+  });
+  serviceStub.storageFrom.mockReturnValue({
+    list: () =>
+      Promise.resolve({
+        data:
+          opts.objectMetadata === undefined
+            ? []
+            : [{ metadata: opts.objectMetadata }],
+      }),
+  });
+}
+
 function mockAssetLookup(
   asset: {
     width: number | null;
@@ -22,22 +66,7 @@ function mockAssetLookup(
   } | null,
   objectMetadata?: Record<string, unknown> | null
 ) {
-  serviceStub.from.mockReturnValue({
-    select: () => ({
-      eq: () => ({
-        maybeSingle: () => Promise.resolve({ data: asset }),
-      }),
-    }),
-  });
-  serviceStub.storageFrom.mockReturnValue({
-    list: () =>
-      Promise.resolve({
-        data:
-          objectMetadata === undefined
-            ? []
-            : [{ metadata: objectMetadata }],
-      }),
-  });
+  mockLookups({ asset, objectMetadata });
 }
 
 beforeEach(() => {
@@ -127,5 +156,79 @@ describe("resolveOutputSize — match_source", () => {
     });
     const result = await resolveOutputSize(matchOption, "asset-1");
     expect(result).toEqual({ width: 1024, height: 1024, matchSource: true });
+  });
+});
+
+describe("resolveOutputSize — match_reference", () => {
+  const matchRefOption = {
+    name: "Match reference",
+    width: 1536,
+    height: 1024,
+    match_reference: true,
+  };
+
+  it("resolves dims from the preset's first reference asset", async () => {
+    mockLookups({
+      productAssetRows: [{ asset_id: "ref-1" }],
+      asset: {
+        width: 2048,
+        height: 2730,
+        bucket: "preset-media",
+        storage_key: "refs/art.png",
+      },
+    });
+    const result = await resolveOutputSize(
+      matchRefOption,
+      "source-1",
+      "product-1"
+    );
+    // Reference portrait aspect preserved under the 4 MP cap.
+    expect(result?.matchSource).toBe(false);
+    expect(result!.width / result!.height).toBeCloseTo(2048 / 2730, 2);
+    expect(result!.width * result!.height).toBeLessThanOrEqual(4_000_000);
+  });
+
+  it("falls back to source dims when the preset has no reference", async () => {
+    mockLookups({
+      productAssetRows: [],
+      asset: {
+        width: 1536,
+        height: 1024,
+        bucket: "user-assets",
+        storage_key: "u/sources/e.jpg",
+      },
+    });
+    const result = await resolveOutputSize(
+      matchRefOption,
+      "source-1",
+      "product-1"
+    );
+    expect(result).toEqual({
+      width: 1536,
+      height: 1024,
+      matchSource: false,
+    });
+  });
+
+  it("falls back to the option's own dims when nothing is readable", async () => {
+    mockLookups({
+      productAssetRows: [],
+      asset: {
+        width: null,
+        height: null,
+        bucket: "user-assets",
+        storage_key: "u/sources/f.jpg",
+      },
+    });
+    const result = await resolveOutputSize(
+      matchRefOption,
+      "source-1",
+      "product-1"
+    );
+    expect(result).toEqual({
+      width: 1536,
+      height: 1024,
+      matchSource: false,
+    });
   });
 });

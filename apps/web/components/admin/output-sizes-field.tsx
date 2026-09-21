@@ -23,6 +23,7 @@ type SizeValue = {
   width: number;
   height: number;
   match_source?: boolean;
+  match_reference?: boolean;
 };
 
 /**
@@ -50,6 +51,20 @@ const MATCH_SOURCE_SIZE: SizeValue = {
   match_source: true,
 };
 
+/**
+ * "Match reference" — output keeps the preset's first reference asset's
+ * aspect ratio. Falls back to the source photo's dims when no reference is
+ * attached.
+ */
+const MATCH_REFERENCE_SIZE: SizeValue = {
+  name: "Match reference",
+  width: 1536,
+  height: 1024,
+  match_reference: true,
+};
+
+const MATCH_SIZES = [MATCH_SOURCE_SIZE, MATCH_REFERENCE_SIZE];
+
 function aspectIcon(width: number, height: number) {
   const ratio = width / height;
   if (Math.abs(ratio - 1) < 0.01) return <Square size={15} />;
@@ -59,7 +74,7 @@ function aspectIcon(width: number, height: number) {
 }
 
 function isPreset(v: Partial<SizeValue> | undefined): boolean {
-  if (v?.match_source) return true;
+  if (v?.match_source || v?.match_reference) return true;
   return PRESET_SIZES.some(
     (s) =>
       s.name === v?.name &&
@@ -86,8 +101,13 @@ export function OutputSizesField() {
   const sizeErrors = formState.errors.version?.output_sizes;
 
   const indexOfPreset = (s: SizeValue) =>
-    s.match_source
-      ? live.findIndex((v) => v?.match_source === true)
+    s.match_source || s.match_reference
+      ? live.findIndex(
+          (v) =>
+            v?.match_source === Boolean(s.match_source) &&
+            v?.match_reference === Boolean(s.match_reference) &&
+            Boolean(v?.match_source || v?.match_reference)
+        )
       : live.findIndex(
           (v) =>
             v?.name === s.name &&
@@ -223,15 +243,16 @@ export function OutputSizesField() {
                   </button>
                 );
               })}
-              {/* Special option — output follows the source photo's aspect. */}
-              {(() => {
-                const matchSelected = indexOfPreset(MATCH_SOURCE_SIZE) >= 0;
+              {/* Special options — output follows an attached image's aspect. */}
+              {MATCH_SIZES.map((s) => {
+                const matchSelected = indexOfPreset(s) >= 0;
                 return (
                   <button
+                    key={s.name}
                     type="button"
                     role="option"
                     aria-selected={matchSelected}
-                    onClick={() => togglePreset(MATCH_SOURCE_SIZE)}
+                    onClick={() => togglePreset(s)}
                     className={cn(
                       "hover:bg-cream-100/5 focus:bg-cream-100/5 flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left outline-none transition-colors",
                       matchSelected && "bg-lime-500/[0.07]"
@@ -249,10 +270,12 @@ export function OutputSizesField() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="text-cream-50 block text-sm font-medium">
-                        Match photo
+                        {s.name}
                       </span>
                       <span className="text-text-muted mt-0.5 block text-xs">
-                        Output keeps the uploaded photo&apos;s aspect ratio
+                        {s.match_source
+                          ? "Output keeps the uploaded photo's aspect ratio"
+                          : "Output keeps the preset reference's aspect ratio"}
                       </span>
                     </span>
                     <Check
@@ -267,7 +290,7 @@ export function OutputSizesField() {
                     />
                   </button>
                 );
-              })()}
+              })}
             </div>
             <div className="border-cream-100/10 border-t p-1.5">
               <button
@@ -298,7 +321,7 @@ export function OutputSizesField() {
           {fields.map((field, index) => {
             const v = live[index];
             const preset = isPreset(v);
-            const matchSource = v?.match_source === true;
+            const isMatch = Boolean(v?.match_source || v?.match_reference);
             return (
               <div
                 key={field.id}
@@ -310,7 +333,7 @@ export function OutputSizesField() {
                 {preset ? (
                   <>
                     <span className="bg-charcoal-800 text-text-secondary flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]">
-                      {matchSource ? (
+                      {isMatch ? (
                         <Crop size={15} />
                       ) : (
                         aspectIcon(Number(v?.width), Number(v?.height))
@@ -321,9 +344,11 @@ export function OutputSizesField() {
                         {v?.name}
                       </span>
                       <span className="text-text-muted font-mono text-[11px]">
-                        {matchSource
+                        {v?.match_source
                           ? "Matches the uploaded photo"
-                          : `${Number(v?.width)} × ${Number(v?.height)}`}
+                          : v?.match_reference
+                            ? "Matches the preset reference"
+                            : `${Number(v?.width)} × ${Number(v?.height)}`}
                       </span>
                     </span>
                   </>

@@ -106,7 +106,8 @@ export async function createAndSubmitGeneration(
   // the 4 MP cap); fixed sizes are validated as-is.
   const outputSize = await resolveOutputSize(
     input.outputSize,
-    input.sourceAssetId
+    input.sourceAssetId,
+    input.productId
   );
   if (!outputSize) {
     return { error: "Invalid output size." };

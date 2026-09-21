@@ -138,10 +138,12 @@ export async function runLabGeneration(
   if (!isValidLabOutputSize(input.outputSize)) {
     return { error: "Invalid output size." };
   }
-  // "Match photo" sizes resolve from the lab's uploaded source image.
+  // Match sizes resolve from the lab's uploaded source image (or the
+  // preset's reference asset for match_reference).
   const outputSize = await resolveOutputSize(
     input.outputSize,
-    input.sourceAssetId
+    input.sourceAssetId,
+    input.productId
   );
   if (!outputSize) {
     return { error: "Invalid output size." };

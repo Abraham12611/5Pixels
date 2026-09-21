@@ -147,6 +147,7 @@ describe("OutputSizesField", () => {
         height: 1024,
         is_default: true,
         match_source: false,
+        match_reference: false,
       },
       {
         name: "Portrait (4:5)",
@@ -154,6 +155,7 @@ describe("OutputSizesField", () => {
         height: 1280,
         is_default: false,
         match_source: false,
+        match_reference: false,
       },
     ]);
   });

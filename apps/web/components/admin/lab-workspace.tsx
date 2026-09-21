@@ -69,7 +69,12 @@ function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption
 }
 
 function sizeKey(size: OutputSizeOption): string {
-  return `${size.name}:${size.width}:${size.height}`;
+  const kind = size.match_source
+    ? "src"
+    : size.match_reference
+      ? "ref"
+      : "fix";
+  return `${size.name}:${size.width}:${size.height}:${kind}`;
 }
 
 /** Client-side mirror of the DB credit-cost formula — estimates only. */
@@ -460,8 +465,10 @@ export function LabWorkspace({
                   label: size.name,
                   description: size.match_source
                     ? "Matches the uploaded photo"
-                    : `${size.width} × ${size.height}`,
-                  icon: size.match_source ? (
+                    : size.match_reference
+                      ? "Matches the preset reference"
+                      : `${size.width} × ${size.height}`,
+                  icon: size.match_source || size.match_reference ? (
                     <Crop size={15} />
                   ) : Math.abs(ratio - 1) < 0.01 ? (
                     <Square size={15} />
