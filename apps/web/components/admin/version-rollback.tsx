@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RichSelect } from "@/components/ui/rich-select";
 
 interface RollbackTarget {
   id: string;
@@ -79,22 +80,22 @@ export function VersionRollback({
   return (
     <>
       <div className="flex items-center gap-3">
-        <select
+        <RichSelect
           aria-label="Version to roll back to"
-          className="bg-charcoal-800 text-cream-50 border-cream-100/10 rounded-xl px-3 py-2 text-sm"
+          className="w-64"
           value={selectedVersionId ?? ""}
-          onChange={(e) => setSelectedVersionId(e.target.value || undefined)}
-        >
-          <option value="">Select prior version…</option>
-          {eligibleVersions.map((v) => (
-            <option key={v.id} value={v.id}>
-              v{v.version_number} ({v.state})
-              {v.published_at
-                ? ` — ${new Date(v.published_at).toLocaleDateString()}`
-                : ""}
-            </option>
-          ))}
-        </select>
+          onValueChange={(v) => setSelectedVersionId(v || undefined)}
+          noneLabel="Select prior version…"
+          placeholder="Select prior version…"
+          options={eligibleVersions.map((v) => ({
+            value: v.id,
+            label: `v${v.version_number}`,
+            description: v.published_at
+              ? new Date(v.published_at).toLocaleDateString()
+              : undefined,
+            badge: v.state,
+          }))}
+        />
         <Button
           type="button"
           variant="secondary"

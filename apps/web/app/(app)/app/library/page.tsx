@@ -101,6 +101,7 @@ export default async function LibraryPage() {
                           src={gen.thumb}
                           alt=""
                           fill
+                          unoptimized
                           sizes="160px"
                           className="object-cover"
                         />

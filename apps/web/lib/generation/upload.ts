@@ -71,7 +71,12 @@ export interface FinalizedSourceAsset {
 
 async function getStoredObjectMetadata(
   path: string
-): Promise<{ mimeType: string | null; size: number | null } | null> {
+): Promise<{
+  mimeType: string | null;
+  size: number | null;
+  width: number | null;
+  height: number | null;
+} | null> {
   const service = createServiceClient();
   const folder = path.split("/").slice(0, -1).join("/");
   const filename = path.split("/").pop() ?? "";
@@ -82,9 +87,15 @@ async function getStoredObjectMetadata(
   if (error || !data || data.length === 0) return null;
   const file = data[0];
   const fileWithSize = file as unknown as { size?: number };
+  // Supabase Storage extracts image dimensions into object metadata on upload.
+  const meta = (file.metadata ?? {}) as Record<string, unknown>;
+  const width = Number(meta.width);
+  const height = Number(meta.height);
   return {
     mimeType: (file.metadata?.mimetype as string | undefined) ?? null,
     size: fileWithSize.size ?? null,
+    width: Number.isFinite(width) && width > 0 ? width : null,
+    height: Number.isFinite(height) && height > 0 ? height : null,
   };
 }
 
@@ -146,6 +157,8 @@ export async function finalizeSourceUpload(
       media_type: "image",
       mime_type: actualMimeType,
       bytes: actualSize,
+      width: metadata.width,
+      height: metadata.height,
       visibility: "private",
       source_type: "generation_source",
     })

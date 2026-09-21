@@ -5,28 +5,31 @@ import Image from "next/image";
 import { ArrowsLeftRight } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
-type CompareMode = "result" | "original" | "compare";
+export type CompareMode = "result" | "original" | "compare";
 
 interface ResultCompareProps {
   resultUrl: string;
   originalUrl: string | null;
   resultAlt: string;
-  width: number;
-  height: number;
+  /** Controlled view mode — the switcher lives in the action rail. */
+  mode: CompareMode;
+  className?: string;
 }
 
 /**
- * Result-first media viewer. Comparison is opt-in — "Result" is the default
- * mode; "Original" and the drag handle only appear when a source exists.
+ * Full-bleed result stage. The media fills the stage — single views use
+ * `object-contain` over a blurred copy of the same image so every aspect
+ * ratio looks cinematic without cropping; Compare runs edge-to-edge with a
+ * draggable divider. The view mode is controlled by ResultViewSwitch in the
+ * action rail.
  */
 export function ResultCompare({
   resultUrl,
   originalUrl,
   resultAlt,
-  width,
-  height,
+  mode,
+  className,
 }: ResultCompareProps) {
-  const [mode, setMode] = useState<CompareMode>("result");
   const [position, setPosition] = useState(50);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
@@ -60,47 +63,25 @@ export function ResultCompare({
     }
   };
 
+  const comparing = mode === "compare" && originalUrl;
   const shownUrl = mode === "original" && originalUrl ? originalUrl : resultUrl;
   const shownAlt = mode === "original" ? "Original photo" : resultAlt;
 
   return (
-    <div>
-      {originalUrl && (
-        <div className="mb-3 flex justify-center">
-          <div
-            role="tablist"
-            aria-label="View"
-            className="shadow-border inline-flex rounded-lg bg-charcoal-800/80 p-1"
-          >
-            {(["result", "original", "compare"] as const).map((m) => (
-              <button
-                key={m}
-                role="tab"
-                aria-selected={mode === m}
-                onClick={() => setMode(m)}
-                className={cn(
-                  "rounded-md px-3.5 py-1.5 text-[13px] font-medium capitalize transition-colors",
-                  mode === m
-                    ? "bg-cream-100/10 text-cream-50"
-                    : "text-text-secondary hover:text-cream-100"
-                )}
-              >
-                {m === "compare" ? "Compare" : m}
-              </button>
-            ))}
-          </div>
-        </div>
+    <div
+      className={cn(
+        "media-frame bg-charcoal-900 relative overflow-hidden",
+        className
       )}
-
-      {mode === "compare" && originalUrl ? (
+    >
+      {comparing ? (
         <div
           ref={frameRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          className="media-frame relative w-full cursor-ew-resize touch-none overflow-hidden rounded-xl select-none"
-          style={{ aspectRatio: `${width} / ${height}` }}
+          className="absolute inset-0 cursor-ew-resize touch-none select-none"
         >
           <Image
             src={originalUrl}
@@ -149,19 +130,27 @@ export function ResultCompare({
           </div>
         </div>
       ) : (
-        <div
-          className="media-frame relative w-full overflow-hidden rounded-xl"
-          style={{ aspectRatio: `${width} / ${height}` }}
-        >
+        <>
+          {/* Blurred backdrop fills the letterbox so any aspect ratio reads
+              as a full-bleed stage without cropping the result. */}
+          <Image
+            src={shownUrl}
+            alt=""
+            aria-hidden
+            fill
+            className="scale-125 object-cover opacity-40 blur-2xl saturate-150"
+            unoptimized
+          />
+          <div className="bg-ink-950/40 absolute inset-0" />
           <Image
             src={shownUrl}
             alt={shownAlt}
             fill
-            className="object-cover"
+            className="object-contain"
             unoptimized
             priority
           />
-        </div>
+        </>
       )}
     </div>
   );

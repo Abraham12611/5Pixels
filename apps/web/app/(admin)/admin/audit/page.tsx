@@ -1,5 +1,6 @@
+import { Suspense } from "react";
 import { requireAdmin } from "@/lib/db/admin";
-import { Button } from "@/components/ui/button";
+import { AuditFilters } from "@/components/admin/audit-filters";
 import { getAdminAuditLogs, getAdminAuditLogFilters } from "@/lib/db/audit-log";
 
 function formatDate(iso: string) {
@@ -39,41 +40,12 @@ export default async function AdminAuditLogPage({
         </p>
       </div>
 
-      <form
-        method="GET"
-        action="/admin/audit"
-        className="mb-6 flex flex-wrap gap-3"
-      >
-        <select
-          name="action"
-          defaultValue={action}
-          className="border-cream-100/10 bg-charcoal-850 text-cream-50 rounded-xl border px-3 py-2 text-sm"
-        >
-          <option value="">All actions</option>
-          {filters.actions.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-
-        <select
-          name="entity_type"
-          defaultValue={entity_type}
-          className="border-cream-100/10 bg-charcoal-850 text-cream-50 rounded-xl border px-3 py-2 text-sm"
-        >
-          <option value="">All entity types</option>
-          {filters.entityTypes.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-
-        <Button type="submit" variant="brand" size="sm">
-          Filter
-        </Button>
-      </form>
+      <Suspense>
+        <AuditFilters
+          actions={filters.actions}
+          entityTypes={filters.entityTypes}
+        />
+      </Suspense>
 
       <div className="border-cream-100/10 bg-charcoal-850 overflow-hidden rounded-2xl border">
         <div className="overflow-x-auto">

@@ -60,6 +60,45 @@ function normalizeStatus(raw: string): ProviderJobStatus {
   }
 }
 
+// The nano-banana family only understands these ratios — "auto" preserves
+// the source image's aspect, which is why outputs previously always matched
+// the upload's orientation. Snap requested dims to the nearest enum value.
+const NANO_ASPECT_RATIOS: ReadonlyArray<readonly [number, string]> = [
+  [21 / 9, "21:9"],
+  [16 / 9, "16:9"],
+  [3 / 2, "3:2"],
+  [4 / 3, "4:3"],
+  [5 / 4, "5:4"],
+  [1, "1:1"],
+  [4 / 5, "4:5"],
+  [3 / 4, "3:4"],
+  [2 / 3, "2:3"],
+  [9 / 16, "9:16"],
+];
+
+function nearestAspectRatio(width: number, height: number): string {
+  const target = width / height;
+  let best = "1:1";
+  let bestDelta = Infinity;
+  for (const [ratio, label] of NANO_ASPECT_RATIOS) {
+    const delta = Math.abs(ratio - target);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = label;
+    }
+  }
+  return best;
+}
+
+// Resolution tiers shared by nano-banana-2/pro (1K is also valid on -pro,
+// which lacks 0.5K). Round up so the delivered pixels meet the requested
+// size; extra fields are ignored by endpoints that don't support them.
+function nanoResolutionTier(pixels: number): string {
+  if (pixels <= 1_100_000) return "1K";
+  if (pixels <= 4_500_000) return "2K";
+  return "4K";
+}
+
 function isAllowedImageHost(url: URL): boolean {
   if (url.protocol !== "https:") return false;
   if (url.username || url.password) return false;
@@ -111,7 +150,17 @@ export function createFalAdapter(): ImageProviderAdapter {
       assertAllowedEndpoint(input.endpoint);
 
       const body: Record<string, unknown> = {
+        // Endpoints differ on the source-image field: flux-style models take
+        // `image_url`, the nano-banana family requires `image_urls` (array).
+        // Send both — providers ignore fields their schema doesn't use.
         image_url: input.sourceImageUrl,
+        // Reference assets ride along in image_urls: multi-image endpoints
+        // (nano-banana, gpt-image) use them as style/composition context,
+        // single-image endpoints just read the first entry.
+        image_urls: [
+          input.sourceImageUrl,
+          ...(input.referenceImageUrls ?? []),
+        ],
         prompt: input.prompt,
       };
 
@@ -120,6 +169,25 @@ export function createFalAdapter(): ImageProviderAdapter {
       }
 
       const merged = { ...input.modelConfig, ...body };
+
+      // Endpoints disagree on size fields: flux/gpt-image/qwen honor
+      // `image_size` {width,height}, while nano-banana models ignore it and
+      // only read `aspect_ratio` + `resolution`. Translate so the chosen size
+      // reaches every endpoint; unknown fields are ignored elsewhere. An
+      // explicit model_config value always wins.
+      const size = merged.image_size;
+      if (size !== null && typeof size === "object") {
+        const { width: w, height: h } = size as Record<string, unknown>;
+        if (
+          typeof w === "number" &&
+          typeof h === "number" &&
+          w > 0 &&
+          h > 0
+        ) {
+          merged.aspect_ratio ??= nearestAspectRatio(w, h);
+          merged.resolution ??= nanoResolutionTier(w * h);
+        }
+      }
 
       try {
         const result = await queue.submit(input.endpoint, {
@@ -157,11 +225,43 @@ export function createFalAdapter(): ImageProviderAdapter {
 
         const status = normalizeStatus(statusResult.status);
 
+        // fal reports provider-side failures as COMPLETED + error fields.
+        if (
+          status === "completed" &&
+          (statusResult as { error?: unknown }).error
+        ) {
+          return { status: "failed", logs };
+        }
+
         if (status !== "completed") {
           return { status, logs };
         }
 
-        const result = await queue.result(endpoint, { requestId });
+        let result: { data: unknown };
+        try {
+          result = await queue.result(endpoint, { requestId });
+        } catch (resultError) {
+          // A 4xx on the result fetch means the stored response can never be
+          // retrieved (e.g. the request's input was invalid for the endpoint).
+          // That is terminal — return 'failed' so the run refunds instead of
+          // retrying 'unknown' forever.
+          const statusCode = (resultError as { status?: number }).status;
+          if (
+            typeof statusCode === "number" &&
+            statusCode >= 400 &&
+            statusCode < 500
+          ) {
+            console.error(
+              "[fal status] result fetch rejected",
+              statusCode,
+              resultError instanceof Error
+                ? resultError.message
+                : String(resultError)
+            );
+            return { status: "failed", logs };
+          }
+          throw resultError;
+        }
         const imageUrl = parseFalImageUrl(result.data);
 
         if (!imageUrl) {

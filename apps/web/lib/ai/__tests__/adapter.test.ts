@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseFalImageUrl, createFalAdapter } from "../fal";
 import { createMockProvider } from "../mock";
+
+const queueStub = vi.hoisted(() => ({
+  submit: vi.fn(),
+  status: vi.fn(),
+  result: vi.fn(),
+}));
+
+vi.mock("@fal-ai/client", () => ({
+  createFalClient: vi.fn(() => ({ queue: queueStub })),
+}));
+
+beforeEach(() => {
+  queueStub.submit.mockReset();
+  queueStub.status.mockReset();
+  queueStub.result.mockReset();
+});
 
 describe("parseFalImageUrl", () => {
   it("extracts the first image from an images array", () => {
@@ -60,6 +76,138 @@ describe("createFalAdapter downloadImage SSRF protection", () => {
     await expect(
       provider.downloadImage("https://fal.media/image.png")
     ).rejects.toThrow(); // will fail at HEAD, but host passes validation
+  });
+});
+
+describe("createFalAdapter submit", () => {
+  const baseInput = {
+    endpoint: "fal-ai/nano-banana-2/edit",
+    prompt: "make it glow",
+    sourceImageUrl: "https://fal.media/files/source.png",
+  };
+
+  function lastSubmitBody() {
+    return queueStub.submit.mock.calls.at(-1)?.[1]?.input as Record<
+      string,
+      unknown
+    >;
+  }
+
+  beforeEach(() => {
+    queueStub.submit.mockResolvedValue({
+      request_id: "req-1",
+      status_url: "https://queue.fal.run/x",
+    });
+  });
+
+  it("sends both image_url and image_urls for endpoint compatibility", async () => {
+    const provider = createFalAdapter();
+    await provider.submit(baseInput);
+    const body = lastSubmitBody();
+    expect(body.image_url).toBe(baseInput.sourceImageUrl);
+    expect(body.image_urls).toEqual([baseInput.sourceImageUrl]);
+  });
+
+  it("translates image_size into aspect_ratio + resolution for nano-banana", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { image_size: { width: 1820, height: 1024 } },
+    });
+    const body = lastSubmitBody();
+    expect(body.aspect_ratio).toBe("16:9");
+    expect(body.resolution).toBe("2K");
+  });
+
+  it("snaps portrait sizes to the nearest ratio", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { image_size: { width: 1024, height: 1280 } },
+    });
+    expect(lastSubmitBody().aspect_ratio).toBe("4:5");
+  });
+
+  it("does not override an explicit model_config aspect_ratio", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: {
+        image_size: { width: 1820, height: 1024 },
+        aspect_ratio: "3:2",
+      },
+    });
+    expect(lastSubmitBody().aspect_ratio).toBe("3:2");
+  });
+
+  it("appends preset reference images after the source in image_urls", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      referenceImageUrls: [
+        "https://fal.media/files/style-ref.png",
+        "https://fal.media/files/composition-ref.png",
+      ],
+    });
+    const body = lastSubmitBody();
+    expect(body.image_url).toBe(baseInput.sourceImageUrl);
+    expect(body.image_urls).toEqual([
+      baseInput.sourceImageUrl,
+      "https://fal.media/files/style-ref.png",
+      "https://fal.media/files/composition-ref.png",
+    ]);
+  });
+
+  it("passes aspect_ratio 'auto' through for match-source sizes", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: {
+        image_size: { width: 3000, height: 4000 },
+        aspect_ratio: "auto",
+      },
+    });
+    const body = lastSubmitBody();
+    expect(body.aspect_ratio).toBe("auto");
+    expect(body.resolution).toBe("4K");
+  });
+});
+
+describe("createFalAdapter status", () => {
+  it("treats a 4xx result fetch as terminal failure", async () => {
+    process.env.FAL_KEY = "test-key";
+    queueStub.status.mockResolvedValue({ status: "COMPLETED" });
+    queueStub.result.mockRejectedValue(
+      Object.assign(new Error("Unprocessable Entity"), { status: 422 })
+    );
+
+    const provider = createFalAdapter();
+    const result = await provider.status("fal-ai/nano-banana-2/edit", "req-1");
+    expect(result.status).toBe("failed");
+  });
+
+  it("maps COMPLETED-with-error payloads to failed", async () => {
+    process.env.FAL_KEY = "test-key";
+    queueStub.status.mockResolvedValue({
+      status: "COMPLETED",
+      error: "content_policy_violation",
+    });
+    queueStub.result.mockResolvedValue({ data: {} });
+
+    const provider = createFalAdapter();
+    const result = await provider.status("fal-ai/test", "req-2");
+    expect(result.status).toBe("failed");
+    expect(queueStub.result).not.toHaveBeenCalled();
+  });
+
+  it("keeps transient result-fetch errors retryable", async () => {
+    process.env.FAL_KEY = "test-key";
+    queueStub.status.mockResolvedValue({ status: "COMPLETED" });
+    queueStub.result.mockRejectedValue(new Error("socket hangup"));
+
+    const provider = createFalAdapter();
+    const result = await provider.status("fal-ai/test", "req-3");
+    expect(result.status).toBe("unknown");
   });
 });
 

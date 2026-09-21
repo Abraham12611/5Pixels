@@ -28,7 +28,7 @@ export interface VersionSummary {
 interface VersionListProps {
   versions: VersionSummary[];
   selectedVersionId: string | undefined;
-  onSelect: (versionId: string) => void;
+  onSelect?: (versionId: string) => void;
 }
 
 const STATE_COLORS: Record<string, string> = {
@@ -114,7 +114,7 @@ export function VersionList({
                 {version.provider_strategy.primary_provider}/
                 {version.provider_strategy.primary_model}
               </span>
-              {version.id !== selectedVersionId && (
+              {onSelect && version.id !== selectedVersionId && (
                 <Button
                   type="button"
                   variant="secondary"

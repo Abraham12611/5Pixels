@@ -4,22 +4,23 @@ import { useFieldArray, useFormContext } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { RichSelect } from "@/components/ui/rich-select";
+import { optionalNumberInput } from "./form-utils";
 import type { ProductCreateInput } from "@5pixels/shared";
 
 const FIELD_TYPES = [
-  { value: "short_text", label: "Short text" },
-  { value: "select", label: "Select" },
-  { value: "radio", label: "Radio" },
-  { value: "toggle", label: "Toggle" },
-  { value: "color", label: "Color" },
-  { value: "aspect_ratio", label: "Aspect ratio" },
-  { value: "intensity", label: "Intensity" },
-  { value: "layout", label: "Layout" },
-  { value: "background", label: "Background" },
-  { value: "wardrobe", label: "Wardrobe" },
-  { value: "era", label: "Era" },
-  { value: "mood", label: "Mood" },
+  { value: "short_text", label: "Short text", description: "Free text input" },
+  { value: "select", label: "Select", description: "Dropdown of options" },
+  { value: "radio", label: "Radio", description: "Visible option pills" },
+  { value: "toggle", label: "Toggle", description: "On/off switch" },
+  { value: "color", label: "Color", description: "Hex color picker" },
+  { value: "aspect_ratio", label: "Aspect ratio", description: "Output proportions" },
+  { value: "intensity", label: "Intensity", description: "Numeric slider" },
+  { value: "layout", label: "Layout", description: "Composition options" },
+  { value: "background", label: "Background", description: "Backdrop options" },
+  { value: "wardrobe", label: "Wardrobe", description: "Outfit options" },
+  { value: "era", label: "Era", description: "Time-period options" },
+  { value: "mood", label: "Mood", description: "Tone options" },
 ] as const;
 
 const CHOICE_TYPES = ["select", "radio", "layout", "background", "wardrobe", "era", "mood"];
@@ -115,17 +116,25 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
         </div>
         <div>
           <Label htmlFor={`fields.${index}.field_type`}>Type</Label>
-          <Select
-            id={`fields.${index}.field_type`}
-            {...register(`fields.${index}.field_type`)}
-            className="mt-1"
-          >
-            {FIELD_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </Select>
+          <div className="mt-1">
+            <RichSelect
+              id={`fields.${index}.field_type`}
+              aria-label={`Field type for ${watch(`fields.${index}.label`) || `field ${index + 1}`}`}
+              value={fieldType}
+              onValueChange={(v) =>
+                setValue(
+                  `fields.${index}.field_type`,
+                  v as ProductCreateInput["fields"][number]["field_type"],
+                  { shouldDirty: true }
+                )
+              }
+              options={FIELD_TYPES.map((t) => ({
+                value: t.value,
+                label: t.label,
+                description: t.description,
+              }))}
+            />
+          </div>
         </div>
         <div className="flex items-end gap-2">
           <Button type="button" variant="destructive" onClick={onRemove}>
@@ -159,7 +168,7 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
             <Input
               id={`fields.${index}.sort_order`}
               type="number"
-              {...register(`fields.${index}.sort_order`, { valueAsNumber: true })}
+              {...register(`fields.${index}.sort_order`, optionalNumberInput)}
               className="mt-0 w-20"
             />
           </div>
@@ -306,24 +315,25 @@ function ChoiceOptionsEditor({
           <Label htmlFor={`fields.${index}.config.default`}>
             Default value
           </Label>
-          <Select
-            id={`fields.${index}.config.default`}
-            value={String(defaultValue)}
-            onChange={(e) =>
-              setValue(`fields.${index}.config`, {
-                ...config,
-                default: e.target.value,
-              })
-            }
-            className="mt-1"
-          >
-            <option value="">None</option>
-            {options.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </Select>
+          <div className="mt-1">
+            <RichSelect
+              id={`fields.${index}.config.default`}
+              aria-label="Default value"
+              value={String(defaultValue)}
+              onValueChange={(v) =>
+                setValue(`fields.${index}.config`, {
+                  ...config,
+                  default: v === "" ? undefined : v,
+                })
+              }
+              noneLabel="None"
+              searchable={options.length > 12}
+              options={options.map((opt) => ({
+                value: opt.value,
+                label: opt.label,
+              }))}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -348,7 +358,7 @@ function RangeConfigEditor({
         <Input
           id={`fields.${index}.config.min`}
           type="number"
-          {...register(`fields.${index}.config.min`, { valueAsNumber: true })}
+          {...register(`fields.${index}.config.min`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -357,7 +367,7 @@ function RangeConfigEditor({
         <Input
           id={`fields.${index}.config.max`}
           type="number"
-          {...register(`fields.${index}.config.max`, { valueAsNumber: true })}
+          {...register(`fields.${index}.config.max`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -367,7 +377,7 @@ function RangeConfigEditor({
           id={`fields.${index}.config.step`}
           type="number"
           step="any"
-          {...register(`fields.${index}.config.step`, { valueAsNumber: true })}
+          {...register(`fields.${index}.config.step`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -376,9 +386,7 @@ function RangeConfigEditor({
         <Input
           id={`fields.${index}.config.default`}
           type="number"
-          {...register(`fields.${index}.config.default`, {
-            valueAsNumber: true,
-          })}
+          {...register(`fields.${index}.config.default`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -410,9 +418,7 @@ function ShortTextValidationEditor({
         <Input
           id={`fields.${index}.validation.minLength`}
           type="number"
-          {...register(`fields.${index}.validation.minLength`, {
-            valueAsNumber: true,
-          })}
+          {...register(`fields.${index}.validation.minLength`, optionalNumberInput)}
           className="mt-1"
         />
       </div>
@@ -423,9 +429,7 @@ function ShortTextValidationEditor({
         <Input
           id={`fields.${index}.validation.maxLength`}
           type="number"
-          {...register(`fields.${index}.validation.maxLength`, {
-            valueAsNumber: true,
-          })}
+          {...register(`fields.${index}.validation.maxLength`, optionalNumberInput)}
           className="mt-1"
         />
       </div>

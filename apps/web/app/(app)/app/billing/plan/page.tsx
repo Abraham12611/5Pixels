@@ -8,7 +8,8 @@ import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { Button } from "@/components/ui/button";
-import { Check } from "@phosphor-icons/react/dist/ssr";
+import { Check, Sparkle } from "@phosphor-icons/react/dist/ssr";
+import { cn } from "@/lib/utils";
 
 function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(0)}`;
@@ -88,6 +89,17 @@ export default async function BillingPlanPage() {
         : null;
   const cancelsAt = billing.activeSubscription?.cancel_at_period_end;
 
+  // Most credits per dollar earns the "Best value" tag.
+  const bestValuePlanId =
+    monthlyPlans.length > 0
+      ? monthlyPlans.reduce((best, p) =>
+          p.credits_grant / Math.max(1, p.price_cents) >
+          best.credits_grant / Math.max(1, best.price_cents)
+            ? p
+            : best
+        ).id
+      : null;
+
   return (
     <SettingsShell userName={name} userEmail={email}>
       <div className="space-y-6">
@@ -105,23 +117,33 @@ export default async function BillingPlanPage() {
               <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
                 Current plan
               </p>
-              <p className="text-cream-50 mt-1 text-xl font-semibold">
+              <p className="font-display text-cream-50 mt-2 text-3xl leading-tight">
                 {activePlan?.name ?? "Free"}
               </p>
-              <p className="text-text-secondary mt-1 text-sm">
-                {activePlan
-                  ? [
-                      cadence,
-                      cancelsAt
-                        ? `Cancels ${renewal}`
-                        : renewal
-                          ? `Renews ${renewal}`
-                          : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : "No subscription — you start with free credits."}
-              </p>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {activePlan ? (
+                  <>
+                    {cadence && (
+                      <span className="border-cream-100/10 bg-charcoal-800 text-text-secondary rounded-full border px-2.5 py-1 text-xs font-medium">
+                        {cadence}
+                      </span>
+                    )}
+                    {cancelsAt ? (
+                      <span className="bg-warning/10 text-warning rounded-full px-2.5 py-1 text-xs font-medium">
+                        Cancels {renewal}
+                      </span>
+                    ) : renewal ? (
+                      <span className="bg-lime-500/10 text-lime-300 rounded-full px-2.5 py-1 text-xs font-medium">
+                        Renews {renewal}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-text-secondary text-sm">
+                    No subscription — you start with free credits.
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex gap-2">
               <Button asChild size="sm">
@@ -199,52 +221,29 @@ export default async function BillingPlanPage() {
 
         {/* Upgrade options for free / trial users */}
         {!isSubscriber && (
-          <SettingCard
-            title="Monthly plans"
-            description="Every monthly plan adds credits each billing cycle. Choose on the pricing page or start checkout here."
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              {monthlyPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className="border-cream-100/10 bg-charcoal-800/60 flex items-center justify-between gap-3 rounded-[10px] border p-4"
-                >
-                  <div>
-                    <p className="text-cream-50 text-sm font-medium">
-                      {plan.name}
-                    </p>
-                    <p className="text-text-secondary mt-0.5 text-xs">
-                      {formatCents(plan.price_cents)}/mo ·{" "}
-                      {plan.credits_grant.toLocaleString()} credits
-                    </p>
-                  </div>
-                  <form action="/api/billing/checkout" method="post">
-                    <input type="hidden" name="plan_id" value={plan.id} />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="secondary"
-                      disabled={!plan.dodo_product_id}
-                    >
-                      {plan.dodo_product_id ? "Choose" : "Soon"}
-                    </Button>
-                  </form>
-                </div>
-              ))}
-            </div>
+          <>
             {weeklyPlans.length > 0 && (
-              <div className="border-cream-100/10 mt-4 border-t pt-4">
-                <p className="text-text-secondary mb-3 text-xs font-medium uppercase tracking-wide">
-                  Or try a one-week trial
-                </p>
+              <SettingCard
+                title="Try for a week"
+                description="Short weekly plans — a low-commitment way to load up on credits."
+              >
                 <div className="grid gap-3 sm:grid-cols-2">
                   {weeklyPlans.map((plan) => (
                     <div
                       key={plan.id}
-                      className="border-cream-100/10 bg-charcoal-800/60 flex items-center justify-between gap-3 rounded-[10px] border p-4"
+                      className="border-lime-500/30 bg-lime-500/[0.04] relative flex items-center justify-between gap-3 overflow-hidden rounded-[12px] border p-4"
                     >
+                      <span
+                        aria-hidden="true"
+                        className="bg-lime-500/50 absolute inset-x-0 top-0 h-px"
+                      />
                       <div>
-                        <p className="text-cream-50 text-sm font-medium">
+                        <p className="text-cream-50 flex items-center gap-1.5 text-sm font-medium">
+                          <Sparkle
+                            size={14}
+                            weight="fill"
+                            className="text-lime-400"
+                          />
                           {plan.name.replace("Weekly Trial - ", "")} week
                         </p>
                         <p className="text-text-secondary mt-0.5 text-xs">
@@ -261,7 +260,7 @@ export default async function BillingPlanPage() {
                         <Button
                           type="submit"
                           size="sm"
-                          variant="ghost"
+                          variant="brand"
                           disabled={!plan.dodo_product_id}
                         >
                           {plan.dodo_product_id ? "Start" : "Soon"}
@@ -270,9 +269,72 @@ export default async function BillingPlanPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </SettingCard>
             )}
-          </SettingCard>
+
+            <SettingCard
+              title="Monthly plans"
+              description="Every monthly plan adds credits each billing cycle. Choose on the pricing page or start checkout here."
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                {monthlyPlans.map((plan) => {
+                  const isBest = plan.id === bestValuePlanId;
+                  return (
+                    <div
+                      key={plan.id}
+                      className={cn(
+                        "relative flex flex-col gap-4 rounded-[12px] border p-5",
+                        isBest
+                          ? "border-lime-500/40 bg-lime-500/[0.05]"
+                          : "border-cream-100/10 bg-charcoal-800/60"
+                      )}
+                    >
+                      {isBest && (
+                        <span className="bg-lime-500 text-ink-950 absolute -top-px right-4 rounded-b-lg px-2.5 py-1 text-[10px] font-bold tracking-wide uppercase">
+                          Best value
+                        </span>
+                      )}
+                      <div>
+                        <p className="text-cream-50 text-sm font-medium">
+                          {plan.name}
+                        </p>
+                        <p className="mt-1.5 flex items-baseline gap-1.5">
+                          <span className="font-display text-cream-50 text-3xl leading-none">
+                            {formatCents(plan.price_cents)}
+                          </span>
+                          <span className="text-text-secondary text-xs">
+                            /month
+                          </span>
+                        </p>
+                        <p className="text-text-secondary mt-1.5 text-xs">
+                          {plan.credits_grant.toLocaleString()} credits every
+                          month
+                        </p>
+                      </div>
+                      <form action="/api/billing/checkout" method="post">
+                        <input
+                          type="hidden"
+                          name="plan_id"
+                          value={plan.id}
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          variant={isBest ? "brand" : "secondary"}
+                          className="w-full"
+                          disabled={!plan.dodo_product_id}
+                        >
+                          {plan.dodo_product_id
+                            ? `Choose ${plan.name}`
+                            : "Coming soon"}
+                        </Button>
+                      </form>
+                    </div>
+                  );
+                })}
+              </div>
+            </SettingCard>
+          </>
         )}
 
         {/* Cancellation / downgrade — secondary */}

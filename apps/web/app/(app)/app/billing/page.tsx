@@ -14,8 +14,8 @@ import {
   Coins,
   Receipt,
   CaretRight,
-  Warning,
 } from "@phosphor-icons/react/dist/ssr";
+import { cn } from "@/lib/utils";
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -81,6 +81,13 @@ export default async function BillingPage() {
     ? "/app/billing/plan#top-up"
     : "/pricing";
 
+  const usageMetrics = [
+    { label: "Credits used", value: summary?.creditsUsed ?? 0 },
+    { label: "Transformations", value: summary?.transformations ?? 0 },
+    { label: "Credits released", value: summary?.creditsReleased ?? 0 },
+    { label: "Credits remaining", value: balance },
+  ];
+
   return (
     <SettingsShell userName={name} userEmail={email}>
       <div className="space-y-6">
@@ -91,6 +98,77 @@ export default async function BillingPage() {
           </p>
         </div>
 
+        {/* Balance hero */}
+        <SettingCard className="relative overflow-hidden">
+          <div
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute inset-x-0 top-0 h-px",
+              isOut
+                ? "bg-error/60"
+                : isLow
+                  ? "bg-warning/60"
+                  : "bg-lime-500/40"
+            )}
+          />
+          <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-6">
+            <div className="min-w-0">
+              <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
+                Credit balance
+              </p>
+              <p className="mt-2 flex items-baseline gap-2">
+                <span className="font-display text-cream-50 text-5xl leading-none tracking-tight tabular-nums sm:text-6xl">
+                  {balance.toLocaleString()}
+                </span>
+                <span className="text-text-secondary text-sm">
+                  {meterMax
+                    ? `of ${meterMax.toLocaleString()} credits left`
+                    : "credits left"}
+                </span>
+              </p>
+              <p
+                className={cn(
+                  "mt-3 text-sm",
+                  isOut
+                    ? "text-error"
+                    : isLow
+                      ? "text-warning"
+                      : "text-text-secondary"
+                )}
+              >
+                {isOut
+                  ? "You're out of credits — top up to keep generating."
+                  : isLow
+                    ? "Running low — you may run out before your next reset."
+                    : renews
+                      ? `Resets ${renews}`
+                      : "Credits don't expire while your account is active."}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <Button asChild variant={isOut || isLow ? "brand" : "secondary"}>
+                  <Link href={buyCreditsHref}>Buy credits</Link>
+                </Button>
+                <Button asChild variant="ghost">
+                  <Link href="/app/billing/credits">View usage</Link>
+                </Button>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+              <CreditMeter
+                balance={balance}
+                max={meterMax}
+                tone={meterTone}
+                className="scale-150 origin-bottom-right"
+              />
+              <p className="text-text-muted text-xs">
+                {meterMax
+                  ? `${Math.round((balance / meterMax) * 100)}% of this cycle's credits`
+                  : "Each bar is ~10 credits"}
+              </p>
+            </div>
+          </div>
+        </SettingCard>
+
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Current plan */}
           <SettingCard>
@@ -99,10 +177,10 @@ export default async function BillingPage() {
                 <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
                   Current plan
                 </p>
-                <p className="text-cream-50 mt-1 text-lg font-semibold">
+                <p className="font-display text-cream-50 mt-2 text-2xl leading-tight">
                   {planName ?? "Free"}
                 </p>
-                <p className="text-text-secondary mt-1 text-sm">
+                <p className="text-text-secondary mt-1.5 text-sm">
                   {planName
                     ? renews
                       ? `Renews ${renews}`
@@ -117,96 +195,34 @@ export default async function BillingPage() {
                   </Button>
                 </form>
               ) : !planName ? (
-                <Button asChild size="sm">
+                <Button asChild size="sm" variant="brand">
                   <Link href="/pricing">Upgrade</Link>
                 </Button>
               ) : null}
             </div>
           </SettingCard>
 
-          {/* Credits */}
-          <SettingCard>
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
-                  Credits
-                </p>
-                <p className="text-cream-50 mt-1 text-lg font-semibold">
-                  {meterMax
-                    ? `${balance} of ${meterMax.toLocaleString()} credits left`
-                    : `${balance} credits left`}
-                </p>
-                <p className="text-text-secondary mt-1 text-sm">
-                  {isOut
-                    ? "Add credits to keep generating."
-                    : isLow
-                      ? "You may run out before your next reset."
-                      : renews
-                        ? `Resets ${renews}`
-                        : "Credits don't expire while your account is active."}
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-2 pt-1">
-                {isLow && (
-                  <Warning size={18} className="text-warning" weight="fill" />
-                )}
-                <CreditMeter
-                  balance={balance}
-                  max={meterMax}
-                  tone={meterTone}
-                />
-              </div>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button asChild size="sm" variant={isOut ? "brand" : "secondary"}>
-                <Link href={buyCreditsHref}>Buy credits</Link>
-              </Button>
-              <Button asChild size="sm" variant="ghost">
-                <Link href="/app/billing/credits">View usage</Link>
-              </Button>
+          {/* Usage summary */}
+          <SettingCard
+            title={summary?.isBillingCycle ? "This billing cycle" : "This month"}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              {usageMetrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-cream-100/10 bg-charcoal-800/60 rounded-[10px] border p-3"
+                >
+                  <p className="text-cream-50 text-lg font-semibold tabular-nums">
+                    {metric.value.toLocaleString()}
+                  </p>
+                  <p className="text-text-secondary mt-0.5 text-xs">
+                    {metric.label}
+                  </p>
+                </div>
+              ))}
             </div>
           </SettingCard>
         </div>
-
-        {/* Usage summary */}
-        <SettingCard
-          title={
-            summary?.isBillingCycle
-              ? "This billing cycle"
-              : "This month"
-          }
-        >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="border-cream-100/10 bg-charcoal-800/60 rounded-[10px] border p-3.5">
-              <p className="text-cream-50 text-xl font-semibold">
-                {summary?.creditsUsed ?? 0}
-              </p>
-              <p className="text-text-secondary mt-0.5 text-xs">Credits used</p>
-            </div>
-            <div className="border-cream-100/10 bg-charcoal-800/60 rounded-[10px] border p-3.5">
-              <p className="text-cream-50 text-xl font-semibold">
-                {summary?.transformations ?? 0}
-              </p>
-              <p className="text-text-secondary mt-0.5 text-xs">
-                Transformations
-              </p>
-            </div>
-            <div className="border-cream-100/10 bg-charcoal-800/60 rounded-[10px] border p-3.5">
-              <p className="text-cream-50 text-xl font-semibold">
-                {summary?.creditsReleased ?? 0}
-              </p>
-              <p className="text-text-secondary mt-0.5 text-xs">
-                Credits released
-              </p>
-            </div>
-            <div className="border-cream-100/10 bg-charcoal-800/60 rounded-[10px] border p-3.5">
-              <p className="text-cream-50 text-xl font-semibold">{balance}</p>
-              <p className="text-text-secondary mt-0.5 text-xs">
-                Credits remaining
-              </p>
-            </div>
-          </div>
-        </SettingCard>
 
         {/* Section nav cards */}
         <div className="grid gap-4 sm:grid-cols-3">
@@ -233,9 +249,9 @@ export default async function BillingPage() {
             },
           ].map(({ href, icon: ItemIcon, label, hint }) => (
             <Link key={href} href={href} className="group">
-              <div className="border-cream-100/10 bg-charcoal-850 group-hover:border-cream-100/20 flex h-full items-center justify-between gap-3 rounded-[15px] border p-5 transition-colors">
+              <div className="border-cream-100/10 bg-charcoal-850 group-hover:border-lime-500/30 flex h-full items-center justify-between gap-3 rounded-[15px] border p-5 transition-colors">
                 <div className="flex items-center gap-3">
-                  <span className="bg-charcoal-800 text-text-secondary rounded-[10px] p-2.5">
+                  <span className="bg-charcoal-800 text-text-secondary group-hover:text-lime-300 rounded-[10px] p-2.5 transition-colors">
                     <ItemIcon size={18} />
                   </span>
                   <div>

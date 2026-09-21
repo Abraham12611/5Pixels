@@ -108,6 +108,12 @@ export const outputSizeSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   is_default: z.boolean().default(false),
+  // "Match photo" rows resolve real dims from the uploaded source image;
+  // width/height are the fallback when source dims can't be read.
+  match_source: z.boolean().default(false),
+  // "Match reference" rows resolve real dims from the preset's first
+  // reference asset; width/height are again just a fallback.
+  match_reference: z.boolean().default(false),
 });
 
 export const productVersionSchema = z.object({

@@ -82,37 +82,62 @@ export default async function BillingCreditsPage() {
           </span>
         </div>
 
-        {/* Balance card */}
-        <SettingCard>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-cream-50 text-3xl font-semibold">
-                {balance}{" "}
-                <span className="text-text-secondary text-base font-normal">
+        {/* Balance hero */}
+        <SettingCard className="relative overflow-hidden">
+          <div
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute inset-x-0 top-0 h-px",
+              isOut ? "bg-error/60" : "bg-lime-500/40"
+            )}
+          />
+          <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-6">
+            <div className="min-w-0">
+              <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
+                Credit balance
+              </p>
+              <p className="mt-2 flex items-baseline gap-2">
+                <span className="font-display text-cream-50 text-5xl leading-none tracking-tight tabular-nums sm:text-6xl">
+                  {balance.toLocaleString()}
+                </span>
+                <span className="text-text-secondary text-sm">
                   credits left
                 </span>
               </p>
-              <p className="text-text-secondary mt-1 text-sm">
+              <p
+                className={cn(
+                  "mt-3 text-sm",
+                  isOut ? "text-error" : "text-text-secondary"
+                )}
+              >
                 {isOut
-                  ? "Add credits to keep generating."
+                  ? "You're out of credits — top up to keep generating."
                   : resets
                     ? `Resets ${resets}`
                     : "Credits don't expire while your account is active."}
               </p>
+              <div className="mt-5">
+                <Button asChild variant={isOut ? "brand" : "secondary"}>
+                  <Link
+                    href={activePlan ? "/app/billing/plan#top-up" : "/pricing"}
+                  >
+                    Buy credits
+                  </Link>
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
               <CreditMeter
                 balance={balance}
                 max={meterMax}
                 tone={isOut ? "error" : "default"}
+                className="scale-150 origin-bottom-right"
               />
-              <Button asChild size="sm" variant={isOut ? "brand" : "secondary"}>
-                <Link
-                  href={activePlan ? "/app/billing/plan#top-up" : "/pricing"}
-                >
-                  Buy credits
-                </Link>
-              </Button>
+              <p className="text-text-muted text-xs">
+                {meterMax
+                  ? `${Math.round((balance / meterMax) * 100)}% of this cycle's credits`
+                  : "Each bar is ~10 credits"}
+              </p>
             </div>
           </div>
         </SettingCard>

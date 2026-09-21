@@ -76,9 +76,9 @@ export function ResultActions({
 
   return (
     <div className="shadow-border rounded-xl bg-charcoal-850 p-4">
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+      <div className="flex flex-col gap-2">
         {downloadUrl && (
-          <Button asChild variant="brand" className="col-span-2 sm:col-span-1">
+          <Button asChild variant="brand" className="w-full">
             <a
               href={downloadUrl}
               download
@@ -91,34 +91,38 @@ export function ResultActions({
             </a>
           </Button>
         )}
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleRegenerate}
-          disabled={isPending}
-        >
-          <ArrowCounterClockwise size={15} weight="bold" />
-          {isPending ? "Starting…" : "Regenerate"}
-          <span className="text-text-muted text-xs tabular-nums">
-            · {creditCost} {creditCost === 1 ? "credit" : "credits"}
-          </span>
-        </Button>
-        <Button asChild variant="secondary">
-          <Link href={`/app/create/${productSlug}?from=${generationId}`}>
-            <SlidersHorizontal size={15} weight="bold" />
-            Adjust
-          </Link>
-        </Button>
-        <Button asChild variant="secondary">
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleRegenerate}
+            disabled={isPending}
+          >
+            <ArrowCounterClockwise size={15} weight="bold" />
+            {isPending ? "Starting…" : "Regenerate"}
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href={`/app/create/${productSlug}?from=${generationId}`}>
+              <SlidersHorizontal size={15} weight="bold" />
+              Adjust
+            </Link>
+          </Button>
+        </div>
+        <p className="text-text-muted -mt-0.5 text-center text-[11px] tabular-nums">
+          Regenerate costs {creditCost}{" "}
+          {creditCost === 1 ? "credit" : "credits"}
+        </p>
+        <Button asChild variant="tertiary" className="w-full">
           <Link href="/explore">
             <SquaresFour size={15} weight="bold" />
             Try another look
           </Link>
         </Button>
-        <div className="col-span-2 flex items-center gap-2 sm:col-span-1 sm:ml-auto">
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="tertiary"
+            className="flex-1"
             onClick={() => setShareOpen(true)}
             aria-haspopup="dialog"
           >

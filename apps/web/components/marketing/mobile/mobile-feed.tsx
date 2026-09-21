@@ -148,7 +148,7 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                   {item.name}
                 </span>
                 <span className="text-cream-100/60 text-[10px] font-medium uppercase tracking-wider">
-                  {item.creditCost} {item.creditCost === 1 ? "credit" : "credits"}
+                  {item.categoryName ?? "Preset"}
                 </span>
               </span>
             </button>

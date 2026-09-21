@@ -45,8 +45,8 @@ export function ExploreMenu({ categories, featured, active }: ExploreMenuProps) 
             )}
           </NavigationMenuTrigger>
 
-          <NavigationMenuContent className="bg-charcoal-850 border-cream-100/10 shadow-elevated w-[min(40rem,90vw)] rounded-xl border p-2">
-            <div className="grid gap-1 sm:grid-cols-[190px_1fr]">
+          <NavigationMenuContent className="bg-charcoal-850 border-cream-100/10 shadow-elevated w-[min(42rem,90vw)] rounded-xl border p-3">
+            <div className="grid gap-3 sm:grid-cols-[190px_1fr]">
               {/* Browse column */}
               <div className="border-cream-100/10 flex flex-col gap-0.5 sm:border-r sm:pr-2">
                 <MenuLink href="/explore" icon={Compass}>
@@ -84,17 +84,17 @@ export function ExploreMenu({ categories, featured, active }: ExploreMenuProps) 
               {/* Featured looks column */}
               {featured.length > 0 && (
                 <div className="hidden sm:block">
-                  <p className="text-text-muted px-2.5 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wider">
+                  <p className="text-text-muted px-3 pb-3 pt-2 text-[11px] font-semibold uppercase tracking-wider">
                     Featured looks
                   </p>
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className="grid grid-cols-2 gap-2.5 px-1 pb-1">
                     {featured.slice(0, 4).map((p) => (
                       <NavigationMenuLink asChild key={p.slug}>
                         <Link
                           href={`/presets/${p.slug}`}
-                          className="hover:bg-charcoal-800 group/tile flex flex-row items-center gap-2.5 rounded-lg p-2 transition-colors"
+                          className="hover:bg-charcoal-800 group/tile flex flex-row items-center gap-3 rounded-lg p-2.5 transition-colors"
                         >
-                          <span className="bg-charcoal-800 media-frame relative h-11 w-11 shrink-0 overflow-hidden rounded-md">
+                          <span className="bg-charcoal-800 media-frame relative h-12 w-12 shrink-0 overflow-hidden rounded-md">
                             {p.thumbUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element -- menu thumbs don't need next/image optimization
                               <img
@@ -110,7 +110,7 @@ export function ExploreMenu({ categories, featured, active }: ExploreMenuProps) 
                               {p.name}
                             </span>
                             <span className="text-text-muted block truncate text-[11px]">
-                              {p.categoryName ?? "Preset"} · {p.creditCost} cr
+                              {p.categoryName ?? "Preset"}
                             </span>
                           </span>
                         </Link>

@@ -11,10 +11,35 @@ import type { OutputSizeOption } from "@/types/catalog";
 import { cn } from "@/lib/utils";
 
 export function outputSizeKey(size: OutputSizeOption): string {
-  return `${size.name}:${size.width}:${size.height}`;
+  const kind = size.match_source
+    ? "src"
+    : size.match_reference
+      ? "ref"
+      : "fix";
+  return `${size.name}:${size.width}:${size.height}:${kind}`;
+}
+
+export function isMatchSource(size: OutputSizeOption): boolean {
+  return size.match_source === true;
+}
+
+function isMatchReference(size: OutputSizeOption): boolean {
+  return size.match_reference === true;
+}
+
+function isMatchSize(size: OutputSizeOption): boolean {
+  return isMatchSource(size) || isMatchReference(size);
+}
+
+function matchHint(size: OutputSizeOption): string {
+  return isMatchSource(size)
+    ? "Same shape as your photo"
+    : "Same shape as the preset artwork";
 }
 
 function aspectLabel(size: OutputSizeOption): string {
+  if (size.match_source) return "Match photo";
+  if (size.match_reference) return "Match reference";
   const w = size.width as number | undefined;
   const h = size.height as number | undefined;
   if (w && h) {
@@ -29,11 +54,32 @@ function MiniFrame({
   width,
   height,
   active,
+  match,
 }: {
   width?: number;
   height?: number;
   active: boolean;
+  match?: boolean;
 }) {
+  if (match) {
+    // Dashed frame — the shape adapts to an attached image.
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "flex h-5 w-6 shrink-0 items-center justify-center rounded-[3px] transition",
+          active ? "text-lime-400" : "text-text-muted"
+        )}
+      >
+        <span
+          className={cn(
+            "h-[18px] w-[18px] rounded-[2px] border border-dashed transition",
+            active ? "border-lime-400" : "border-current"
+          )}
+        />
+      </span>
+    );
+  }
   const w = Math.max(1, Number(width ?? 1));
   const h = Math.max(1, Number(height ?? 1));
   const ratio = w / h;
@@ -65,6 +111,8 @@ interface AspectRatioMenuProps {
   selected: OutputSizeOption;
   disabled?: boolean;
   onChange: (size: OutputSizeOption) => void;
+  /** Real dims of the loaded photo — shown on "Match photo" when known. */
+  sourceDims?: { width: number; height: number } | null;
 }
 
 export function AspectRatioMenu({
@@ -72,8 +120,10 @@ export function AspectRatioMenu({
   selected,
   disabled,
   onChange,
+  sourceDims,
 }: AspectRatioMenuProps) {
   const selectedKey = outputSizeKey(selected);
+  const selectedMatch = isMatchSize(selected);
 
   return (
     <DropdownMenu>
@@ -91,7 +141,11 @@ export function AspectRatioMenu({
           <Columns size={13} weight="bold" className="text-lime-400" />
           <span className="truncate">{aspectLabel(selected)}</span>
           <span className="text-text-muted hidden sm:inline">
-            {selected.width} × {selected.height}
+            {selectedMatch
+              ? isMatchSource(selected) && sourceDims
+                ? `${sourceDims.width} × ${sourceDims.height}`
+                : matchHint(selected)
+              : `${selected.width} × ${selected.height}`}
           </span>
           <CaretDown
             size={12}
@@ -137,11 +191,16 @@ export function AspectRatioMenu({
                   width={size.width}
                   height={size.height}
                   active={isSelected}
+                  match={isMatchSize(size)}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{size.name}</span>
                   <span className="text-text-muted block text-xs">
-                    {aspectLabel(size)} · {size.width} × {size.height}
+                    {isMatchSize(size)
+                      ? isMatchSource(size) && sourceDims
+                        ? `${matchHint(size)} · ${sourceDims.width} × ${sourceDims.height}`
+                        : matchHint(size)
+                      : `${aspectLabel(size)} · ${size.width} × ${size.height}`}
                   </span>
                 </span>
               </button>

@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { ProductCreateInput } from "@5pixels/shared";
+import type { PublicProductDetail } from "@/types/catalog";
+import { coerceCreditCost } from "@/lib/admin/coerce";
 import { logAdminAction } from "./audit";
 import { requireAdminOrOwner } from "./admin";
 import {
@@ -448,6 +450,170 @@ export async function selectEditableVersion(
   if (testing) return testing;
 
   return ordered.find((v) => v.state === "active") ?? ordered[0] ?? null;
+}
+
+/**
+ * Admin lab listing — every product regardless of status (drafts are the whole
+ * point of the lab), with the editable version's credit cost for display.
+ */
+export async function getAdminLabProducts() {
+  await requireAdminOrOwner();
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select(
+      "id, slug, name, type, public_status, hero_asset_id, product_versions(id, state, version_number, credit_cost)"
+    )
+    .order("name", { ascending: true });
+  if (error) throw error;
+
+  return Promise.all(
+    (data ?? []).map(async (product) => {
+      const versions = Array.isArray(product.product_versions)
+        ? (product.product_versions as Array<{
+            id: string;
+            state: string;
+            version_number: number;
+            credit_cost: unknown;
+          }>)
+        : [];
+      const selected = await selectEditableVersion(
+        versions.map((v) => ({
+          id: v.id,
+          state: v.state,
+          version_number: v.version_number,
+        }))
+      );
+      const version = versions.find((v) => v.id === selected?.id);
+      return {
+        id: product.id as string,
+        slug: product.slug as string,
+        name: product.name as string,
+        type: product.type as "filter" | "poster",
+        public_status: product.public_status as string,
+        hero_asset_id: (product.hero_asset_id as string | null) ?? null,
+        credit_cost: coerceCreditCost(version?.credit_cost) ?? 0,
+      };
+    })
+  );
+}
+
+/**
+ * Admin-gated product lookup by slug for the test lab. Unlike
+ * `getPublicProductBySlug`, this returns drafts/testing versions too — the
+ * lab exists to test presets *before* they're published. Shaped to
+ * `PublicProductDetail` so `LabWorkspace` renders identically to the
+ * consumer-facing detail data.
+ */
+export async function getAdminProductBySlug(slug: string) {
+  await requireAdminOrOwner();
+
+  const supabase = await createClient();
+  const { data: product, error } = await supabase
+    .from("products")
+    .select(
+      `*, categories(slug, name), product_versions(*), product_fields(*)`
+    )
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!product) return null;
+
+  const versions = Array.isArray(product.product_versions)
+    ? product.product_versions
+    : [];
+  const selected = await selectEditableVersion(
+    versions.map((v: Record<string, unknown>) => ({
+      id: String(v.id),
+      state: String(v.state),
+      version_number: Number(v.version_number),
+    }))
+  );
+  const version = selected
+    ? (versions.find(
+        (v: Record<string, unknown>) => v.id === selected.id
+      ) as Record<string, unknown> | undefined)
+    : undefined;
+
+  const fields = Array.isArray(product.product_fields)
+    ? product.product_fields
+    : [];
+
+  const modelConfig =
+    (version?.model_config as Record<string, unknown> | undefined) ?? {};
+  const outputSizes = Array.isArray(version?.output_sizes)
+    ? (version!.output_sizes as PublicProductDetail["output_sizes"])
+    : modelConfig.width && modelConfig.height
+      ? [
+          {
+            name: `${modelConfig.width}x${modelConfig.height}`,
+            width: Number(modelConfig.width),
+            height: Number(modelConfig.height),
+            is_default: true,
+          },
+        ]
+      : [];
+
+  const category = Array.isArray(product.categories)
+    ? product.categories[0]
+    : product.categories;
+
+  return {
+    id: product.id,
+    slug: product.slug,
+    name: product.name,
+    type: product.type,
+    short_description: product.short_description ?? null,
+    long_description: product.long_description ?? null,
+    category_id: product.category_id ?? null,
+    category_slug: category?.slug ?? null,
+    category_name: category?.name ?? null,
+    featured_rank: product.featured_rank ?? null,
+    version_id: (version?.id as string | undefined) ?? null,
+    version_number: (version?.version_number as number | undefined) ?? null,
+    credit_cost: coerceCreditCost(version?.credit_cost) ?? 0,
+    output_sizes: outputSizes,
+    metadata:
+      product.type === "filter"
+        ? {
+            filter_config:
+              (product.metadata as Record<string, unknown> | null)
+                ?.filter_config ?? {},
+          }
+        : product.type === "poster"
+          ? {
+              poster_config:
+                (product.metadata as Record<string, unknown> | null)
+                  ?.poster_config ?? {},
+            }
+          : {},
+    hero_asset_id: product.hero_asset_id ?? null,
+    poster_asset_id: product.poster_asset_id ?? null,
+    preview_gif_asset_id: product.preview_gif_asset_id ?? null,
+    preview_video_asset_id: product.preview_video_asset_id ?? null,
+    public_assets: [],
+    created_at: product.created_at ?? null,
+    likeness_level: product.likeness_level ?? null,
+    active_fields: fields
+      .filter((f: { active: boolean | null }) => f.active !== false)
+      .sort(
+        (a: { sort_order: number | null }, b: { sort_order: number | null }) =>
+          (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      )
+      .map((f: Record<string, unknown>) => ({
+        id: f.id,
+        field_key: f.field_key,
+        label: f.label,
+        help_text: f.help_text ?? null,
+        field_type: f.field_type,
+        required: f.required ?? null,
+        sort_order: f.sort_order ?? null,
+        config: f.config ?? null,
+        validation: f.validation ?? null,
+      })),
+  } as PublicProductDetail;
 }
 
 const REFERENCE_ROLES = [
