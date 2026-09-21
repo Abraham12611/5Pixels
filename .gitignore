@@ -40,3 +40,8 @@ coverage
 
 # Misc
 .vercel
+
+# Vendor documentation dumps
+dodo-2-llms-full.txt
+*.md-bak
+

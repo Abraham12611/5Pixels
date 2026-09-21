@@ -25,8 +25,94 @@
 
   --color-background: var(--color-ink-950);
   --color-foreground: var(--color-text-primary);
+  --color-card: var(--color-charcoal-850);
+  --color-card-foreground: var(--color-cream-50);
+  --color-popover: var(--color-charcoal-800);
+  --color-popover-foreground: var(--color-cream-50);
+  --color-primary: var(--color-lime-500);
+  --color-primary-foreground: var(--color-ink-950);
+  --color-secondary: var(--color-charcoal-700);
+  --color-secondary-foreground: var(--color-cream-50);
+  --color-muted: var(--color-charcoal-700);
+  --color-muted-foreground: var(--color-text-muted);
+  --color-accent: var(--color-charcoal-800);
+  --color-accent-foreground: var(--color-lime-400);
+  --color-destructive: var(--color-error);
+  --color-destructive-foreground: var(--color-cream-50);
+  --color-input: var(--color-charcoal-700);
+  --color-input-foreground: var(--color-cream-50);
+  --color-ring: var(--color-lime-500);
+  --color-border: var(--color-charcoal-700);
+
+  /* 5-based radius scale: 10 / 12 / 15 / 20 */
+  --radius-sm: 0.625rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.9375rem;
+  --radius-xl: 1.25rem;
+
+  /* Dark-mode elevation: white ring instead of decorative borders */
+  --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.06);
+  --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.12);
+  --shadow-elevated:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 8px 24px -8px oklch(0 0 0 / 0.5);
+
+  /* Motion: named curves from the design spec */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-playfair), Georgia, serif;
+}
+
+/* 1px white/10 inner outline for all meaningful media (better-ui rule) */
+@utility media-frame {
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+/* Dialog/overlay entrance — subtle rise + fade, killed under reduced motion */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+@utility animate-dialog-in {
+  animation: dialog-in 180ms var(--ease-out) both;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility animate-overlay-in {
+  animation: overlay-in 140ms var(--ease-out) both;
+}
+
+/* Bottom-sheet entrance — slides up from the screen edge */
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@utility animate-sheet-in {
+  animation: sheet-in 220ms var(--ease-drawer) both;
+}
+
+/* Hide scrollbars on horizontal media rails while keeping scroll */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 :root {
@@ -50,13 +136,18 @@ body {
   outline-offset: 2px;
 }
 
-/* Reduced motion */
+/* Reduced motion: kill movement, keep instant state feedback */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
     transition-duration: 0.01ms !important;
+    transition-property:
+      color,
+      background-color,
+      border-color,
+      box-shadow,
+      opacity !important;
   }
 }
