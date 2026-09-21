@@ -43,7 +43,7 @@ export async function AppHeader() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, display_name, email, avatar_asset_id")
+    .select("id, display_name, email, avatar_asset_id, is_admin, is_owner")
     .eq("id", user.id)
     .single();
 
@@ -135,9 +135,11 @@ export async function AppHeader() {
     (user.user_metadata?.name as string | null) ??
     "";
   const email = user.email ?? "";
+  const isAdmin = Boolean(profile?.is_admin || profile?.is_owner);
 
   return (
     <AppHeaderClient
+      isAdmin={isAdmin}
       creditBalance={creditBalance}
       userName={name}
       userEmail={email}

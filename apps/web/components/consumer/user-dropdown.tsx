@@ -25,6 +25,7 @@ import {
   SignOut,
   Crown,
   Lightning,
+  Wrench,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { signOut } from "@/app/actions/auth";
@@ -36,6 +37,8 @@ import {
 import { Button } from "@/components/ui/button";
 
 interface UserDropdownProps {
+  /** Admin/owner — surfaces the Admin console shortcut. */
+  isAdmin?: boolean;
   name: string;
   email: string;
   avatarUrl?: string | null;
@@ -67,6 +70,7 @@ const ITEM_CLASS =
   "flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm";
 
 export function UserDropdown({
+  isAdmin = false,
   name,
   email,
   avatarUrl,
@@ -244,6 +248,14 @@ export function UserDropdown({
             Settings
           </Link>
         </DropdownMenuItem>
+        {isAdmin && (
+          <DropdownMenuItem asChild>
+            <Link href="/admin" className={ITEM_CLASS}>
+              <Wrench size={16} weight="bold" />
+              Admin console
+            </Link>
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator className="bg-cream-100/10 my-2" />
 

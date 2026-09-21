@@ -348,7 +348,6 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
         <ReferenceAssetManager
           productId={id}
-          versionId={initialData.version.id}
           initialAssets={referenceAssets}
           onAttach={attachReferenceAsset}
           onDetach={detachReferenceAsset}

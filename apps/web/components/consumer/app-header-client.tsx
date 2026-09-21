@@ -15,9 +15,11 @@ import type {
   SearchLibraryItem,
   SearchPreset,
 } from "@/lib/search";
+import { Wrench } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
 interface AppHeaderClientProps {
+  isAdmin: boolean;
   creditBalance: number;
   userName: string;
   userEmail: string;
@@ -68,6 +70,7 @@ function isExploreActive(pathname: string): boolean {
 }
 
 export function AppHeaderClient({
+  isAdmin,
   creditBalance,
   userName,
   userEmail,
@@ -136,7 +139,17 @@ export function AppHeaderClient({
             unreadCount={unreadCount}
             notifications={notifications}
           />
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="border-cream-100/15 text-text-secondary hover:text-cream-100 focus-visible:ring-lime-500/50 hidden h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 sm:flex"
+            >
+              <Wrench size={14} weight="bold" />
+              Admin
+            </Link>
+          )}
           <UserDropdown
+            isAdmin={isAdmin}
             name={userName}
             email={userEmail}
             avatarUrl={avatarUrl}
