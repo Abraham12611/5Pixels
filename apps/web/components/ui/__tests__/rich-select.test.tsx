@@ -1,18 +1,62 @@
-import { describe, expect, it, vi, beforeAll } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { RichSelect } from "../rich-select";
 
-// Radix Popover needs these APIs that jsdom doesn't implement.
-beforeAll(() => {
-  window.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  } as unknown as typeof ResizeObserver;
-  HTMLElement.prototype.scrollIntoView ??= () => {};
-  HTMLElement.prototype.hasPointerCapture ??= () => false;
-  HTMLElement.prototype.setPointerCapture ??= () => {};
-  HTMLElement.prototype.releasePointerCapture ??= () => {};
+// The real Radix popover relies on browser behaviors jsdom lacks
+// (animationend for Presence unmount, pointer capture, real focus events),
+// which leaves the layer mounted and floods the event loop for tens of
+// seconds per test — enough to starve vitest's worker RPC channel and
+// trip "Timeout calling onTaskUpdate". Stub the primitives so the tests
+// exercise OUR selection logic only.
+vi.mock("radix-ui", async () => {
+  const React = await import("react");
+  const Ctx = React.createContext<{
+    open: boolean;
+    setOpen: (v: boolean) => void;
+  }>({ open: false, setOpen: () => {} });
+
+  const Root = ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open: boolean;
+    onOpenChange?: (v: boolean) => void;
+    children: React.ReactNode;
+  }) => (
+    <Ctx.Provider value={{ open, setOpen: onOpenChange ?? (() => {}) }}>
+      {children}
+    </Ctx.Provider>
+  );
+
+  const Trigger = ({
+    children,
+  }: {
+    children: React.ReactElement<Record<string, unknown>>;
+  }) => {
+    const { open, setOpen } = React.useContext(Ctx);
+    return React.cloneElement(children, {
+      onClick: () => setOpen(!open),
+      "aria-expanded": open,
+    });
+  };
+
+  const Portal = ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  );
+
+  const Content = ({
+    children,
+    className,
+  }: {
+    children: React.ReactNode;
+    className?: string;
+  }) => {
+    const { open } = React.useContext(Ctx);
+    return open ? <div className={className}>{children}</div> : null;
+  };
+
+  return { Popover: { Root, Trigger, Portal, Content } };
 });
 
 const OPTIONS = [
@@ -21,17 +65,12 @@ const OPTIONS = [
   { value: "banana", label: "Nano Banana", description: "fal-ai/nano-banana" },
 ];
 
-/** Radix trigger toggles on click; jsdom needs the pointer pair first. */
 function openSelect(name: string | RegExp = "Model") {
   const trigger = screen.getByRole("button", { name });
-  fireEvent.pointerDown(trigger);
-  fireEvent.pointerUp(trigger);
   fireEvent.click(trigger);
   expect(trigger).toHaveAttribute("aria-expanded", "true");
   return trigger;
 }
-
-const SLOW = 30_000;
 
 describe("RichSelect", () => {
   it(
@@ -54,8 +93,7 @@ describe("RichSelect", () => {
       );
 
       expect(onValueChange).toHaveBeenCalledWith("ideogram");
-    },
-    SLOW
+    }
   );
 
   it(
@@ -83,8 +121,7 @@ describe("RichSelect", () => {
       expect(
         screen.queryByRole("option", { name: /ideogram/i })
       ).not.toBeInTheDocument();
-    },
-    SLOW
+    }
   );
 
   it(
@@ -108,7 +145,6 @@ describe("RichSelect", () => {
 
       fireEvent.click(screen.getByText("Custom value…"));
       expect(onValueChange).toHaveBeenCalledWith("__custom__");
-    },
-    SLOW
+    }
   );
 });

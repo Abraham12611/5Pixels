@@ -10,9 +10,9 @@ type FormValues = z.input<typeof productCreateSchema>;
 
 // The real Radix popover relies on browser behaviors jsdom lacks
 // (animationend for Presence unmount, pointer capture, real focus events),
-// which leaves the layer mounted and floods the event loop for ~60s. Stub
-// the primitives so the test exercises OUR selection logic only — Radix
-// itself is covered by rich-select.test.tsx.
+// which leaves the layer mounted and floods the event loop for tens of
+// seconds per test. Stub the primitives so the test exercises OUR
+// selection logic only — rich-select.test.tsx uses the same stub.
 vi.mock("radix-ui", async () => {
   const React = await import("react");
   const Ctx = React.createContext<{
