@@ -14,7 +14,7 @@ const CENTER_LABEL = "Create";
  * `04 §6`): the tab bar must not stack under it, and the page keeps no
  * tab-bar clearance. Add a prefix here when a surface gains a docked bar.
  */
-const DOCKED_BAR_PREFIXES = ["/app/create/"];
+const DOCKED_BAR_PREFIXES = ["/app/create/", "/app/results/"];
 
 const LEFT_ITEMS = [
   { href: "/app", label: "Discover", icon: House },

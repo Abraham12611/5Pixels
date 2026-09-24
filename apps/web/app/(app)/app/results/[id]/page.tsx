@@ -111,9 +111,10 @@ export default async function ResultPage({
   };
 
   return (
-    <main className="flex flex-1 flex-col px-4 py-4 sm:px-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:overflow-hidden">
-      {/* Context row */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <main className="flex flex-1 flex-col px-4 sm:px-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:overflow-hidden lg:py-4">
+      {/* Context row — the immersive mobile stage uses floating chrome
+          instead (10 §3). */}
+      <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 md:flex">
         <Link
           href="/app/library"
           className="text-text-muted hover:text-cream-100 -ml-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[13px] transition-colors"
