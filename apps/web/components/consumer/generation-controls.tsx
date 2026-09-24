@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, type ReactNode } from "react";
+import { CaretDown } from "@phosphor-icons/react";
 import {
   ChoiceSettingTile,
   SettingTile,
@@ -8,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
+import { cn } from "@/lib/utils";
 import type { PublicProductField } from "@/types/catalog";
 
 interface GenerationControlsProps {
@@ -27,6 +30,108 @@ const CHOICE_TYPES = new Set([
   "era",
   "mood",
 ]);
+
+/**
+ * Mobile "Adjust the look (N)" accordion (25_MOBILE_WEB_POLISH/08 §4):
+ * collapsed by default so disabled controls aren't a dead region, expanded
+ * automatically when there are ≤2 controls. On `md`+ the header hides and the
+ * content is always visible — the rail keeps its flat layout.
+ */
+export function AdjustAccordion({
+  count,
+  children,
+}: {
+  /** Adjustable rows inside (fields + output size) — shown as the badge. */
+  count: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(() => count <= 2);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="text-cream-50 flex min-h-11 w-full items-center justify-between gap-3 text-left text-[15px] font-semibold md:hidden"
+      >
+        <span>
+          Adjust the look{" "}
+          <span className="text-text-muted text-xs font-normal">({count})</span>
+        </span>
+        <CaretDown
+          size={16}
+          weight="bold"
+          className={cn(
+            "text-text-muted shrink-0 transition-transform duration-200",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      <div className={cn("space-y-2.5", !open && "hidden", "md:block")}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Poster text inputs rendered as their own section ("Your text") with a live
+ * character count — poster copy is rendered exactly as typed.
+ */
+export function PosterTextFields({
+  fields,
+  values,
+  disabled,
+  onChange,
+}: GenerationControlsProps) {
+  const sorted = sortFields(fields).filter(
+    (f) => f.field_type === "short_text"
+  );
+
+  if (sorted.length === 0) return null;
+
+  return (
+    <div className="space-y-2.5">
+      {sorted.map((field) => {
+        const normalized = normalizeField(field);
+        const controlId = `gen-field-${field.field_key}`;
+        const value = String(
+          values[field.field_key] ?? normalized.defaultValue ?? ""
+        );
+        const maxLength =
+          (field.validation?.maxLength as number | undefined) ?? undefined;
+
+        return (
+          <SettingTile
+            key={field.id}
+            label={field.label}
+            required={field.required ?? undefined}
+            hint={field.help_text ?? undefined}
+            disabled={disabled}
+            stacked
+          >
+            <Input
+              id={controlId}
+              type="text"
+              value={value}
+              onChange={(e) =>
+                onChange({ ...values, [field.field_key]: e.target.value })
+              }
+              maxLength={maxLength}
+              disabled={disabled}
+              className="border-cream-100/10 bg-charcoal-850 text-cream-50 placeholder:text-text-muted h-11 rounded-md text-sm"
+            />
+            <p className="text-text-muted mt-1.5 text-right text-[11px] tabular-nums">
+              {value.length}
+              {maxLength ? `/${maxLength}` : ""}
+            </p>
+          </SettingTile>
+        );
+      })}
+    </div>
+  );
+}
 
 export function GenerationControls({
   fields,
@@ -115,7 +220,7 @@ function ControlTile({
               value={[Number(value ?? field.min)]}
               onValueChange={(v) => onChange(v[0])}
               disabled={disabled}
-              className="flex-1 [&_[data-slot=slider-range]]:bg-lime-400 [&_[data-slot=slider-track]]:bg-cream-100/15 [&_[data-slot=slider-thumb]]:border-lime-400"
+              className="h-11 flex-1 [&_[data-slot=slider-range]]:bg-lime-400 [&_[data-slot=slider-track]]:bg-cream-100/15 [&_[data-slot=slider-thumb]]:size-5 [&_[data-slot=slider-thumb]]:border-lime-400"
             />
             <span className="text-text-secondary w-8 shrink-0 text-right text-[13px] tabular-nums">
               {Number(value ?? field.min)}

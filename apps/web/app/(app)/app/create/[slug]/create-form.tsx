@@ -5,7 +5,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
 import { ArrowRight, Sparkle, Warning } from "@phosphor-icons/react";
-import { GenerationControls } from "@/components/consumer/generation-controls";
+import {
+  AdjustAccordion,
+  GenerationControls,
+  PosterTextFields,
+} from "@/components/consumer/generation-controls";
 import { StudioStage } from "@/components/consumer/studio-stage";
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
@@ -122,6 +126,17 @@ export function CreateGenerationForm({
   const [isNarrow, setIsNarrow] = useState(false);
 
   const isPoster = product.type === "poster";
+  // Poster text fields live in their own "Your text" section (08 §4).
+  const posterTextKeys = new Set(
+    isPoster
+      ? product.active_fields
+          .filter((f) => f.field_type === "short_text")
+          .map((f) => f.field_key)
+      : []
+  );
+  const controlFields = isPoster
+    ? product.active_fields.filter((f) => !posterTextKeys.has(f.field_key))
+    : product.active_fields;
   const hasSource = Boolean(file) || Boolean(reusedSource);
   const canAfford = isAnonymous
     ? true
@@ -502,9 +517,9 @@ export function CreateGenerationForm({
             )}
           </div>
 
-          {/* Preset controls */}
+          {/* Preset controls — a collapsed accordion on mobile (08 §4). */}
           <div>
-            <div className="mb-2.5 flex items-baseline justify-between">
+            <div className="mb-2.5 hidden items-baseline justify-between md:flex">
               <p className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
                 Adjust the look
               </p>
@@ -514,29 +529,69 @@ export function CreateGenerationForm({
                 </span>
               )}
             </div>
-            <GenerationControls
-              fields={product.active_fields}
-              values={options}
-              disabled={!hasSource || loading}
-              onChange={setOptions}
-            />
-            {isPoster && (
+            {controlFields.length > 0 ? (
+              <AdjustAccordion count={controlFields.length + 1}>
+                <GenerationControls
+                  fields={controlFields}
+                  values={options}
+                  disabled={!hasSource || loading}
+                  onChange={setOptions}
+                />
+                <SettingTile label="Output size" disabled={loading}>
+                  <AspectRatioMenu
+                    sizes={outputSizes}
+                    selected={selectedSize}
+                    disabled={loading}
+                    onChange={setSelectedSize}
+                    sourceDims={sourceDims}
+                  />
+                </SettingTile>
+              </AdjustAccordion>
+            ) : (
+              <>
+                <GenerationControls
+                  fields={controlFields}
+                  values={options}
+                  disabled={!hasSource || loading}
+                  onChange={setOptions}
+                />
+                <div className="mt-2.5">
+                  <SettingTile label="Output size" disabled={loading}>
+                    <AspectRatioMenu
+                      sizes={outputSizes}
+                      selected={selectedSize}
+                      disabled={loading}
+                      onChange={setSelectedSize}
+                      sourceDims={sourceDims}
+                    />
+                  </SettingTile>
+                </div>
+              </>
+            )}
+            {isPoster && posterTextKeys.size === 0 && (
               <p className="text-text-muted mt-3 text-[11px]">
                 Posters include text rendered over the finished image.
               </p>
             )}
           </div>
 
-          {/* Output size */}
-          <SettingTile label="Output size" disabled={loading}>
-            <AspectRatioMenu
-              sizes={outputSizes}
-              selected={selectedSize}
-              disabled={loading}
-              onChange={setSelectedSize}
-              sourceDims={sourceDims}
-            />
-          </SettingTile>
+          {/* Poster copy — its own section, rendered exactly as typed. */}
+          {isPoster && posterTextKeys.size > 0 && (
+            <div>
+              <p className="text-text-muted mb-2.5 text-[11px] font-semibold uppercase tracking-wide">
+                Your text
+              </p>
+              <PosterTextFields
+                fields={product.active_fields}
+                values={options}
+                disabled={!hasSource || loading}
+                onChange={setOptions}
+              />
+              <p className="text-text-muted mt-2 text-[11px]">
+                Text is rendered exactly as typed.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Sticky generate console */}

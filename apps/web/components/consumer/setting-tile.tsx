@@ -6,7 +6,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Sheet } from "@/components/ui/sheet";
 import { CaretDown, Check } from "@phosphor-icons/react";
+import { useIsNarrow } from "@/lib/ui/use-media-query";
 import { cn } from "@/lib/utils";
 
 interface SettingTileProps {
@@ -87,45 +89,104 @@ export function ChoiceSettingTile({
   onChange,
 }: ChoiceSettingTileProps) {
   const [open, setOpen] = React.useState(false);
+  const isNarrow = useIsNarrow();
+
+  const trigger = (
+    <button
+      id={id}
+      type="button"
+      disabled={disabled}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={isNarrow ? () => setOpen(true) : undefined}
+      className={cn(
+        "shadow-border hover:shadow-border-hover group flex w-full items-center justify-between gap-3 rounded-lg bg-charcoal-800/80 p-3.5 text-left transition",
+        "focus-visible:ring-lime-500/50 focus-visible:ring-2 focus-visible:outline-none",
+        disabled && "cursor-not-allowed opacity-50"
+      )}
+    >
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="text-cream-100 text-[13px] font-medium">{label}</span>
+        {required && (
+          <span className="text-text-muted text-[11px]">Required</span>
+        )}
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="text-text-secondary group-hover:text-cream-100 truncate text-[13px] transition-colors">
+          {value || "Choose"}
+        </span>
+        <CaretDown
+          size={13}
+          weight="bold"
+          className={cn(
+            "text-text-muted shrink-0 transition-transform duration-200",
+            open && "rotate-180"
+          )}
+        />
+      </span>
+    </button>
+  );
+
+  const optionRows = options.map((option) => {
+    const selected = option.value === value;
+    return (
+      <button
+        key={option.value}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        onClick={() => {
+          onChange(option.value);
+          setOpen(false);
+        }}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] transition-colors",
+          isNarrow ? "min-h-14 text-sm" : "py-2",
+          selected
+            ? "bg-cream-100/10 text-cream-50"
+            : "text-text-secondary hover:bg-cream-100/5 hover:text-cream-100"
+        )}
+      >
+        <Check
+          size={13}
+          weight="bold"
+          className={cn(
+            "shrink-0 transition-opacity",
+            selected ? "text-lime-400 opacity-100" : "opacity-0"
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate">{option.label}</span>
+      </button>
+    );
+  });
+
+  // Mobile: the choice list is a T1 action sheet (25_MOBILE_WEB_POLISH/15 §3).
+  if (isNarrow) {
+    return (
+      <>
+        {trigger}
+        <Sheet
+          open={open}
+          onOpenChange={setOpen}
+          tier="action"
+          title={label}
+        >
+          <div role="listbox" aria-label={label} className="space-y-0.5 pb-1">
+            {options.length === 0 && (
+              <p className="text-text-muted px-2.5 py-2 text-xs">
+                No options configured.
+              </p>
+            )}
+            {optionRows}
+          </div>
+        </Sheet>
+      </>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          id={id}
-          type="button"
-          disabled={disabled}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          className={cn(
-            "shadow-border hover:shadow-border-hover group flex w-full items-center justify-between gap-3 rounded-lg bg-charcoal-800/80 p-3.5 text-left transition",
-            "focus-visible:ring-lime-500/50 focus-visible:ring-2 focus-visible:outline-none",
-            disabled && "cursor-not-allowed opacity-50"
-          )}
-        >
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="text-cream-100 text-[13px] font-medium">
-              {label}
-            </span>
-            {required && (
-              <span className="text-text-muted text-[11px]">Required</span>
-            )}
-          </span>
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="text-text-secondary group-hover:text-cream-100 truncate text-[13px] transition-colors">
-              {value || "Choose"}
-            </span>
-            <CaretDown
-              size={13}
-              weight="bold"
-              className={cn(
-                "text-text-muted shrink-0 transition-transform duration-200",
-                open && "rotate-180"
-              )}
-            />
-          </span>
-        </button>
-      </PopoverTrigger>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
@@ -137,37 +198,7 @@ export function ChoiceSettingTile({
               No options configured.
             </p>
           )}
-          {options.map((option) => {
-            const selected = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] transition-colors",
-                  selected
-                    ? "bg-cream-100/10 text-cream-50"
-                    : "text-text-secondary hover:bg-cream-100/5 hover:text-cream-100"
-                )}
-              >
-                <Check
-                  size={13}
-                  weight="bold"
-                  className={cn(
-                    "shrink-0 transition-opacity",
-                    selected ? "text-lime-400 opacity-100" : "opacity-0"
-                  )}
-                />
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              </button>
-            );
-          })}
+          {optionRows}
         </div>
       </PopoverContent>
     </Popover>
