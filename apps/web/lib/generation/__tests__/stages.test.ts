@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GENERATION_STAGES,
+  elapsedLabel,
   isFailureStatus,
   isTerminalStatus,
   pixelCountForStatus,
@@ -129,5 +130,31 @@ describe("statusCopy", () => {
         /prompt|inference|provider|model|seed|scheduler|lora|checkpoint/i
       );
     }
+  });
+});
+
+describe("elapsedLabel", () => {
+  const start = 1_000_000;
+
+  it("reads as just started under 10s", () => {
+    expect(elapsedLabel(start, start)).toBe("Started a few seconds ago");
+    expect(elapsedLabel(start, start + 9_999)).toBe(
+      "Started a few seconds ago"
+    );
+  });
+
+  it("reports seconds under a minute", () => {
+    expect(elapsedLabel(start, start + 34_000)).toBe("Started 34s ago");
+  });
+
+  it("reports minutes after a minute, singular and plural", () => {
+    expect(elapsedLabel(start, start + 61_000)).toBe("Started 1 min ago");
+    expect(elapsedLabel(start, start + 5 * 60_000)).toBe("Started 5 min ago");
+  });
+
+  it("never goes negative if the clock is skewed", () => {
+    expect(elapsedLabel(start, start - 5_000)).toBe(
+      "Started a few seconds ago"
+    );
   });
 });

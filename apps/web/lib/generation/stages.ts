@@ -147,3 +147,16 @@ export function statusCopy(
 export const LONG_WAIT_THRESHOLD_MS = 45_000;
 export const LONG_WAIT_MESSAGE =
   "It's taking a little longer than usual — still working.";
+
+/**
+ * Human elapsed-time label for the progress screen ("Started 34s ago").
+ * Rendered `aria-hidden` — stage announcements carry the accessible signal
+ * so this ticking line never spams screen readers (09 §5).
+ */
+export function elapsedLabel(startedAtMs: number, nowMs: number): string {
+  const seconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+  if (seconds < 10) return "Started a few seconds ago";
+  if (seconds < 60) return `Started ${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes === 1 ? "Started 1 min ago" : `Started ${minutes} min ago`;
+}
