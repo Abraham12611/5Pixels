@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowClockwise,
   Camera,
+  Check,
   FolderOpen,
   Images,
   Trash,
+  Warning,
 } from "@phosphor-icons/react";
-import { GenerationPixelProgress } from "@/components/consumer/five-pixel";
 import { useDialogA11y } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -25,17 +27,24 @@ interface StudioStageProps {
   aspectRatio?: number | null;
   disabled?: boolean;
   submitting?: boolean;
-  /** 0–3 while submitting; drives the pixel meter + step label. */
+  /** 0-based index of the current submit step (see `submitSteps`). */
   submitStepIndex?: number;
   submitStepLabel?: string;
+  /** Step strings for the inline submit indicator, in order. */
+  submitSteps?: readonly string[];
+  /** Rejected-source message (wrong type / too large) shown under the stage. */
+  sourceError?: string | null;
+  /** Non-blocking quality warning shown under the stage. */
+  sourceWarning?: string | null;
   onFileSelected: (file: File | null) => void;
   onClear: () => void;
 }
 
 /**
  * The Create Studio's visual stage. Owns drag/drop + file picking; all source
- * state lives in the parent form. Three states: empty drop target, source
- * preview, and the submitting overlay.
+ * state lives in the parent form. Touch devices get two entry tiles (camera /
+ * gallery); fine pointers keep the drop zone. Submission is non-blocking: the
+ * photo stays visible at 60% with an inline step indicator beneath it.
  */
 export function StudioStage({
   previewUrl,
@@ -46,10 +55,14 @@ export function StudioStage({
   submitting,
   submitStepIndex = 0,
   submitStepLabel,
+  submitSteps,
+  sourceError,
+  sourceWarning,
   onFileSelected,
   onClear,
 }: StudioStageProps) {
   const [dragOver, setDragOver] = useState(false);
+  const [coarse, setCoarse] = useState(false);
   const [sourceSheetOpen, setSourceSheetOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
@@ -57,12 +70,19 @@ export function StudioStage({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   useDialogA11y(sourceSheetOpen, sheetRef);
 
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setCoarse(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const openPicker = useCallback(() => {
     if (disabled || submitting) return;
     // Touch devices get the source-action sheet (camera vs gallery);
     // desktops go straight to the file dialog.
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
-    if (coarse) {
+    if (window.matchMedia("(pointer: coarse)").matches) {
       setSourceSheetOpen(true);
     } else {
       inputRef.current?.click();
@@ -103,7 +123,7 @@ export function StudioStage({
         ref={cameraRef}
         type="file"
         accept="image/*"
-        capture="environment"
+        capture="user"
         className="hidden"
         disabled={disabled || submitting}
         onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
@@ -191,63 +211,118 @@ export function StudioStage({
   return (
     <div className="relative flex min-h-[420px] flex-1 flex-col lg:min-h-full">
       {previewUrl ? (
-        <div
-          {...dropHandlers}
-          className={cn(
-            "relative m-4 flex flex-1 items-center justify-center overflow-hidden rounded-xl sm:m-6",
-            dragOver && "ring-lime-400/70 ring-2"
-          )}
-        >
+        <>
           <div
-            className="media-frame relative max-h-full w-full max-w-3xl overflow-hidden rounded-xl"
-            style={
-              aspectRatio && aspectRatio > 0
-                ? { aspectRatio: String(aspectRatio) }
-                : undefined
-            }
+            {...dropHandlers}
+            className={cn(
+              "relative m-4 flex flex-1 items-center justify-center sm:m-6",
+              dragOver && "ring-lime-400/70 rounded-xl ring-2"
+            )}
           >
-            <Image
-              src={previewUrl}
-              alt="Source photo"
-              fill
-              className="object-cover"
-              unoptimized
-              priority
-            />
+            <div
+              className={cn(
+                "media-frame relative max-h-full w-full max-w-3xl overflow-hidden rounded-xl transition-opacity",
+                submitting && "opacity-60"
+              )}
+              style={
+                aspectRatio && aspectRatio > 0
+                  ? { aspectRatio: String(aspectRatio) }
+                  : undefined
+              }
+            >
+              <Image
+                src={previewUrl}
+                alt="Source photo"
+                fill
+                className="object-cover"
+                unoptimized
+                priority
+              />
+
+              <span className="shadow-elevated absolute left-3 top-3 rounded-md bg-ink-950/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cream-100 backdrop-blur">
+                {sourceLabel}
+              </span>
+
+              {!submitting && (
+                <div className="absolute right-3 top-3 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openPicker}
+                    disabled={disabled}
+                    className="shadow-elevated text-cream-50 hover:text-lime-400 flex h-11 items-center gap-1.5 rounded-md bg-ink-950/70 px-3 text-xs font-medium backdrop-blur transition-colors disabled:opacity-50"
+                  >
+                    <ArrowClockwise size={14} weight="bold" />
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClear}
+                    disabled={disabled}
+                    className="shadow-elevated text-cream-50 hover:text-error flex h-11 items-center gap-1.5 rounded-md bg-ink-950/70 px-3 text-xs font-medium backdrop-blur transition-colors disabled:opacity-50"
+                  >
+                    <Trash size={14} weight="bold" />
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              {sourceName && !submitting && (
+                <span className="text-text-muted absolute bottom-3 right-3 max-w-[40%] truncate text-[11px]">
+                  {sourceName}
+                </span>
+              )}
+            </div>
           </div>
 
-          <span className="shadow-elevated absolute left-8 top-8 rounded-md bg-ink-950/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cream-100 backdrop-blur">
-            {sourceLabel}
-          </span>
-
-          {!submitting && (
-            <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-2">
-              <button
-                type="button"
-                onClick={openPicker}
-                disabled={disabled}
-                className="shadow-elevated text-cream-50 hover:text-lime-400 flex items-center gap-1.5 rounded-md bg-ink-950/70 px-3 py-1.5 text-xs font-medium backdrop-blur transition-colors disabled:opacity-50"
-              >
-                <ArrowClockwise size={13} weight="bold" />
-                Replace
-              </button>
-              <button
-                type="button"
-                onClick={onClear}
-                disabled={disabled}
-                className="shadow-elevated text-cream-50 hover:text-error flex items-center gap-1.5 rounded-md bg-ink-950/70 px-3 py-1.5 text-xs font-medium backdrop-blur transition-colors disabled:opacity-50"
-              >
-                <Trash size={13} weight="bold" />
-                Remove
-              </button>
-            </div>
-          )}
-
-          {sourceName && !submitting && (
-            <span className="text-text-muted absolute bottom-8 right-8 max-w-[40%] truncate text-[11px]">
-              {sourceName}
-            </span>
-          )}
+          {submitting ? (
+            <SubmitIndicator
+              stepIndex={submitStepIndex}
+              stepLabel={submitStepLabel}
+              steps={submitSteps}
+            />
+          ) : null}
+        </>
+      ) : coarse ? (
+        <div className="flex flex-1 flex-col justify-center px-4 py-10 sm:px-6">
+          <div className="mx-auto grid w-full max-w-md grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={disabled}
+              className="border-cream-100/10 bg-charcoal-850 hover:border-cream-100/25 focus-visible:ring-lime-500/50 flex aspect-square flex-col items-center justify-center gap-3 rounded-xl border text-center transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
+            >
+              <span className="border-lime-400/40 text-lime-400 flex h-12 w-12 items-center justify-center rounded-full border">
+                <Camera size={22} weight="bold" />
+              </span>
+              <span>
+                <span className="text-cream-50 block text-sm font-semibold">
+                  Take a photo
+                </span>
+                <span className="text-text-muted mt-0.5 block text-xs">
+                  Use your camera
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={disabled}
+              className="border-cream-100/10 bg-charcoal-850 hover:border-cream-100/25 focus-visible:ring-lime-500/50 flex aspect-square flex-col items-center justify-center gap-3 rounded-xl border text-center transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
+            >
+              <span className="border-lime-400/40 text-lime-400 flex h-12 w-12 items-center justify-center rounded-full border">
+                <Images size={22} weight="bold" />
+              </span>
+              <span>
+                <span className="text-cream-50 block text-sm font-semibold">
+                  Choose photo
+                </span>
+                <span className="text-text-muted mt-0.5 block text-xs">
+                  JPEG, PNG, WebP · up to 20 MB
+                </span>
+              </span>
+            </button>
+          </div>
+          <StepStrip activeIndex={0} />
         </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 sm:px-6">
@@ -302,55 +377,162 @@ export function StudioStage({
             </p>
           </div>
 
-          <ol className="mt-6 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide">
-            {STEP_STRIP.map((step, i) => (
-              <li key={step} className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "flex items-center gap-1.5",
-                    i === 0 ? "text-lime-400" : "text-text-muted"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex h-4 w-4 items-center justify-center rounded-[4px] text-[10px]",
-                      i === 0
-                        ? "bg-lime-400/15 text-lime-400"
-                        : "bg-charcoal-800 text-text-muted"
-                    )}
-                  >
-                    {i + 1}
-                  </span>
-                  {step}
-                </span>
-                {i < STEP_STRIP.length - 1 && (
-                  <span className="bg-charcoal-700 h-px w-5" aria-hidden />
-                )}
-              </li>
-            ))}
-          </ol>
+          <StepStrip activeIndex={0} />
         </div>
       )}
 
-      {submitting && (
-        <div className="bg-ink-950/70 absolute inset-0 z-10 flex items-center justify-center backdrop-blur-sm">
-          <div className="shadow-elevated flex w-64 flex-col items-center gap-4 rounded-xl bg-charcoal-850 p-6 text-center">
-            <GenerationPixelProgress
-              filled={Math.min(submitStepIndex + 1, 5)}
-              active={Math.min(submitStepIndex, 4)}
-            />
-            <p className="text-cream-50 text-sm font-medium">
-              {submitStepLabel ?? "Working…"}
-            </p>
-            <p className="text-text-muted text-xs">
-              Keep this tab open — it only takes a moment.
-            </p>
+      {sourceError ? (
+        <div
+          role="alert"
+          className="bg-error/10 text-error mx-4 mb-4 rounded-lg px-3.5 py-3 sm:mx-6"
+        >
+          <div className="flex items-start gap-2">
+            <Warning size={15} weight="fill" className="mt-0.5 shrink-0" />
+            <p className="flex-1 text-[13px]">{sourceError}</p>
           </div>
+          <button
+            type="button"
+            onClick={openPicker}
+            className="mt-1 flex min-h-11 items-center text-[13px] font-semibold underline underline-offset-2"
+          >
+            Choose another photo
+          </button>
         </div>
-      )}
+      ) : sourceWarning ? (
+        <div
+          role="status"
+          className="bg-warning/10 text-warning mx-4 mb-4 flex items-start gap-2 rounded-lg px-3.5 py-3 sm:mx-6"
+        >
+          <Warning size={15} weight="fill" className="mt-0.5 shrink-0" />
+          <p className="flex-1 text-[13px]">{sourceWarning}</p>
+        </div>
+      ) : null}
+
+      <p className="text-text-muted px-5 pb-5 text-center text-xs sm:px-6">
+        Your photo is private, used only for this result, and you can delete it
+        any time in{" "}
+        <Link
+          href="/app/account/privacy"
+          className="text-text-secondary underline underline-offset-2"
+        >
+          Privacy
+        </Link>
+        .
+      </p>
 
       {fileInput}
       {sourceSheet}
+    </div>
+  );
+}
+
+/** "Add a photo → Adjust the look → Generate" expectation strip. */
+function StepStrip({ activeIndex }: { activeIndex: number }) {
+  return (
+    <ol className="mt-6 flex items-center justify-center gap-2 text-[11px] font-medium uppercase tracking-wide">
+      {STEP_STRIP.map((step, i) => (
+        <li key={step} className="flex items-center gap-2">
+          <span
+            className={cn(
+              "flex items-center gap-1.5",
+              i === activeIndex ? "text-lime-400" : "text-text-muted"
+            )}
+          >
+            <span
+              className={cn(
+                "flex h-4 w-4 items-center justify-center rounded-[4px] text-[10px]",
+                i === activeIndex
+                  ? "bg-lime-400/15 text-lime-400"
+                  : "bg-charcoal-800 text-text-muted"
+              )}
+            >
+              {i + 1}
+            </span>
+            {step}
+          </span>
+          {i < STEP_STRIP.length - 1 && (
+            <span className="bg-charcoal-700 h-px w-5" aria-hidden />
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * Non-blocking submission state: the photo stays visible (dimmed) and the
+ * three submit steps read as done / current / pending under the preview.
+ */
+function SubmitIndicator({
+  stepIndex,
+  stepLabel,
+  steps,
+}: {
+  stepIndex: number;
+  stepLabel?: string;
+  steps?: readonly string[];
+}) {
+  const labels = steps ?? (stepLabel ? [stepLabel] : []);
+
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-center gap-3 px-5 pb-5"
+      aria-live="polite"
+    >
+      {labels.length > 1 ? (
+        <ol className="w-full max-w-xs space-y-1.5">
+          {labels.map((step, i) => {
+            const done = i < stepIndex;
+            const current = i === stepIndex;
+            return (
+              <li key={step} className="flex items-center gap-2.5 text-[13px]">
+                <span
+                  className={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+                    done
+                      ? "bg-lime-400/15 text-lime-400"
+                      : current
+                        ? "bg-lime-400/15 text-lime-400"
+                        : "bg-charcoal-800 text-text-muted"
+                  )}
+                >
+                  {done ? (
+                    <Check size={11} weight="bold" />
+                  ) : (
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        current
+                          ? "bg-lime-400 animate-pulse"
+                          : "bg-charcoal-700"
+                      )}
+                    />
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    current
+                      ? "text-cream-50"
+                      : done
+                        ? "text-text-secondary"
+                        : "text-text-muted"
+                  )}
+                >
+                  {step}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p className="text-cream-50 text-sm font-medium">
+          {stepLabel ?? "Working…"}
+        </p>
+      )}
+      <p className="text-text-muted text-xs">
+        Keep this tab open — it only takes a moment.
+      </p>
     </div>
   );
 }

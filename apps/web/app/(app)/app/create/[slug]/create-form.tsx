@@ -4,9 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
-import { ArrowRight, Sparkle, Warning } from "@phosphor-icons/react";
+import {
+  ArrowRight,
+  Check,
+  CircleNotch,
+  Sparkle,
+  Warning,
+} from "@phosphor-icons/react";
 import { GenerationControls } from "@/components/consumer/generation-controls";
 import { StudioStage } from "@/components/consumer/studio-stage";
+import {
+  DockedActionBar,
+  MobilePageBottomSpacer,
+} from "@/components/consumer/mobile/docked-action-bar";
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
@@ -15,7 +25,11 @@ import { AuthGateModal } from "@/components/consumer/auth-gate-modal";
 import { PaywallSheet } from "@/components/consumer/paywall-sheet";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
-import { validateGenerationOptions } from "@/lib/generation/validation";
+import {
+  classifySourceDimensions,
+  classifySourceFile,
+  validateGenerationOptions,
+} from "@/lib/generation/validation";
 import { createAndSubmitGeneration } from "@/lib/generation/actions";
 import { estimateGenerationCost } from "@/lib/billing/credit-cost";
 import {
@@ -57,9 +71,6 @@ interface CreateGenerationFormProps {
   /** Purchasable plans for the credits paywall (insufficient balance). */
   plans: PlanForPurchase[];
 }
-
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_SIZE = 20 * 1024 * 1024;
 
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
   const available = sizes?.length
@@ -116,6 +127,13 @@ export function CreateGenerationForm({
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string>("");
+  /** Rejected pick (wrong type / too large) — inline under the source zone. */
+  const [sourceError, setSourceError] = useState<string>("");
+  /** Non-blocking quality warning (small / extreme shape). */
+  const [sourceWarning, setSourceWarning] = useState<string>("");
+  /** Last submit died during upload — the same file can retry without re-picking. */
+  const [uploadFailed, setUploadFailed] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
@@ -154,10 +172,15 @@ export function CreateGenerationForm({
     const img = new window.Image();
     img.onload = () => {
       if (!cancelled && img.naturalWidth > 0 && img.naturalHeight > 0) {
-        setSourceDims({
+        const dims = {
           width: img.naturalWidth,
           height: img.naturalHeight,
-        });
+        };
+        setSourceDims(dims);
+        const verdict = classifySourceDimensions(dims);
+        setSourceWarning(
+          verdict.class === "warning" ? (verdict.message ?? "") : ""
+        );
       }
     };
     img.src = previewUrl;
@@ -180,9 +203,10 @@ export function CreateGenerationForm({
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
   }, [product.public_assets]);
 
-  // Narrow viewport → paywall sheet; wide → the existing dialog.
+  // Below `sm` → paywall sheet; wider → the centred dialog. Sheet tiers
+  // switch at `sm` per 25_MOBILE_WEB_POLISH/15.
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)");
+    const mq = window.matchMedia("(max-width: 639.98px)");
     const update = () => setIsNarrow(mq.matches);
     update();
     mq.addEventListener("change", update);
@@ -202,6 +226,7 @@ export function CreateGenerationForm({
       });
       setFile(restored);
       setReusedSource(null);
+      setDraftRestored(true);
       setOptions((prev) => ({ ...prev, ...draft.options }));
       if (draft.sizeName) {
         const match = product.output_sizes?.find(
@@ -278,18 +303,18 @@ export function CreateGenerationForm({
 
   const handleFileSelected = useCallback((selected: File | null) => {
     setError("");
+    setSourceError("");
+    setSourceWarning("");
+    setUploadFailed(false);
+    setDraftRestored(false);
     setSourceDims(null);
     if (!selected) {
       setFile(null);
       return;
     }
-    if (!ALLOWED_TYPES.includes(selected.type)) {
-      setError("Please select a JPEG, PNG, or WebP image.");
-      setFile(null);
-      return;
-    }
-    if (selected.size > MAX_SIZE) {
-      setError("Image must be 20 MB or smaller.");
+    const verdict = classifySourceFile(selected);
+    if (verdict.class === "rejected") {
+      setSourceError(verdict.message ?? "That photo can't be used.");
       setFile(null);
       return;
     }
@@ -301,12 +326,17 @@ export function CreateGenerationForm({
     setFile(null);
     setReusedSource(null);
     setSourceDims(null);
+    setSourceError("");
+    setSourceWarning("");
+    setUploadFailed(false);
+    setDraftRestored(false);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setProgress("");
+    setUploadFailed(false);
 
     if (!hasSource) {
       setError("Add a photo to get started.");
@@ -379,29 +409,35 @@ export function CreateGenerationForm({
       let sourceAssetId = reusedSource?.assetId ?? null;
 
       if (file) {
-        setProgress("Preparing secure upload...");
-        const { signedUrl, path } = await prepareSourceUpload(
-          file.type,
-          file.size
-        );
+        try {
+          setProgress("Preparing secure upload...");
+          const { signedUrl, path } = await prepareSourceUpload(
+            file.type,
+            file.size
+          );
 
-        setProgress("Uploading image...");
-        const upload = await fetch(signedUrl, {
-          method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type },
-        });
-        if (!upload.ok) {
-          throw new Error("Image upload failed. Please try again.");
+          setProgress("Uploading image...");
+          const upload = await fetch(signedUrl, {
+            method: "PUT",
+            body: file,
+            headers: { "Content-Type": file.type },
+          });
+          if (!upload.ok) {
+            throw new Error("Image upload failed. Please try again.");
+          }
+
+          setProgress("Finalizing upload...");
+          const finalized = await finalizeSourceUpload(
+            path,
+            file.type,
+            file.size
+          );
+          sourceAssetId = finalized.assetId;
+        } catch (err) {
+          // The file object is still held — a retry skips re-picking.
+          setUploadFailed(true);
+          throw err;
         }
-
-        setProgress("Finalizing upload...");
-        const finalized = await finalizeSourceUpload(
-          path,
-          file.type,
-          file.size
-        );
-        sourceAssetId = finalized.assetId;
       }
 
       if (!sourceAssetId) {
@@ -443,12 +479,69 @@ export function CreateGenerationForm({
 
   const displayCost = estimatedCost ?? product.credit_cost;
   const stepIndex = submitStepIndex(progress);
+  const creditUnit = displayCost === 1 ? "credit" : "credits";
+  const generateLabel = `Generate · ${displayCost} ${creditUnit}`;
+  const generateDisabled = loading || !hasSource || generationPaused;
+  // Every disabled state names its blocker; while submitting, the reason
+  // line doubles as honest progress.
+  const disabledReason = loading
+    ? progress || "Starting…"
+    : !hasSource
+      ? "Add a photo to generate"
+      : generationPaused
+        ? "Generation is paused — try again shortly"
+        : undefined;
+
+  const submitError = error ? (
+    <div className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
+      <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
+      <p className="flex-1">{error}</p>
+      {uploadFailed && file ? (
+        <button
+          type="button"
+          onClick={() => void runGeneration()}
+          className="shrink-0 font-semibold underline underline-offset-2"
+        >
+          Retry upload
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  const generateButton = (
+    <Button
+      type="submit"
+      variant="brand"
+      size="lg"
+      className="w-full"
+      disabled={generateDisabled}
+    >
+      {loading ? (
+        <>
+          <CircleNotch size={18} weight="bold" className="animate-spin" />
+          Generating…
+        </>
+      ) : (
+        generateLabel
+      )}
+    </Button>
+  );
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-1 flex-col lg:flex-row">
       {/* Configuration rail */}
       <aside className="border-cream-100/10 order-last flex w-full shrink-0 flex-col lg:order-first lg:max-h-full lg:w-[340px] lg:overflow-y-auto lg:border-r xl:w-[370px]">
         <div className="flex-1 space-y-6 px-4 py-6 sm:px-5">
+          {draftRestored && (
+            <p
+              role="status"
+              className="bg-lime-400/10 text-lime-300 flex items-center gap-2 rounded-md px-3 py-2 text-[13px]"
+            >
+              <Check size={14} weight="bold" className="shrink-0" />
+              We kept your photo and settings.
+            </p>
+          )}
+
           {/* Preset context card */}
           <div className="shadow-border flex items-center gap-3 rounded-lg bg-charcoal-800/80 p-3">
             {presetThumb ? (
@@ -483,8 +576,8 @@ export function CreateGenerationForm({
             </Link>
           </div>
 
-          {/* Source status line */}
-          <div>
+          {/* Source status line — the stage carries this on mobile. */}
+          <div className="hidden md:block">
             <p className="text-text-muted mb-2 text-[11px] font-semibold uppercase tracking-wide">
               Source
             </p>
@@ -539,14 +632,10 @@ export function CreateGenerationForm({
           </SettingTile>
         </div>
 
-        {/* Sticky generate console */}
-        <div className="border-cream-100/10 bg-charcoal-850/95 sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)] border-t px-4 py-4 backdrop-blur sm:px-5 lg:bottom-0">
-          {error && (
-            <p className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
-              <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
-              {error}
-            </p>
-          )}
+        {/* Sticky generate console — desktop/tablet only; mobile gets the
+            docked bar so there is exactly one fixed bottom element. */}
+        <div className="border-cream-100/10 bg-charcoal-850/95 hidden border-t px-4 py-4 backdrop-blur sm:px-5 md:sticky md:bottom-0 md:block">
+          {submitError}
           <div className="mb-3 flex items-baseline justify-between text-[13px]">
             <span className="text-text-secondary">Cost</span>
             <span
@@ -555,7 +644,7 @@ export function CreateGenerationForm({
                 canAfford ? "text-cream-50" : "text-error"
               )}
             >
-              {displayCost} {displayCost === 1 ? "credit" : "credits"}
+              {displayCost} {creditUnit}
             </span>
           </div>
           {!isAnonymous && (
@@ -585,15 +674,10 @@ export function CreateGenerationForm({
               Generate will be back shortly.
             </p>
           )}
-          <Button
-            type="submit"
-            variant="brand"
-            size="lg"
-            className="w-full"
-            disabled={loading || !hasSource || generationPaused}
-          >
-            {loading ? "Working…" : "Generate"}
-          </Button>
+          {generateButton}
+          {disabledReason && (
+            <p className="text-text-muted mt-2 text-[13px]">{disabledReason}</p>
+          )}
         </div>
       </aside>
 
@@ -614,9 +698,30 @@ export function CreateGenerationForm({
         submitting={loading}
         submitStepIndex={stepIndex}
         submitStepLabel={SUBMIT_STEPS[Math.min(stepIndex, 2)]}
+        submitSteps={SUBMIT_STEPS}
+        sourceError={sourceError || null}
+        sourceWarning={sourceWarning || null}
         onFileSelected={handleFileSelected}
         onClear={handleClearSource}
       />
+
+      {/* Mobile docked bar — the only fixed bottom element on this route. */}
+      <div className="order-last md:hidden">
+        <MobilePageBottomSpacer withDockedBar />
+      </div>
+      <DockedActionBar
+        className="order-last"
+        info={
+          <>
+            Cost {displayCost} {creditUnit}
+            {!isAnonymous && <> · Balance {initialBalance}</>}
+          </>
+        }
+        reason={disabledReason}
+      >
+        {submitError}
+        {generateButton}
+      </DockedActionBar>
 
       <CreditConfirmDialog
         open={confirmOpen}
@@ -631,6 +736,7 @@ export function CreateGenerationForm({
           onOpenChange={setInsufficientOpen}
           plans={plans}
           required={displayCost}
+          balance={initialBalance}
           presetName={product.name}
         />
       ) : (
