@@ -490,3 +490,44 @@ export async function getGenerationContext(
   );
   return { sourceUrl };
 }
+
+/**
+ * Fresh signed URLs for every output of a completed generation — used to
+ * re-mint an expired download link and for multi-output "Download all"
+ * (10 §5). User-scoped; an output that fails to sign is skipped rather than
+ * sinking the batch.
+ */
+export async function getResultDownloadUrls(
+  generationId: string
+): Promise<string[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const generation = await fetchSafeGeneration(generationId);
+  if (!generation || generation.status !== "completed") return [];
+
+  const outputs =
+    generation.outputs.length > 0
+      ? generation.outputs
+      : generation.outputBucket && generation.outputStorageKey
+        ? [
+            {
+              bucket: generation.outputBucket,
+              storageKey: generation.outputStorageKey,
+            },
+          ]
+        : [];
+
+  const urls: string[] = [];
+  for (const output of outputs) {
+    try {
+      urls.push(await getSignedAssetUrl(output.bucket, output.storageKey, 600));
+    } catch {
+      // skip — one unlucky output shouldn't block the rest
+    }
+  }
+  return urls;
+}

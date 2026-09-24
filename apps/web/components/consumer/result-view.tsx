@@ -25,6 +25,8 @@ interface ResultViewProps {
   initialRating: number | null;
   initialNotes: string | null;
   details: ResultDetailsData;
+  /** Signed URLs for every output — enables "Download all" when >1. */
+  downloadUrls?: string[];
   stageClassName?: string;
 }
 
@@ -48,6 +50,7 @@ export function ResultView({
   initialRating,
   initialNotes,
   details,
+  downloadUrls,
   stageClassName,
 }: ResultViewProps) {
   const [mode, setMode] = useState<CompareMode>("result");
@@ -87,6 +90,8 @@ export function ResultView({
           productName={productName}
           creditCost={creditCost}
           downloadUrl={resultUrl}
+          downloadUrls={downloadUrls}
+          downloadMimeType={details.mimeType}
           initialShareId={initialShareId}
           initialSaved={initialSaved}
         />

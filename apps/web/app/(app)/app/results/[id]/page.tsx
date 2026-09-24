@@ -48,6 +48,7 @@ export default async function ResultPage({
     source_bucket: string | null;
     source_storage_key: string | null;
     saved_at: string | null;
+    outputs: Array<{ bucket: string; storage_key: string }> | null;
   };
 
   if (generation.status !== "completed") {
@@ -91,6 +92,23 @@ export default async function ResultPage({
       600
     );
   }
+
+  // Every output signed for Download / Download all (10 §5).
+  const downloadUrls: string[] = [];
+  const outputRows = Array.isArray(generation.outputs)
+    ? generation.outputs
+    : [];
+  for (const row of outputRows) {
+    if (!row?.bucket || !row?.storage_key) continue;
+    try {
+      downloadUrls.push(
+        await getSignedAssetUrl(row.bucket, row.storage_key, 600)
+      );
+    } catch {
+      // skip — one unlucky output shouldn't block the rest
+    }
+  }
+  if (downloadUrls.length === 0 && outputUrl) downloadUrls.push(outputUrl);
 
   const creditCost = Number(generation.credit_cost) || 0;
   const createdLabel = generation.created_at
@@ -161,6 +179,7 @@ export default async function ResultPage({
           initialRating={myFeedback?.rating ?? null}
           initialNotes={myFeedback?.notes ?? null}
           details={details}
+          downloadUrls={downloadUrls}
         />
       ) : (
         <div className="media-frame bg-charcoal-850 mt-4 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">
