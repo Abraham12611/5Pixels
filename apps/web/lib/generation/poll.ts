@@ -465,28 +465,36 @@ export async function pollGenerationStatus(
 }
 
 /**
- * One-shot context for the status surface: a signed URL for the source photo
- * so the page can show what is being transformed. Safe to call without a
- * processing token — the record is user-scoped.
+ * One-shot context for the status surface: signed URLs for the source photo
+ * (shown dimmed while the run executes) and, once completed, the first output
+ * so the handoff cross-fades the result in over the source (09 §4.3). Safe
+ * to call without a processing token — the record is user-scoped.
  */
 export async function getGenerationContext(
   generationId: string
-): Promise<{ sourceUrl: string | null }> {
+): Promise<{ sourceUrl: string | null; outputUrl: string | null }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { sourceUrl: null };
+  if (!user) return { sourceUrl: null, outputUrl: null };
 
   const generation = await fetchSafeGeneration(generationId);
-  if (!generation?.sourceBucket || !generation.sourceStorageKey) {
-    return { sourceUrl: null };
-  }
+  if (!generation) return { sourceUrl: null, outputUrl: null };
 
-  const sourceUrl = await getSignedAssetUrl(
-    generation.sourceBucket,
-    generation.sourceStorageKey,
-    3600
-  );
-  return { sourceUrl };
+  const sourceUrl =
+    generation.sourceBucket && generation.sourceStorageKey
+      ? await getSignedAssetUrl(
+          generation.sourceBucket,
+          generation.sourceStorageKey,
+          3600
+        )
+      : null;
+
+  const output = generation.outputs[0];
+  const outputUrl = output
+    ? await getSignedAssetUrl(output.bucket, output.storageKey, 3600)
+    : null;
+
+  return { sourceUrl, outputUrl };
 }

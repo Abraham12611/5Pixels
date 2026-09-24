@@ -14,6 +14,7 @@ import {
   getGenerationContext,
   pollGenerationStatus,
 } from "@/lib/generation/poll";
+import { pollIntervalMs } from "@/lib/generation/poll-schedule";
 import {
   GENERATION_STAGES,
   LONG_WAIT_MESSAGE,
@@ -25,6 +26,7 @@ import {
   statusCopy,
 } from "@/lib/generation/stages";
 import { GenerationPixelProgress } from "@/components/consumer/five-pixel";
+import { StateBlock } from "@/components/ui/state-block";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SafeGenerationDetail } from "@/lib/generation/types";
@@ -39,15 +41,25 @@ export default function GenerationStatusPage() {
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
+  const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [pollFailures, setPollFailures] = useState(0);
+  const [resultVisible, setResultVisible] = useState(false);
   const inFlightRef = useRef(false);
+  const terminalRef = useRef(false);
+  // Backoff clock: page mount until the run's createdAt arrives.
+  const ageStartRef = useRef(0);
+  const checkRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    ageStartRef.current = Date.now();
 
     getGenerationContext(id)
       .then((ctx) => {
-        if (!cancelled) setSourceUrl(ctx.sourceUrl);
+        if (cancelled) return;
+        setSourceUrl(ctx.sourceUrl);
+        setOutputUrl(ctx.outputUrl);
       })
       .catch(() => undefined);
 
@@ -60,48 +72,88 @@ export default function GenerationStatusPage() {
         if (cancelled) return;
         setError(result.error ?? "");
         setGeneration(result.generation);
+        setPollFailures(result.error ? (n) => n + 1 : 0);
+        if (result.generation) {
+          ageStartRef.current = new Date(
+            result.generation.createdAt
+          ).getTime();
+          if (isTerminalStatus(result.generation.status)) {
+            terminalRef.current = true;
+          }
+        }
       } catch (err) {
         if (cancelled) return;
         setError(
           err instanceof Error ? err.message : "Unable to check status."
         );
+        setPollFailures((n) => n + 1);
       } finally {
         setLoading(false);
         inFlightRef.current = false;
       }
     }
+    checkRef.current = check;
 
-    check();
-
-    intervalId = setInterval(() => {
-      if (cancelled) return;
-      setGeneration((current) => {
-        if (current && isTerminalStatus(current.status)) {
-          return current;
+    // 09 §4.1: 4 s while fresh, backing off as the run ages; the loop stops
+    // while the tab is hidden and re-checks immediately on re-visibility.
+    function scheduleNext() {
+      if (cancelled || terminalRef.current) return;
+      timeoutId = setTimeout(() => {
+        if (document.visibilityState === "hidden") {
+          timeoutId = null;
+          return; // resumed by the visibilitychange listener
         }
-        check();
-        return current;
-      });
-    }, 4000);
+        void check().finally(scheduleNext);
+      }, pollIntervalMs(Date.now() - ageStartRef.current));
+    }
+
+    void check().finally(scheduleNext);
+
+    const onVisible = () => {
+      if (cancelled || terminalRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      if (timeoutId) clearTimeout(timeoutId);
+      void check().finally(scheduleNext);
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     const ticker = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
       cancelled = true;
-      if (intervalId) clearInterval(intervalId);
+      if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", onVisible);
       clearInterval(ticker);
+      checkRef.current = null;
     };
   }, [id]);
 
-  // Completed generations hand off to the result surface.
+  // Completed generations hand off to the result surface: the result
+  // cross-fades in over the source, then the route changes (09 §4.3).
   useEffect(() => {
     if (generation?.status !== "completed") return;
+    let cancelled = false;
+    getGenerationContext(id)
+      .then((ctx) => {
+        if (!cancelled) setOutputUrl(ctx.outputUrl);
+      })
+      .catch(() => undefined);
     const timeout = setTimeout(
       () => router.replace(`/app/results/${generation.id}`),
-      1200
+      800
     );
-    return () => clearTimeout(timeout);
-  }, [generation?.status, generation?.id, router]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [generation?.status, generation?.id, id, router]);
+
+  // Fade the signed result in one frame after it arrives.
+  useEffect(() => {
+    if (!outputUrl) return;
+    const frame = requestAnimationFrame(() => setResultVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, [outputUrl]);
 
   const terminal = generation && isTerminalStatus(generation.status);
   const stageIndex = generation ? stageIndexForStatus(generation.status) : -1;
@@ -124,7 +176,26 @@ export default function GenerationStatusPage() {
               src={sourceUrl}
               alt="Your photo"
               fill
-              className="object-cover brightness-[0.55]"
+              className={cn(
+                "object-cover motion-safe:transition-[filter] motion-safe:duration-200",
+                generation.status === "completed"
+                  ? "brightness-100"
+                  : "brightness-[0.55]"
+              )}
+              unoptimized
+            />
+          )}
+          {/* Completion handoff: the result cross-fades in over the source
+              (09 §4.3); the result page renders it in the same spot. */}
+          {generation.status === "completed" && outputUrl && (
+            <Image
+              src={outputUrl}
+              alt="Your result"
+              fill
+              className={cn(
+                "object-cover motion-safe:transition-opacity motion-safe:duration-200",
+                resultVisible ? "opacity-100" : "opacity-0"
+              )}
               unoptimized
             />
           )}
@@ -268,6 +339,23 @@ export default function GenerationStatusPage() {
                 </ol>
               )}
 
+              {/* Completed: the checklist collapses into a single ✓ row
+                  while the handoff plays (09 §4.3). */}
+              {generation.status === "completed" && (
+                <ol className="mt-6 space-y-1 text-left">
+                  <li className="flex items-center gap-3 rounded-md px-3 py-2 text-[13px]">
+                    <CheckCircle
+                      size={16}
+                      weight="fill"
+                      className="text-lime-400 shrink-0"
+                    />
+                    <span className="text-text-secondary">
+                      Done — opening your result
+                    </span>
+                  </li>
+                </ol>
+              )}
+
               {/* Actions pinned to the thumb zone on mobile (09 §3). */}
               <div className="mt-auto pt-6">
                 {/* Terminal: completed */}
@@ -333,14 +421,47 @@ export default function GenerationStatusPage() {
             </div>
           )}
 
-          {error && (
-            <p
-              role="status"
-              className="text-warning mt-5 flex items-center gap-1.5 text-xs md:justify-center"
-            >
-              <WarningCircle size={14} weight="fill" />
-              {error}
-            </p>
+          {/* Three consecutive poll failures: the inline warning becomes a
+              recovery panel — the run itself is still executing (09 §4.1). */}
+          {!terminal && pollFailures >= 3 ? (
+            <div className="mt-6">
+              <StateBlock
+                variant="error"
+                icon={<WarningCircle size={22} weight="fill" />}
+                title="We can't reach the status service"
+                body="Your transformation is still running — it'll be waiting in your Library."
+                primary={
+                  <Button
+                    variant="secondary"
+                    className="min-h-11 w-full"
+                    onClick={() => {
+                      setPollFailures(0);
+                      void checkRef.current?.();
+                    }}
+                  >
+                    Check again
+                  </Button>
+                }
+                secondary={
+                  <Link
+                    href="/app/library"
+                    className="text-text-muted hover:text-cream-100 text-xs underline underline-offset-2 transition-colors"
+                  >
+                    Go to Library
+                  </Link>
+                }
+              />
+            </div>
+          ) : (
+            error && (
+              <p
+                role="status"
+                className="text-warning mt-5 flex items-center gap-1.5 text-xs md:justify-center"
+              >
+                <WarningCircle size={14} weight="fill" />
+                {error}
+              </p>
+            )
           )}
 
           {!generation && !loading && !error && (
