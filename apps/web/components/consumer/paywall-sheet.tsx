@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { Check, LockSimple, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { useDialogA11y } from "@/components/ui/dialog";
+import { PlanRow } from "@/components/promo/plan-row";
+import { SaveLine } from "@/components/promo/save-line";
 import { cn } from "@/lib/utils";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
@@ -34,17 +36,33 @@ export function PaywallSheet({
   useDialogA11y(open, panelRef);
 
   const weekly = plans.filter((p) => p.type === "weekly_trial").slice(0, 2);
+  const annual = plans.filter((p) => p.type === "annual")[0] ?? null;
   const monthly = plans
     .filter((p) => p.type === "monthly")
     .filter((p) => [2000, 5000].includes(p.price_cents))
     .slice(0, 2);
   const oneTime = plans.find((p) => p.type === "extra_credit") ?? null;
+  // Annual-forward anchor: the monthly plan with the same credit grant
+  // anchors the strikethrough; fall back to the cheapest monthly.
+  const monthlyAnchor = annual
+    ? (monthly.find((m) => m.credits_grant === annual.credits_grant) ??
+      monthly[0] ??
+      null)
+    : null;
+  const effectiveMonthlyCents = annual
+    ? Math.round(annual.price_cents / 12)
+    : 0;
 
   const [planId, setPlanId] = useState<string | null>(null);
 
   if (!open) return null;
 
-  const all = [...weekly, ...monthly, ...(oneTime ? [oneTime] : [])];
+  const all = [
+    ...weekly,
+    ...(annual ? [annual] : []),
+    ...monthly,
+    ...(oneTime ? [oneTime] : []),
+  ];
   const selected = all.find((p) => p.id === planId) ?? null;
   const canCheckout = selected !== null && selected.checkout_ready;
 
@@ -105,17 +123,57 @@ export function PaywallSheet({
             ))}
           </div>
 
-          {/* Monthly */}
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            {monthly.map((plan) => (
-              <PlanCard
-                key={plan.id}
-                plan={plan}
-                selected={planId === plan.id}
-                onSelect={() => setPlanId(plan.id)}
-              />
-            ))}
-          </div>
+          {/* Plans — annual bright + anchored, monthly dimmed beneath */}
+          {(annual || monthlyAnchor) && (
+            <div className="mt-4 space-y-3">
+              {annual && (
+                <div>
+                  <PlanRow
+                    name={annual.name}
+                    cadence="per month, billed annually"
+                    priceCents={effectiveMonthlyCents}
+                    anchorCents={monthlyAnchor?.price_cents}
+                    priceCaption="per month"
+                    bullets={[
+                      {
+                        icon: "credits",
+                        text: `${annual.credits_grant.toLocaleString()} credits every month`,
+                      },
+                    ]}
+                    headerTab="Best value"
+                    headerTone="promo"
+                    selected={planId === annual.id}
+                    onSelect={() => setPlanId(annual.id)}
+                  />
+                  {monthlyAnchor && (
+                    <SaveLine
+                      className="mt-1.5 pl-1"
+                      annualCents={annual.price_cents}
+                      monthlyCents={monthlyAnchor.price_cents * 12}
+                    />
+                  )}
+                </div>
+              )}
+              {monthlyAnchor && (
+                <PlanRow
+                  name={monthlyAnchor.name}
+                  cadence="per month, billed monthly"
+                  priceCents={monthlyAnchor.price_cents}
+                  priceCaption="per month"
+                  bullets={[
+                    {
+                      icon: "credits",
+                      text: `${monthlyAnchor.credits_grant.toLocaleString()} credits every month`,
+                      dimmed: true,
+                    },
+                  ]}
+                  selected={planId === monthlyAnchor.id}
+                  onSelect={() => setPlanId(monthlyAnchor.id)}
+                  dimmed
+                />
+              )}
+            </div>
+          )}
 
           {/* One-time */}
           {oneTime && (
