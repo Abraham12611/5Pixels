@@ -45,3 +45,4 @@ coverage
 dodo-2-llms-full.txt
 *.md-bak
 
+scripts/preset-media/
