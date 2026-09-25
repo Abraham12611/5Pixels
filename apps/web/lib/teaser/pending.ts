@@ -11,6 +11,7 @@ import {
   getOrCreateAnonSessionId,
 } from "./anon-session";
 import { claimAnonPromoRows } from "@/lib/offers/engine";
+import { grantRefereeUnlock } from "@/lib/referrals/rewards";
 import { deriveTeaserVariant, type TeaserVariant } from "./variant";
 import type { OutputSizeOption } from "@/types/catalog";
 
@@ -409,7 +410,7 @@ export async function replayPendingGeneration(
 
   const { data: version } = await service
     .from("product_versions")
-    .select("product_id, output_sizes")
+    .select("product_id, output_sizes, credit_cost")
     .eq("id", pending.product_version_id)
     .single();
 
@@ -431,6 +432,19 @@ export async function replayPendingGeneration(
       height: 1024,
       is_default: true,
     };
+
+  // Referred sign-ups get exactly one free transformation (03 §1) — the
+  // grant lands as credits equal to this generation's cost immediately
+  // before the normal charge path debits it, so unlock → paid replay is
+  // the same code path and net-zero to the user's balance.
+  const { data: profile } = await service
+    .from("profiles")
+    .select("free_unlock_source")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profile?.free_unlock_source === "referral") {
+    await grantRefereeUnlock(user.id, Number(version.credit_cost));
+  }
 
   const result = await createAndSubmitGeneration({
     productId,

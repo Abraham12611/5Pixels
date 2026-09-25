@@ -4,9 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getBillingData, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getActivePlan } from "@/lib/billing/entitlements";
+import { getReferralStats } from "@/lib/referrals/rewards";
+import { getSiteUrl } from "@/lib/auth/url";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
+import { ReferralCard } from "@/components/promo/referral-card";
 import { CreditMeter } from "@/components/consumer/five-pixel";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,13 +42,15 @@ export default async function BillingPage() {
     redirect("/login?next=/app/billing");
   }
 
-  const [billing, balance, activePlan, summary, profile] = await Promise.all([
-    getBillingData(),
-    getUserCreditBalance(),
-    getActivePlan(),
-    getCreditPeriodSummary(),
-    getMyProfile(),
-  ]);
+  const [billing, balance, activePlan, summary, profile, referralStats] =
+    await Promise.all([
+      getBillingData(),
+      getUserCreditBalance(),
+      getActivePlan(),
+      getCreditPeriodSummary(),
+      getMyProfile(),
+      getReferralStats(),
+    ]);
 
   if (!billing) {
     redirect("/login");
@@ -267,6 +272,24 @@ export default async function BillingPage() {
             </Link>
           ))}
         </div>
+
+        {/* Referral program (03 §6 — persistent billing card) */}
+        <ReferralCard
+          referralUrl={`${getSiteUrl()}/signup?ref=${user.id}`}
+          refereeReward="their first transformation, free"
+          referrerReward="30% of their plan's credits when they first pay"
+          pendingCount={referralStats?.referredCount ?? 0}
+        />
+        {referralStats && referralStats.creditsEarned > 0 && (
+          <p className="text-text-secondary -mt-4 px-1 text-xs">
+            You&apos;ve earned{" "}
+            <span className="text-cream-100">
+              {referralStats.creditsEarned.toLocaleString()} credits
+            </span>{" "}
+            from {referralStats.paidReferrals}{" "}
+            {referralStats.paidReferrals === 1 ? "referral" : "referrals"}.
+          </p>
+        )}
       </div>
     </SettingsShell>
   );

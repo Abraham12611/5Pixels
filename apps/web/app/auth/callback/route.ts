@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isRelativePath } from "@/lib/auth/url";
 import { claimAnonSessionToUser } from "@/lib/teaser/pending";
+import { claimReferralForUser } from "@/lib/referrals/capture";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -42,6 +43,11 @@ export async function GET(request: Request) {
       await claimAnonSessionToUser(user.id);
     } catch {
       // Claim failure must not block auth — worst case the teaser re-uploads.
+    }
+    try {
+      await claimReferralForUser(user.id);
+    } catch {
+      // Referral attribution is best-effort — never block auth over it.
     }
   }
 
