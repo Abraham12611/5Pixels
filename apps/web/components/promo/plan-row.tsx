@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, CaretDown } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { OfferBadge, type OfferBadgeTone } from "./offer-badge";
+import type { OfferBadgeTone } from "./offer-badge";
 import { PriceChip } from "./price-chip";
 
 export interface PlanRowBullet {

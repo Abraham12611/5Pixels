@@ -226,7 +226,19 @@ export async function getSignedSourceUrlByAssetId(
   if (data.bucket !== USER_ASSET_BUCKET)
     throw new Error("Invalid asset bucket");
 
-  return getSignedSourceUrl(data.storage_key, expiresSeconds);
+  // Sign the row's storage_key directly — row ownership above is the auth
+  // boundary. (isOwnedUserPath can't be used here: teaser-claimed assets may
+  // legitimately retain their anon/ key.)
+  const service = createServiceClient();
+  const { data: signed, error: signError } = await service.storage
+    .from(USER_ASSET_BUCKET)
+    .createSignedUrl(data.storage_key, expiresSeconds);
+
+  if (signError || !signed?.signedUrl) {
+    console.error("[getSignedSourceUrlByAssetId] sign failed", signError?.message);
+    throw new Error("Unable to sign source URL");
+  }
+  return signed.signedUrl;
 }
 
 export async function getSignedAssetUrl(

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { isRelativePath } from "@/lib/auth/url";
+import { claimAnonSessionToUser } from "@/lib/teaser/pending";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -29,6 +30,19 @@ export async function GET(request: Request) {
       loginUrl.searchParams.set("next", next);
     }
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Claim any anon-session uploads/pending generations to the new account
+  // (08 §5) — runs once per session claim; no-op when no anon cookie exists.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) {
+    try {
+      await claimAnonSessionToUser(user.id);
+    } catch {
+      // Claim failure must not block auth — worst case the teaser re-uploads.
+    }
   }
 
   const redirectTo = isRelativePath(next) ? next : "/app";

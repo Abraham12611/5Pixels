@@ -11,6 +11,9 @@ import {
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { isFailureStatus, isTerminalStatus } from "@/lib/generation/stages";
 import { mapSafeGenerationRow } from "@/lib/generation/map";
+import { getPendingGenerationForUser } from "@/lib/teaser/pending";
+import { getUserCreditBalance } from "@/lib/generation/balance";
+import { PendingGenerationCard } from "@/components/consumer/pending-generation-card";
 import { ProductCard } from "@/components/consumer/product-card";
 import { cn } from "@/lib/utils";
 import type { PublicProductSummary } from "@/types/catalog";
@@ -104,13 +107,15 @@ export default async function DiscoverPage() {
     redirect("/login");
   }
 
-  const [generationsResult, trendingResult, newestResult, categories, favoriteIds] =
+  const [generationsResult, trendingResult, newestResult, categories, favoriteIds, pending, balance] =
     await Promise.all([
       supabase.rpc("get_user_generations"),
       getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, RAIL_SIZE),
       getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, RAIL_SIZE),
       getActiveCategories(),
       getUserFavoriteProductIds(),
+      getPendingGenerationForUser(),
+      getUserCreditBalance(),
     ]);
 
   const generations = ((generationsResult.data ?? []) as Record<
@@ -165,6 +170,15 @@ export default async function DiscoverPage() {
   return (
     <main className="flex flex-1 flex-col">
       <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">
+        {pending && (
+          <PendingGenerationCard
+            pendingId={pending.id}
+            productName={pending.productName}
+            productSlug={pending.productSlug}
+            creditCost={pending.creditCost}
+            balance={balance}
+          />
+        )}
         {isNewUser ? (
           /* Orientation for a brand-new user */
           <section className="shadow-border from-charcoal-850 to-charcoal-850 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">

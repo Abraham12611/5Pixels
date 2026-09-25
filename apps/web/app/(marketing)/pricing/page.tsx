@@ -195,7 +195,7 @@ export default async function PricingPage() {
                     </Button>
                   ) : (
                     cta(
-                      plan.dodo_product_id ? plan.id : null,
+                      plan.checkout_ready ? plan.id : null,
                       `Choose ${plan.name}`,
                       recommended
                     )
@@ -231,7 +231,7 @@ export default async function PricingPage() {
                   type="submit"
                   variant="secondary"
                   size="sm"
-                  disabled={!weeklyPlans[0]?.dodo_product_id}
+                  disabled={!weeklyPlans[0]?.checkout_ready}
                 >
                   Start a weekly trial
                 </Button>

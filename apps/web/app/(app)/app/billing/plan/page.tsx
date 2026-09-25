@@ -261,9 +261,9 @@ export default async function BillingPlanPage() {
                           type="submit"
                           size="sm"
                           variant="brand"
-                          disabled={!plan.dodo_product_id}
+                          disabled={!plan.checkout_ready}
                         >
-                          {plan.dodo_product_id ? "Start" : "Soon"}
+                          {plan.checkout_ready ? "Start" : "Soon"}
                         </Button>
                       </form>
                     </div>
@@ -322,9 +322,9 @@ export default async function BillingPlanPage() {
                           size="sm"
                           variant={isBest ? "brand" : "secondary"}
                           className="w-full"
-                          disabled={!plan.dodo_product_id}
+                          disabled={!plan.checkout_ready}
                         >
-                          {plan.dodo_product_id
+                          {plan.checkout_ready
                             ? `Choose ${plan.name}`
                             : "Coming soon"}
                         </Button>
