@@ -6,6 +6,12 @@ vi.mock("@/lib/analytics/track", () => ({
   trackEvent: vi.fn(),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 describe("MarketingHeader", () => {
   it("renders logo and primary nav", () => {
     render(<MarketingHeader isAuthenticated={false} />);
@@ -27,5 +33,17 @@ describe("MarketingHeader", () => {
     render(<MarketingHeader isAuthenticated />);
     expect(screen.getByText("Open app")).toBeInTheDocument();
     expect(screen.queryByText("Try 5Pixels")).not.toBeInTheDocument();
+  });
+
+  it("opens the search palette from the header button", () => {
+    render(
+      <MarketingHeader
+        isAuthenticated={false}
+        searchPresets={[]}
+        searchCategories={[]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

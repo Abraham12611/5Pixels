@@ -12,8 +12,7 @@ import {
 } from "@/lib/db/explore";
 import { getAvatarUrl } from "@/lib/profile/actions";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
-import { publicAssetUrl, selectCatalogMediaAsset } from "@/lib/catalog/media";
-import { toQuickSheetPreset } from "@/lib/catalog/quick-sheet";
+import { buildSearchPresets } from "@/lib/search/search-presets";
 import type { SafeGeneration } from "@/lib/generation/types";
 import type {
   SearchCategory,
@@ -87,28 +86,10 @@ export async function AppHeader() {
 
   const generations = (generationsResult.data ?? []) as SafeGeneration[];
 
-  const newSlugs = new Set(newest.data.map((p) => p.slug));
-  const searchPresets: SearchPreset[] = featured.data.map((p, index) => {
-    const asset = selectCatalogMediaAsset(p.public_assets, "card");
-    const badge =
-      p.featured_rank !== null && index < 5
-        ? "trending"
-        : newSlugs.has(p.slug)
-          ? "new"
-          : null;
-    return {
-      slug: p.slug,
-      name: p.name,
-      description: p.short_description,
-      categoryName: p.category_name,
-      categorySlug: p.category_slug,
-      type: p.type,
-      creditCost: p.credit_cost,
-      thumbUrl: asset ? publicAssetUrl(asset.bucket, asset.storage_key) : null,
-      badge,
-      quickView: toQuickSheetPreset(p),
-    };
-  });
+  const searchPresets: SearchPreset[] = buildSearchPresets(
+    featured.data,
+    newest.data
+  );
 
   const searchCategories: SearchCategory[] = categories.map((c) => ({
     slug: c.slug,

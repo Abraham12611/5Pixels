@@ -3,12 +3,12 @@ import Image from "next/image";
 import {
   Camera,
   FrameCorners,
-  MagnifyingGlass,
   UploadSimple,
   User,
   MagicWand,
 } from "@phosphor-icons/react/dist/ssr";
 import { MobileHero } from "./mobile-hero";
+import { SearchEntryButton } from "./search-entry-button";
 import { MobileFeed } from "./mobile-feed";
 import { PresetPreview } from "../preset-preview";
 import { CategoryFaq } from "../category-faq";
@@ -65,13 +65,7 @@ export function LandingMobile({ products, categories }: LandingMobileProps) {
 
       {/* Search */}
       <div className="mt-5 px-4">
-        <Link
-          href="/explore"
-          className="border-cream-100/10 bg-charcoal-850 text-text-muted flex items-center gap-3 rounded-full border px-4 py-3 text-sm"
-        >
-          <MagnifyingGlass size={18} />
-          Search looks
-        </Link>
+        <SearchEntryButton />
       </div>
 
       {/* Chips + feed */}

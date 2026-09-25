@@ -13,20 +13,27 @@ import { LightBreak } from "./light-break";
 import { MarketingFooter } from "./marketing-footer";
 import { LandingMobile } from "./mobile/landing-mobile";
 import type { PublicProductSummary } from "@/types/catalog";
+import type { SearchPreset } from "@/lib/search";
 
 export function LandingPage({
   isAuthenticated,
   products,
   categories,
+  searchPresets = [],
 }: {
   isAuthenticated: boolean;
   products: PublicProductSummary[];
   categories: { slug: string; name: string }[];
+  searchPresets?: SearchPreset[];
 }) {
   return (
     <div className="flex min-h-screen flex-col">
       <PromoCountdownBar />
-      <MarketingHeader isAuthenticated={isAuthenticated} />
+      <MarketingHeader
+        isAuthenticated={isAuthenticated}
+        searchPresets={searchPresets}
+        searchCategories={categories}
+      />
 
       {/* Desktop composition — untouched editorial sections */}
       <main className="hidden flex-1 lg:block">
