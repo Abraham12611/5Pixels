@@ -8,6 +8,9 @@ Status: **Proposal.** Companion docs:
 - `04_PRICING_EXPERIMENTS.md` — A/B framework, downsell ladders, annual anchoring
 - `05_PAYMENT_PROCESSOR_POLAR.md` — Dodo → Polar migration
 - `06_ANNUAL_PLANS.md` — annual pricing, margin ceilings, credit drip
+- `07_BILLING_UI_SYSTEM.md` — every billing/promo surface and its visual spec
+- `08_OFFER_LADDER_AND_FUNNELS.md` — offer triggers, ladders, funnel variants (pre-auth teaser)
+- `09_PROMO_ADMIN_AND_METRICS.md` — admin campaign console, event schema, guardrails
 
 ---
 
@@ -32,6 +35,10 @@ Status: **Proposal.** Companion docs:
 5. Phase 1 teaser runs in **`implied` mode** — presented as the user's result (`02 §4`). Risks accepted and recorded; mitigations M1–M7 are in scope.
 6. **Annual plans are being added** (`06`), with tier-specific discounts and mandatory monthly credit drip.
 7. Polar sandbox is built and tested **before** KYC/go-live (`05 §6`).
+8. The teaser fires **pre-auth** — anonymous users can upload and "generate" before hitting the blur-gate signup wall (`08 §1`). Same zero-COGS mechanics, earlier in the funnel.
+9. Offers are delivered as **ordered ladders inside one takeover surface** with server-assigned variants and admin-managed campaigns (`08`, `09`).
+10. Pre-auth promo inventory is **ambient-only** (ribbon/tiles/banner — never a takeover); the takeover's entry point is `signup_completed` (`08 §9`).
+11. `--color-promo` magenta accent adopted for discount/offer badges; deadline display (`none`/`date`/`countdown`) is admin-configurable per discount step (`07 §3`, `08 §7`).
 
 ---
 
@@ -71,21 +78,21 @@ A user holding **referral credits** is a distinct sub-state: `tier = "free"` but
 ## 4. Funnel (Phase 1)
 
 ```
-Visitor → browses presets freely
-   │
-   ├─ picks preset, presses Generate ──→ auth gate
-   │
+Visitor → browses presets freely → uploads photo, presses Generate
+   │      (pending_generation held against anon session — nothing generated)
+   └─ Simulated progress → blurred teaser + "Create an account to see your result"
+          │
 Free user (T1) — no credits chip, no scarcity signalling
-   │
-   ├─ uploads photo, presses Generate
    │      ↓
-   │   Teaser + unlock modal (NOTHING generated — zero COGS)
+   │   Offer-ladder takeover (variant-assigned: weekly trials / referral / plans)
    │      ├─ Pay ──────────────→ credits → real generation
    │      └─ Invite a friend ──→ referral credits → real generation
    │
 Paid (T2) → chip visible, normal flow
-   └─ exhausted (T3) → top-up
+   └─ exhausted (T3) → top-up / upgrade sheet
 ```
+
+Full trigger/ladder/variant spec: `08`. Surface visuals: `07`.
 
 Phase 2 (post-revenue) inserts a real watermarked generation before the modal. The code path is designed so this is a config flag, not a rewrite (`02 §5`).
 
