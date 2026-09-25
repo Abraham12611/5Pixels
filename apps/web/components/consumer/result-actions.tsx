@@ -107,7 +107,17 @@ export function ResultActions({
     let href = url;
     if ((await checkDownloadUrl(href)) === "expired") {
       const index = Math.max(0, urls.indexOf(url));
-      const fresh = await getResultDownloadUrls(generationId);
+      const fresh = await getResultDownloadUrls(
+        generationId,
+        urls.map((_, i) =>
+          resultFilename(
+            productSlug,
+            generationId,
+            downloadMimeType,
+            multiOutput ? i : undefined
+          )
+        )
+      );
       const replacement = fresh[index] ?? fresh[0];
       if (
         replacement &&
@@ -142,9 +152,10 @@ export function ResultActions({
   const openOnIos = () => {
     markIosHintSeen();
     setIosHintOpen(false);
-    const url = urls[0];
-    if (!url) return;
-    window.open(url, "_blank", "noreferrer");
+    // Plain signed URL (no attachment disposition) so the image opens in the
+    // tab where Share → Save Image can grab it.
+    if (!downloadUrl) return;
+    window.open(downloadUrl, "_blank", "noreferrer");
     void markGenerationDownloaded(generationId);
   };
 
@@ -392,7 +403,7 @@ export function ResultActions({
         generationId={generationId}
         initialShareId={initialShareId}
         presetName={productName}
-        imageUrl={urls[0] ?? null}
+        imageUrl={downloadUrl}
         onDownloadInstead={() => {
           setShareOpen(false);
           handleDownload();

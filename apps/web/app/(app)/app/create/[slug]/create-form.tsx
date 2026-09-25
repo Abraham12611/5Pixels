@@ -85,6 +85,45 @@ const SUBMIT_STEPS = [
   "Starting",
 ] as const;
 
+/**
+ * PUT the photo straight to the signed storage URL. The body goes as
+ * multipart FormData — the exact shape the official `uploadToSignedUrl`
+ * uses — because `fetch` with a bare `File` body fails outright on some
+ * mobile browsers ("Failed to fetch"). One automatic retry covers flaky
+ * connections; `x-upsert` makes a retry to the same path succeed.
+ */
+async function uploadSourceToSignedUrl(
+  signedUrl: string,
+  file: File
+): Promise<void> {
+  let networkFailed = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const form = new FormData();
+      form.append("cacheControl", "3600");
+      form.append("", file);
+      const upload = await fetch(signedUrl, {
+        method: "PUT",
+        body: form,
+        headers: { "x-upsert": "true" },
+      });
+      if (upload.ok) return;
+      throw new Error("Image upload failed. Please try again.");
+    } catch (err) {
+      if (err instanceof TypeError) {
+        networkFailed = true;
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (networkFailed) {
+    throw new Error(
+      "Couldn't reach the upload service — check your connection and try again."
+    );
+  }
+}
+
 function submitStepIndex(progress: string): number {
   if (progress.startsWith("Preparing secure")) return 0;
   if (progress.startsWith("Uploading")) return 0;
@@ -108,6 +147,9 @@ export function CreateGenerationForm({
   const [reusedSource, setReusedSource] = useState<ReusedSource | null>(
     initialSource ?? null
   );
+  /** Object URL for the picked file — created in the pick handler, not
+   * render, so StrictMode remounts can't revoke a URL still on screen. */
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [options, setOptions] = useState<Record<string, unknown>>(() => {
     const defaults: Record<string, unknown> = {};
     for (const field of sortFields(product.active_fields)) {
@@ -160,12 +202,17 @@ export function CreateGenerationForm({
     [product.output_sizes]
   );
 
-  const previewUrl = useMemo(() => {
-    if (file) return URL.createObjectURL(file);
-    return reusedSource?.url ?? null;
-  }, [file, reusedSource]);
+  const previewUrl = objectUrl ?? reusedSource?.url ?? null;
 
-  // Decode the preview once to learn the photo's real dimensions.
+  // Revoke the previous object URL when it is replaced or on unmount.
+  useEffect(() => {
+    if (!objectUrl) return;
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [objectUrl]);
+
+  // Decode the preview once to learn the photo's real dimensions. A decode
+  // failure means the format slipped past the type check — tell the user
+  // instead of leaving an invisible preview.
   useEffect(() => {
     if (!previewUrl) return;
     let cancelled = false;
@@ -183,17 +230,20 @@ export function CreateGenerationForm({
         );
       }
     };
+    img.onerror = () => {
+      if (cancelled) return;
+      setSourceDims(null);
+      setFile(null);
+      setObjectUrl(null);
+      setSourceError(
+        "We couldn't read that photo — try a different image."
+      );
+    };
     img.src = previewUrl;
     return () => {
       cancelled = true;
     };
   }, [previewUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl && file) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl, file]);
 
   const presetThumb = useMemo(() => {
     const asset =
@@ -225,6 +275,7 @@ export function CreateGenerationForm({
         type: draft.fileType,
       });
       setFile(restored);
+      setObjectUrl(URL.createObjectURL(restored));
       setReusedSource(null);
       setDraftRestored(true);
       setOptions((prev) => ({ ...prev, ...draft.options }));
@@ -310,20 +361,24 @@ export function CreateGenerationForm({
     setSourceDims(null);
     if (!selected) {
       setFile(null);
+      setObjectUrl(null);
       return;
     }
     const verdict = classifySourceFile(selected);
     if (verdict.class === "rejected") {
       setSourceError(verdict.message ?? "That photo can't be used.");
       setFile(null);
+      setObjectUrl(null);
       return;
     }
     setReusedSource(null);
     setFile(selected);
+    setObjectUrl(URL.createObjectURL(selected));
   }, []);
 
   const handleClearSource = useCallback(() => {
     setFile(null);
+    setObjectUrl(null);
     setReusedSource(null);
     setSourceDims(null);
     setSourceError("");
@@ -417,14 +472,7 @@ export function CreateGenerationForm({
           );
 
           setProgress("Uploading image...");
-          const upload = await fetch(signedUrl, {
-            method: "PUT",
-            body: file,
-            headers: { "Content-Type": file.type },
-          });
-          if (!upload.ok) {
-            throw new Error("Image upload failed. Please try again.");
-          }
+          await uploadSourceToSignedUrl(signedUrl, file);
 
           setProgress("Finalizing upload...");
           const finalized = await finalizeSourceUpload(

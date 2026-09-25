@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extForMime, isIosSafari, resultFilename } from "../download";
+import {
+  extForMime,
+  isIosSafari,
+  resultFilename,
+  sanitizeDownloadFilename,
+} from "../download";
 
 const IPHONE_SAFARI_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -49,5 +54,21 @@ describe("resultFilename", () => {
     expect(resultFilename("neon", "a1b2c3d4-rest", null, 2)).toBe(
       "5pixels-neon-a1b2c3d4-3.jpg"
     );
+  });
+});
+
+describe("sanitizeDownloadFilename", () => {
+  it("keeps safe names, strips header-unsafe characters", () => {
+    expect(sanitizeDownloadFilename("5pixels-neon-a1b2.jpg")).toBe(
+      "5pixels-neon-a1b2.jpg"
+    );
+    expect(sanitizeDownloadFilename('bad";path\\name.png')).toBe(
+      "bad-path-name.png"
+    );
+  });
+
+  it("falls back to a default for empty/garbage input", () => {
+    expect(sanitizeDownloadFilename('""\\\\//')).toBe("5pixels-download");
+    expect(sanitizeDownloadFilename("")).toBe("5pixels-download");
   });
 });

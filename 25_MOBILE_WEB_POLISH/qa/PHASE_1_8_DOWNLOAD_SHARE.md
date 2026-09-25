@@ -8,7 +8,9 @@ This branch is **stacked** on the earlier Phase 1 PRs, so the result page you te
 
 | Area | Before | After |
 |---|---|---|
-| Download | Plain `<a download>` on the signed URL | Probes the URL, **re-mints it once** if expired, honest success/failure toast, saved as `5pixels-<preset>-<id8>.<ext>` |
+| Download | Plain `<a download>` on the signed URL — **ignored cross-origin**, so the browser navigated to `*.supabase.co` instead of saving | Download URLs are minted with `Content-Disposition: attachment`; probes the URL, **re-mints it once** if expired, honest success/failure toast, saved as `5pixels-<preset>-<id8>.<ext>` |
+| Upload | Raw `PUT` with a `File` body — fails as *"Failed to fetch"* on some mobile browsers | Multipart FormData body (same shape as the official `uploadToSignedUrl`), `x-upsert`, one automatic retry, distinct offline copy |
+| Source preview | Object URL created in render (revoked early under StrictMode) and a frame that collapsed when `aspectRatio` was null | URL lifecycle tied to pick/replace/unmount; frame has a min height + fallback ratio; undecodable photos surface an error; same file can be re-picked |
 | iOS Safari | File silently opened in a new tab | One-time hint sheet explains *Share → Save Image*, then hands off |
 | Multi-output | Only first output downloadable | `Download all N images` with `Saving 2 of 3…` progress |
 | Share | Desktop `Dialog` on all screens | **T2 bottom sheet** on mobile, dialog kept on desktop; native share prefers the image **file**; single explicit **Public link** toggle; `Download instead` escape |
@@ -27,13 +29,26 @@ This branch is **stacked** on the earlier Phase 1 PRs, so the result page you te
 
 ---
 
+## 0. Upload & preview (the reported regressions)
+
+1. On a phone (or DevTools at 390px), open a preset → tap **Choose photo** → pick a JPEG.
+   - ✅ The preview renders immediately in the stage — not a blank frame, not a broken-image icon.
+   - ✅ An `Original` badge and `Replace` / `Remove` buttons overlay the preview.
+2. Tap **Remove**, then re-pick **the same photo**.
+   - ✅ The preview comes back (re-picking the same file must still fire).
+3. Tap **Generate** with a healthy connection.
+   - ✅ Steps advance `Uploading your photo → Preparing the transformation → Starting` under the dimmed preview, then the app lands on the progress page — **no "Failed to fetch"**.
+4. Toggle airplane mode right after tapping Generate (or block `*.supabase.co` in DevTools Network).
+   - ✅ Error panel: *"Couldn't reach the upload service — check your connection and try again."* with a **Retry upload** action.
+   - ✅ Re-enable the network → **Retry upload** — the same photo uploads without re-picking, and generation proceeds.
+5. Re-pick edge cases: a >20 MB photo → inline `Image must be 20 MB or smaller` reject with `Choose another photo`; a tiny/extreme photo → amber warning that does NOT block Generate.
+
 ## 1. Download — desktop / Android Chrome
 
 1. Open a completed result at desktop width (≥768px) and at mobile width (<768px).
 2. Tap/click **Download**.
    - ✅ A toast appears naming the file: `Downloading 5pixels-<preset>-<id8>.jpg` (or `.png`/`.webp`).
-   - ✅ The file lands in Downloads with that name — not a random hash.
-   - ✅ On mobile the file saves via the browser's download flow.
+   - ✅ **The file saves to Downloads directly** — the browser must NOT navigate to a `*.supabase.co/storage/v1/object/sign/...` URL. (That redirect was the bug: `download` is ignored on cross-origin links; the fix signs the URL with `Content-Disposition: attachment`.)
 3. Open the **Library** tab → the result tile should reflect the downloaded state if the UI surfaces it (the `downloaded_at` timestamp is written — verify in Supabase `generations.downloaded_at` if not visible).
 
 ## 2. Expired signed URL (re-mint)

@@ -39,16 +39,34 @@ export function resultFilename(
   return `5pixels-${productSlug}-${generationId.slice(0, 8)}${suffix}.${extForMime(mimeType)}`;
 }
 
-/** Triggers a browser download for a signed URL. */
+/**
+ * Triggers a browser download for a signed URL. The URL is expected to be
+ * minted with `Content-Disposition: attachment` (the `download` sign
+ * option) — the `download` attribute alone is ignored for cross-origin
+ * URLs and the browser would navigate to the file instead. No
+ * `target="_blank"`: an attachment downloads in place, and a blank tab
+ * would flash open and linger on some mobile browsers.
+ */
 export function triggerDownload(url: string, filename: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
-  a.target = "_blank";
   a.rel = "noreferrer";
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+/** Keeps a client-chosen filename safe for a Content-Disposition header. */
+export function sanitizeDownloadFilename(name: string): string {
+  const cleaned = name
+    .replace(/[\\/"';%]/g, "-")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-_.\s]+|[-_.\s]+$/g, "")
+    .slice(0, 120)
+    .trim();
+  return cleaned || "5pixels-download";
 }
 
 export type UrlCheck = "ok" | "expired" | "unknown";

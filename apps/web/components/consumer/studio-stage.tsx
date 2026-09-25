@@ -109,6 +109,13 @@ export function StudioStage({
     onDrop,
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0] ?? null;
+    // Reset so re-picking the same file fires onChange again.
+    e.target.value = "";
+    onFileSelected(picked);
+  };
+
   const fileInput = (
     <>
       <input
@@ -117,16 +124,16 @@ export function StudioStage({
         accept="image/jpeg,image/png,image/webp"
         className="hidden"
         disabled={disabled || submitting}
-        onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+        onChange={handleInputChange}
       />
       <input
         ref={cameraRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         capture="user"
         className="hidden"
         disabled={disabled || submitting}
-        onChange={(e) => onFileSelected(e.target.files?.[0] ?? null)}
+        onChange={handleInputChange}
       />
     </>
   );
@@ -221,14 +228,17 @@ export function StudioStage({
           >
             <div
               className={cn(
-                "media-frame relative max-h-full w-full max-w-3xl overflow-hidden rounded-xl transition-opacity",
+                "media-frame relative max-h-full min-h-[240px] w-full max-w-3xl overflow-hidden rounded-xl transition-opacity",
                 submitting && "opacity-60"
               )}
-              style={
-                aspectRatio && aspectRatio > 0
-                  ? { aspectRatio: String(aspectRatio) }
-                  : undefined
-              }
+              style={{
+                // Fallback ratio keeps the frame from collapsing when the
+                // output size defers to the photo ("match source") or dims
+                // are still decoding.
+                aspectRatio: String(
+                  aspectRatio && aspectRatio > 0 ? aspectRatio : 4 / 3
+                ),
+              }}
             >
               <Image
                 src={previewUrl}

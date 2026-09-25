@@ -52,16 +52,23 @@ export async function prepareSourceUpload(
   const path = `${user.id}/sources/${uuidv4()}.${ext}`;
 
   const service = createServiceClient();
+  // upsert: true so an upload retry to the same path succeeds instead of 409.
   const { data, error } = await service.storage
     .from(USER_ASSET_BUCKET)
-    .createSignedUploadUrl(path);
+    .createSignedUploadUrl(path, { upsert: true });
 
   if (error || !data?.token) {
     console.error("[prepareSourceUpload] signed URL failed", error?.message);
     throw new Error("Unable to start upload");
   }
 
-  return { signedUrl: data.signedUrl, path, token: data.token };
+  // Older clients return a path-only signedUrl; always hand back absolute.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const signedUrl = data.signedUrl.startsWith("http")
+    ? data.signedUrl
+    : new URL(data.signedUrl, supabaseUrl).toString();
+
+  return { signedUrl, path, token: data.token };
 }
 
 export interface FinalizedSourceAsset {
@@ -232,12 +239,17 @@ export async function getSignedSourceUrlByAssetId(
 export async function getSignedAssetUrl(
   bucket: string,
   storageKey: string,
-  expiresSeconds = 300
+  expiresSeconds = 300,
+  downloadFilename?: string
 ): Promise<string> {
   const service = createServiceClient();
   const { data, error } = await service.storage
     .from(bucket)
-    .createSignedUrl(storageKey, expiresSeconds);
+    .createSignedUrl(storageKey, expiresSeconds, {
+      // Content-Disposition: attachment — `<a download>` is ignored for
+      // cross-origin URLs, so the disposition must come from the response.
+      ...(downloadFilename ? { download: downloadFilename } : {}),
+    });
   if (error || !data?.signedUrl) {
     console.error("[getSignedAssetUrl] sign failed", error?.message);
     throw new Error("Unable to sign asset URL");
