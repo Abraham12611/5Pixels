@@ -3,6 +3,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { createPolarClient } from "./polar-client";
 import { initializeSubscriptionDrip } from "./drip";
+import { recordOfferConversion } from "@/lib/offers/conversions";
 import type { Order } from "@polar-sh/sdk/models/components/order.js";
 import type { Subscription } from "@polar-sh/sdk/models/components/subscription.js";
 
@@ -612,6 +613,13 @@ export async function fulfillPolarOneTimeOrder(order: Order) {
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoice.id);
 
+  await recordOfferConversion(
+    mapping.userId,
+    order.metadata as Record<string, unknown>,
+    order.id,
+    order.totalAmount
+  );
+
   console.log(
     `[fulfillPolarOneTimeOrder] granted ${plan.credits_grant} credits to user ${mapping.userId}`
   );
@@ -666,6 +674,13 @@ export async function fulfillPolarSubscriptionOrder(order: Order) {
     info,
     order,
     plan.price_cents
+  );
+
+  await recordOfferConversion(
+    mapping.userId,
+    order.metadata as Record<string, unknown>,
+    order.id,
+    order.totalAmount
   );
 
   if (plan.credit_drip_months > 1) {

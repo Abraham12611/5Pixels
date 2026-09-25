@@ -13,7 +13,10 @@ import { isFailureStatus, isTerminalStatus } from "@/lib/generation/stages";
 import { mapSafeGenerationRow } from "@/lib/generation/map";
 import { getPendingGenerationForUser } from "@/lib/teaser/pending";
 import { getUserCreditBalance } from "@/lib/generation/balance";
+import { getTakeoverStateForUser } from "@/lib/offers/engine";
+import { getPlansForPurchase } from "@/lib/db/plans";
 import { PendingGenerationCard } from "@/components/consumer/pending-generation-card";
+import { OfferTakeoverGate } from "@/components/consumer/offer-takeover-gate";
 import { ProductCard } from "@/components/consumer/product-card";
 import { cn } from "@/lib/utils";
 import type { PublicProductSummary } from "@/types/catalog";
@@ -107,7 +110,7 @@ export default async function DiscoverPage() {
     redirect("/login");
   }
 
-  const [generationsResult, trendingResult, newestResult, categories, favoriteIds, pending, balance] =
+  const [generationsResult, trendingResult, newestResult, categories, favoriteIds, pending, balance, takeover, purchasePlans] =
     await Promise.all([
       supabase.rpc("get_user_generations"),
       getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, RAIL_SIZE),
@@ -116,6 +119,8 @@ export default async function DiscoverPage() {
       getUserFavoriteProductIds(),
       getPendingGenerationForUser(),
       getUserCreditBalance(),
+      getTakeoverStateForUser(),
+      getPlansForPurchase(),
     ]);
 
   const generations = ((generationsResult.data ?? []) as Record<
@@ -169,6 +174,14 @@ export default async function DiscoverPage() {
 
   return (
     <main className="flex flex-1 flex-col">
+      {takeover.show && takeover.assignment && (
+        <OfferTakeoverGate
+          assignment={takeover.assignment}
+          plans={purchasePlans}
+          pendingProductName={pending?.productName}
+          referralUserId={user.id}
+        />
+      )}
       <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">
         {pending && (
           <PendingGenerationCard

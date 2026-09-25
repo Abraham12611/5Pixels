@@ -10,6 +10,7 @@ import {
   ANON_SESSION_COOKIE,
   getOrCreateAnonSessionId,
 } from "./anon-session";
+import { claimAnonPromoRows } from "@/lib/offers/engine";
 import { deriveTeaserVariant, type TeaserVariant } from "./variant";
 import type { OutputSizeOption } from "@/types/catalog";
 
@@ -287,6 +288,17 @@ export async function claimAnonSessionToUser(userId: string): Promise<void> {
       .update({ free_teaser_seen_at: new Date().toISOString() })
       .eq("id", userId)
       .is("free_teaser_seen_at", null);
+  }
+
+  // Promo assignments/events made against the anon session follow the user
+  // too (08 §5) — pre-auth impressions stay attributable.
+  try {
+    await claimAnonPromoRows(anonId, userId);
+  } catch (err) {
+    console.error(
+      "[claimAnonSession] promo claim failed",
+      err instanceof Error ? err.message : String(err)
+    );
   }
 
   // The cookie has done its job — drop it so a stale anon id can't claim

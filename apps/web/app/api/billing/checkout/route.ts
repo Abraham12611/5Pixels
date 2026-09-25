@@ -10,12 +10,24 @@ export async function POST(request: Request) {
     return NextResponse.redirect(new URL("/app/billing?error=missing-plan", request.url));
   }
 
+  // Promo attribution rides along as hidden fields — stamped into checkout
+  // metadata server-side so the webhook can attribute conversions (09 §2).
+  const campaignId = String(formData.get("campaign_id") ?? "") || undefined;
+  const campaignVariant =
+    String(formData.get("campaign_variant") ?? "") || undefined;
+  const stepRaw = String(formData.get("campaign_step") ?? "");
+  const campaignStep = stepRaw === "" ? undefined : Number(stepRaw);
+  const attribution =
+    campaignId || campaignVariant || campaignStep !== undefined
+      ? { campaignId, campaignVariant, campaignStep }
+      : undefined;
+
   let result;
   if (rawAmount) {
     const cents = Math.round(Number(rawAmount) * 100);
-    result = await createExtraCreditsCheckoutSession(cents);
+    result = await createExtraCreditsCheckoutSession(cents, "/app/billing", attribution);
   } else {
-    result = await createPlanCheckoutSession(planId);
+    result = await createPlanCheckoutSession(planId, "/app/billing", attribution);
   }
 
   if (result.error || !result.checkoutUrl) {

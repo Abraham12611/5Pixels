@@ -8,6 +8,10 @@ export interface CheckoutAttribution {
   variantKey?: string;
   ladderStage?: string;
   growsurfParticipantId?: string;
+  /** Promo-engine attribution — the offer step that sent this checkout. */
+  campaignId?: string;
+  campaignVariant?: string;
+  campaignStep?: number;
 }
 
 export function attributionMetadata(
@@ -25,6 +29,15 @@ export function attributionMetadata(
   }
   if (attribution?.growsurfParticipantId) {
     metadata.growsurf_participant_id = attribution.growsurfParticipantId;
+  }
+  if (attribution?.campaignId) {
+    metadata.campaign_id = attribution.campaignId;
+  }
+  if (attribution?.campaignVariant) {
+    metadata.campaign_variant = attribution.campaignVariant;
+  }
+  if (attribution?.campaignStep !== undefined) {
+    metadata.campaign_step = String(attribution.campaignStep);
   }
   return metadata;
 }
