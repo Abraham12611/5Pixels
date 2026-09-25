@@ -48,10 +48,15 @@ export function AvatarUploader({
           file.size
         );
 
+        // Multipart body — the same shape `uploadToSignedUrl` sends — since
+        // a bare File body fails on some mobile browsers ("Failed to fetch").
+        const form = new FormData();
+        form.append("cacheControl", "3600");
+        form.append("", file);
         const upload = await fetch(signedUrl, {
           method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type },
+          body: form,
+          headers: { "x-upsert": "true" },
         });
 
         if (!upload.ok) {
