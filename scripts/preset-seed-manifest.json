@@ -57,15 +57,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -82,15 +82,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -107,15 +107,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -132,15 +132,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -157,15 +157,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -182,15 +182,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -207,15 +207,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     },
@@ -232,15 +232,15 @@
       "images": [
         {
           "role": "hero",
-          "file": "hero-1.png"
+          "file": "hero-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-1.png"
+          "file": "example-1.jpg"
         },
         {
           "role": "example",
-          "file": "example-2.png"
+          "file": "example-2.jpg"
         }
       ]
     }
