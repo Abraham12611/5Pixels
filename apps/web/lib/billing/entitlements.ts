@@ -167,7 +167,8 @@ export async function canPurchaseTrial(
     };
   }
 
-  // Existing weekly trial blocks a second one.
+  // Any prior trial subscription — weekly or annual — blocks another trial.
+  // One free trial per user across all plan types.
   const { count: trialCount } = await supabase
     .from("subscriptions")
     .select("id", { count: "exact", head: true })
@@ -177,7 +178,7 @@ export async function canPurchaseTrial(
   if ((trialCount ?? 0) > 0) {
     return {
       allowed: false,
-      reason: "You have already used a weekly trial.",
+      reason: "You have already used a free trial.",
     };
   }
 
