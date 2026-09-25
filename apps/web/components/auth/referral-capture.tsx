@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { captureReferral } from "@/lib/referrals/capture";
+import { captureReferral } from "@/lib/referrals/actions";
 
 /**
  * Mounts on the signup page when it loads with ?ref=<id>. Calls the

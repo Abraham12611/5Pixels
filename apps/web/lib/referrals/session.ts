@@ -1,22 +1,23 @@
-"use server";
-
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
-import { createClient } from "@/lib/supabase/server";
 
 /**
  * First-party referral attribution (03 §3): `?ref=<user_id>` on signup
  * pages is captured into an HTTP-only cookie; the auth callback claims it
  * once a verified session exists — so attribution survives the email-
  * confirm / OAuth round trips that drop query params.
+ *
+ * Server-only lib — NOT a "use server" module: the constant export and
+ * claim helpers are imported by server code (route handlers, server
+ * actions), while the client-callable action lives in ./actions.
  */
 export const REF_COOKIE = "spx_ref";
-const REF_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
-const UUID_RE =
+export const REF_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
+export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Called from the signup page when it loads with ?ref=<id>. */
-export async function captureReferral(referrerId: string): Promise<void> {
+/** Validates the referrer exists and drops the attribution cookie. */
+export async function setReferralCookie(referrerId: string): Promise<void> {
   if (!UUID_RE.test(referrerId)) return;
   const service = createServiceClient();
   const { data: referrer } = await service
@@ -87,20 +88,4 @@ export async function claimReferralForUser(userId: string): Promise<void> {
     .update({ free_unlock_source: "referral" })
     .eq("id", userId)
     .is("free_unlock_source", null);
-}
-
-/** Whether the signed-in user's referral unlock is still unconsumed. */
-export async function hasReferralUnlock(): Promise<boolean> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return false;
-  const service = createServiceClient();
-  const { data } = await service
-    .from("profiles")
-    .select("free_unlock_source")
-    .eq("id", user.id)
-    .maybeSingle();
-  return data?.free_unlock_source === "referral";
 }

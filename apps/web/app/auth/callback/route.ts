@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isRelativePath } from "@/lib/auth/url";
 import { claimAnonSessionToUser } from "@/lib/teaser/pending";
-import { claimReferralForUser } from "@/lib/referrals/capture";
+import { claimReferralForUser } from "@/lib/referrals/session";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
