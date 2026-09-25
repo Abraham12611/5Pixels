@@ -21,12 +21,15 @@ export function PaywallSheet({
   onOpenChange,
   plans,
   required,
+  balance,
   presetName,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   plans: PlanForPurchase[];
   required: number;
+  /** Current balance — renders the exact shortfall when provided. */
+  balance?: number;
   presetName: string;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -86,8 +89,9 @@ export function PaywallSheet({
           </p>
           {required > 0 && (
             <p className="text-text-muted mt-1 text-xs">
-              This transformation costs {required}{" "}
-              {required === 1 ? "credit" : "credits"}.
+              {typeof balance === "number"
+                ? `You need ${required} ${required === 1 ? "credit" : "credits"} — you have ${balance}.`
+                : `This transformation costs ${required} ${required === 1 ? "credit" : "credits"}.`}
             </p>
           )}
 

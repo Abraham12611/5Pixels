@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils";
 
 const VIEWS = [
   { id: "result", label: "Result", icon: ImageIcon },
-  { id: "original", label: "Original", icon: Camera },
-  { id: "compare", label: "Compare", icon: ArrowsLeftRight },
+  { id: "original", label: "Before", icon: Camera },
+  { id: "compare", label: "Split", icon: ArrowsLeftRight },
 ] as const;
 
 interface ResultViewSwitchProps {

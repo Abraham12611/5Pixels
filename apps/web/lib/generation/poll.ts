@@ -13,6 +13,7 @@ import {
 } from "@/lib/generation/upload";
 import type { SafeGenerationDetail } from "./types";
 import { mapSafeGenerationRow } from "./map";
+import { sanitizeDownloadFilename } from "./download";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
 
@@ -489,4 +490,53 @@ export async function getGenerationContext(
     3600
   );
   return { sourceUrl };
+}
+
+/**
+ * Fresh signed URLs for every output of a completed generation — used to
+ * re-mint an expired download link and for multi-output "Download all"
+ * (10 §5). User-scoped; an output that fails to sign is skipped rather than
+ * sinking the batch. URLs are minted with `Content-Disposition: attachment`
+ * using `filenames[i]` when provided.
+ */
+export async function getResultDownloadUrls(
+  generationId: string,
+  filenames?: string[]
+): Promise<string[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const generation = await fetchSafeGeneration(generationId);
+  if (!generation || generation.status !== "completed") return [];
+
+  const outputs =
+    generation.outputs.length > 0
+      ? generation.outputs
+      : generation.outputBucket && generation.outputStorageKey
+        ? [
+            {
+              bucket: generation.outputBucket,
+              storageKey: generation.outputStorageKey,
+            },
+          ]
+        : [];
+
+  const urls: string[] = [];
+  for (let i = 0; i < outputs.length; i++) {
+    const output = outputs[i]!;
+    try {
+      const name = filenames?.[i]
+        ? sanitizeDownloadFilename(filenames[i]!)
+        : undefined;
+      urls.push(
+        await getSignedAssetUrl(output.bucket, output.storageKey, 600, name)
+      );
+    } catch {
+      // skip — one unlucky output shouldn't block the rest
+    }
+  }
+  return urls;
 }

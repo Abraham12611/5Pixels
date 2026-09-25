@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Compass, Heart, House, Image, Lightning } from "@phosphor-icons/react";
+import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 
 const CENTER_LABEL = "Create";
+
+/**
+ * Routes that own the thumb zone with a docked action bar (25_MOBILE_WEB_POLISH
+ * `04 §6`): the tab bar must not stack under it, and the page keeps no
+ * tab-bar clearance. Add a prefix here when a surface gains a docked bar.
+ */
+const DOCKED_BAR_PREFIXES = ["/app/create/", "/app/results/"];
 
 const LEFT_ITEMS = [
   { href: "/app", label: "Discover", icon: House },
@@ -21,6 +30,33 @@ function isActive(pathname: string, href: string): boolean {
   const base = href.split("?")[0];
   if (base === "/app") return pathname === "/app";
   return pathname.startsWith(base);
+}
+
+/**
+ * Owns the mobile fixed-chrome contract for the (app) group: pages get tab-bar
+ * clearance (`pb-24`) unless the route has a docked action bar, in which case
+ * the tab bar is not rendered at all. Surfaces add their own docked-bar
+ * clearance via `MobilePageBottomSpacer`.
+ */
+export function MobileNavShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const docked = DOCKED_BAR_PREFIXES.some((p) => pathname.startsWith(p));
+
+  return (
+    <>
+      <div
+        className={cn("flex flex-1 flex-col", docked ? "pb-0" : "pb-24", "md:pb-0")}
+      >
+        {children}
+      </div>
+      {docked ? null : <MobileBottomNav />}
+      {/* Toasts anchor above whichever fixed element owns the thumb zone. */}
+      <Toaster
+        position="bottom-center"
+        mobileOffset={{ bottom: docked ? "10rem" : "5.5rem" }}
+      />
+    </>
+  );
 }
 
 export function MobileBottomNav() {
