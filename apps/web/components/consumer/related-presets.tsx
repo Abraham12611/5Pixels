@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ProductCard } from "./product-card";
+import { PresetQuickViewHost } from "./preset-quick-view";
 import { getPublicProducts } from "@/lib/db/explore";
 import type { PublicProductDetail } from "@/types/catalog";
 
@@ -19,9 +20,7 @@ export async function RelatedPresets({
     product.category_slug ?? undefined
   );
 
-  const filtered = related
-    .filter((p) => p.id !== product.id)
-    .slice(0, 4);
+  const filtered = related.filter((p) => p.id !== product.id).slice(0, 4);
 
   if (filtered.length === 0) {
     return null;
@@ -39,24 +38,30 @@ export async function RelatedPresets({
               ? `/explore?category=${product.category_slug}`
               : "/explore"
           }
-          className="text-lime-400 text-sm font-medium hover:underline"
+          className="text-sm font-medium text-lime-400 hover:underline"
         >
           View all
         </Link>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {filtered.map((relatedProduct, index) => (
-          <ProductCard
-            key={relatedProduct.id}
-            product={relatedProduct}
-            isAuthenticated={isAuthenticated}
-            initialIsFavorite={favoriteIds.includes(relatedProduct.id)}
-            returnPath={`/presets/${product.slug}`}
-            priority={index < 2}
-          />
-        ))}
-      </div>
+      <PresetQuickViewHost
+        isAuthenticated={isAuthenticated}
+        favoriteIds={favoriteIds}
+        returnPath={`/presets/${product.slug}`}
+      >
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {filtered.map((relatedProduct, index) => (
+            <ProductCard
+              key={relatedProduct.id}
+              product={relatedProduct}
+              isAuthenticated={isAuthenticated}
+              initialIsFavorite={favoriteIds.includes(relatedProduct.id)}
+              returnPath={`/presets/${product.slug}`}
+              priority={index < 2}
+            />
+          ))}
+        </div>
+      </PresetQuickViewHost>
     </section>
   );
 }

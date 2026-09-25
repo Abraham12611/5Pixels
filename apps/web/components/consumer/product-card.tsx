@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { HoverPreviewMedia } from "./hover-preview-media";
 import { FavoriteButton } from "./favorite-button";
+import { usePresetQuickView } from "./preset-quick-view";
 import { BADGE_LABELS, productBadges } from "@/lib/catalog/badges";
 import { isImageMimeType, isVideoMimeType } from "@/lib/catalog/media";
 import { Lightning } from "@phosphor-icons/react";
@@ -23,9 +24,7 @@ interface ProductCardProps {
 
 function stillAsset(assets: PublicProductAsset[]): PublicProductAsset | null {
   return (
-    assets.find(
-      (a) => a.role === "poster" && isImageMimeType(a.mime_type)
-    ) ??
+    assets.find((a) => a.role === "poster" && isImageMimeType(a.mime_type)) ??
     assets.find((a) => a.role === "hero" && isImageMimeType(a.mime_type)) ??
     assets.find(
       (a) => isImageMimeType(a.mime_type) && a.mime_type !== "image/gif"
@@ -65,11 +64,12 @@ export function ProductCard({
   const badges = productBadges(product);
   const detailHref = `/presets/${product.slug}`;
   const createHref = `/app/create/${product.slug}`;
+  const openQuickView = usePresetQuickView();
 
   return (
     <article
       className={cn(
-        "group shadow-border hover:shadow-border-hover relative flex flex-col overflow-hidden rounded-xl bg-charcoal-850 transition-shadow",
+        "group shadow-border hover:shadow-border-hover bg-charcoal-850 relative flex flex-col overflow-hidden rounded-xl transition-shadow",
         variant === "rail" && "w-44 shrink-0 sm:w-52"
       )}
     >
@@ -99,7 +99,7 @@ export function ProductCard({
                 className={cn(
                   "rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase",
                   badge === "new"
-                    ? "bg-lime-400 text-ink-950"
+                    ? "text-ink-950 bg-lime-400"
                     : "bg-ink-950/70 text-cream-50 backdrop-blur-sm"
                 )}
               >
@@ -124,7 +124,7 @@ export function ProductCard({
           <Link
             href={createHref}
             prefetch={false}
-            className="bg-lime-400 text-ink-950 pointer-events-auto inline-flex translate-y-1.5 items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold shadow-lg transition-[transform,background-color] duration-200 hover:bg-lime-300 group-focus-within:translate-y-0 group-hover:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+            className="text-ink-950 pointer-events-auto inline-flex translate-y-1.5 items-center gap-1.5 rounded-md bg-lime-400 px-3.5 py-2 text-[13px] font-semibold shadow-lg transition-[transform,background-color] duration-200 group-focus-within:translate-y-0 group-hover:translate-y-0 hover:bg-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
           >
             <Lightning size={14} weight="fill" />
             Try this look
@@ -136,10 +136,21 @@ export function ProductCard({
       <Link
         href={detailHref}
         prefetch={false}
-        className="focus-visible:ring-lime-500/60 absolute inset-0 z-10 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset"
+        className="absolute inset-0 z-10 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-lime-500/60 focus-visible:ring-inset"
       >
         <span className="sr-only">View {product.name}</span>
       </Link>
+
+      {/* Mobile quick view — sits above the link on touch widths so a card
+          tap previews the preset; the heart (z-20) stays on top. */}
+      {openQuickView ? (
+        <button
+          type="button"
+          onClick={() => openQuickView(product)}
+          aria-label={`Preview ${product.name}`}
+          className="absolute inset-0 z-[15] rounded-xl md:hidden"
+        />
+      ) : null}
 
       {/* Meta */}
       <div className="flex flex-1 flex-col p-3">

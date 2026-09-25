@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import {
   ArrowRight,
@@ -28,6 +28,9 @@ import {
   recordRecentPreset,
   type RecentPreset,
 } from "@/lib/search/recents";
+import { PresetQuickSheet } from "@/components/consumer/preset-quick-sheet";
+import { useIsNarrow } from "@/lib/ui/use-media-query";
+import type { QuickSheetPreset } from "@/lib/catalog/quick-sheet";
 
 const SCOPES: { key: SearchScope; label: string }[] = [
   { key: "all", label: "All" },
@@ -47,6 +50,8 @@ export interface SearchPaletteProps {
   presets: SearchPreset[];
   categories: SearchCategory[];
   library: SearchLibraryItem[];
+  /** Favorite product ids — seeds the quick sheet heart on mobile. */
+  favoriteIds?: string[];
   /** True when the catalog fetch failed — shows a retryable error state. */
   catalogError?: boolean;
 }
@@ -57,12 +62,17 @@ export function SearchPalette({
   presets,
   categories,
   library,
+  favoriteIds = [],
   catalogError,
 }: SearchPaletteProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isNarrow = useIsNarrow();
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SearchScope>("all");
   const [recents, setRecents] = useState<RecentPreset[]>([]);
+  const [sheetItem, setSheetItem] = useState<QuickSheetPreset | null>(null);
+  const [favorites, setFavorites] = useState(() => new Set(favoriteIds));
 
   // Reset query/scope and re-read recents each time the palette opens.
   // Render-phase state adjustment (React docs pattern) — recents live in
@@ -97,13 +107,37 @@ export function SearchPalette({
     router.push(href);
   };
 
-  const goPreset = (preset: { slug: string; name: string; thumbUrl: string | null }) => {
+  const goPreset = (preset: {
+    slug: string;
+    name: string;
+    thumbUrl: string | null;
+    quickView?: QuickSheetPreset;
+  }) => {
     recordRecentPreset({
       slug: preset.slug,
       name: preset.name,
       thumbUrl: preset.thumbUrl,
     });
+    // Mobile: evaluate inside the palette's quick sheet rather than leaving
+    // the page. The palette closes so its focus trap doesn't fight the sheet.
+    const quickView =
+      preset.quickView ??
+      presets.find((p) => p.slug === preset.slug)?.quickView;
+    if (isNarrow && quickView) {
+      setSheetItem(quickView);
+      close();
+      return;
+    }
     go(`/presets/${preset.slug}`);
+  };
+
+  const handleSheetFavorite = (productId: string, isFavorite: boolean) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (isFavorite) next.add(productId);
+      else next.delete(productId);
+      return next;
+    });
   };
 
   const generationHref = (item: SearchLibraryItem) =>
@@ -128,259 +162,295 @@ export function SearchPalette({
   };
 
   return (
-    <Command.Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-      shouldFilter={false}
-      loop
-      label="Search presets, categories, and your library"
-      overlayClassName="bg-ink-950/85 animate-overlay-in fixed inset-0 z-50 backdrop-blur-sm"
-      contentClassName="bg-charcoal-850 animate-dialog-in fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[8vh] sm:h-auto sm:max-h-[84vh] sm:w-[min(56rem,92vw)] sm:-translate-x-1/2 sm:rounded-xl sm:border sm:border-cream-100/10 sm:shadow-elevated"
-      className="flex min-h-0 flex-1 flex-col"
-    >
-      {/* Sticky search header */}
-      <div className="border-cream-100/10 border-b">
-        <div className="flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-4">
-          <MagnifyingGlass
-            size={20}
-            weight="bold"
-            className="text-text-muted shrink-0"
-          />
-          <Command.Input
-            value={query}
-            onValueChange={setQuery}
-            placeholder="Search presets, categories, and your library"
-            className="text-cream-50 placeholder:text-text-muted h-6 flex-1 bg-transparent text-base outline-none"
-          />
-          {query !== "" && (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              className="text-text-muted hover:text-cream-100 relative rounded-md p-1 transition-colors after:absolute after:-inset-1.5 after:content-['']"
-              aria-label="Clear search"
-            >
-              <X size={16} weight="bold" />
-            </button>
-          )}
-          <kbd className="border-cream-100/15 text-text-muted hidden rounded-md border px-1.5 py-0.5 font-mono text-[11px] sm:block">
-            esc
-          </kbd>
-          <button
-            type="button"
-            onClick={close}
-            className="text-text-muted hover:text-cream-100 hover:bg-charcoal-800 relative rounded-md p-1.5 transition-colors after:absolute after:-inset-1.5 after:content-[''] sm:hidden"
-            aria-label="Close search"
-          >
-            <X size={20} weight="bold" />
-          </button>
-        </div>
-
-        {/* Scope chips */}
-        <div
-          className="flex gap-1.5 overflow-x-auto px-4 pb-3 sm:px-5"
-          role="tablist"
-          aria-label="Search scope"
-        >
-          {SCOPES.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              role="tab"
-              aria-selected={scope === s.key}
-              onClick={() => setScope(s.key)}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                scope === s.key
-                  ? "bg-charcoal-700 text-cream-50"
-                  : "text-text-secondary hover:text-cream-100 hover:bg-charcoal-800"
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Results body */}
-      <Command.List className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 sm:px-3">
-        {catalogError && (
-          <div className="mx-3 mt-3 flex items-center gap-2.5 rounded-md border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
-            <Warning size={15} weight="bold" className="shrink-0" />
-            <span className="flex-1">
-              Couldn&apos;t load the catalog. Your library search still works.
-            </span>
-            <button
-              type="button"
-              onClick={() => router.refresh()}
-              className="text-cream-50 hover:text-lime-300 font-semibold transition-colors"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        <Command.Empty>
-          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-            <p className="text-cream-50 text-sm font-medium">
-              {isZeroQuery
-                ? "Nothing to show yet — new looks are on the way."
-                : emptyCopy[scope]}
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
+    <>
+      <Command.Dialog
+        open={open}
+        onOpenChange={onOpenChange}
+        shouldFilter={false}
+        loop
+        label="Search presets, categories, and your library"
+        overlayClassName="bg-ink-950/85 animate-overlay-in fixed inset-0 z-50 backdrop-blur-sm"
+        contentClassName="bg-charcoal-850 animate-dialog-in fixed inset-0 z-50 flex h-dvh flex-col overflow-hidden sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[8vh] sm:h-auto sm:max-h-[84vh] sm:w-[min(56rem,92vw)] sm:-translate-x-1/2 sm:rounded-xl sm:border sm:border-cream-100/10 sm:shadow-elevated"
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {/* Sticky search header */}
+        <div className="border-cream-100/10 border-b">
+          <div className="flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-4">
+            <MagnifyingGlass
+              size={20}
+              weight="bold"
+              className="text-text-muted shrink-0"
+            />
+            <Command.Input
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search presets, categories, and your library"
+              className="text-cream-50 placeholder:text-text-muted h-6 flex-1 bg-transparent text-base outline-none"
+            />
+            {query !== "" && (
               <button
                 type="button"
-                onClick={() => go("/explore")}
-                className="bg-charcoal-800 text-cream-100 hover:bg-charcoal-700 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
+                onClick={() => setQuery("")}
+                className="text-text-muted hover:text-cream-100 relative rounded-md p-1 transition-colors after:absolute after:-inset-1.5 after:content-['']"
+                aria-label="Clear search"
               >
-                Explore all presets
+                <X size={16} weight="bold" />
               </button>
-              {scope === "library" && (
+            )}
+            <kbd className="border-cream-100/15 text-text-muted hidden rounded-md border px-1.5 py-0.5 font-mono text-[11px] sm:block">
+              esc
+            </kbd>
+            <button
+              type="button"
+              onClick={close}
+              className="text-text-muted hover:text-cream-100 hover:bg-charcoal-800 relative rounded-md p-1.5 transition-colors after:absolute after:-inset-1.5 after:content-[''] sm:hidden"
+              aria-label="Close search"
+            >
+              <X size={20} weight="bold" />
+            </button>
+          </div>
+
+          {/* Scope chips */}
+          <div
+            className="flex gap-1.5 overflow-x-auto px-4 pb-3 sm:px-5"
+            role="tablist"
+            aria-label="Search scope"
+          >
+            {SCOPES.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                role="tab"
+                aria-selected={scope === s.key}
+                onClick={() => setScope(s.key)}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  scope === s.key
+                    ? "bg-charcoal-700 text-cream-50"
+                    : "text-text-secondary hover:text-cream-100 hover:bg-charcoal-800"
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Results body */}
+        <Command.List className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 sm:px-3">
+          {catalogError && (
+            <div className="border-warning/30 bg-warning/10 text-warning mx-3 mt-3 flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-xs">
+              <Warning size={15} weight="bold" className="shrink-0" />
+              <span className="flex-1">
+                Couldn&apos;t load the catalog. Your library search still works.
+              </span>
+              <button
+                type="button"
+                onClick={() => router.refresh()}
+                className="text-cream-50 font-semibold transition-colors hover:text-lime-300"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          <Command.Empty>
+            <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+              <p className="text-cream-50 text-sm font-medium">
+                {isZeroQuery
+                  ? "Nothing to show yet — new looks are on the way."
+                  : emptyCopy[scope]}
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 <button
                   type="button"
-                  onClick={() => go("/app/library")}
-                  className="text-text-secondary hover:text-cream-100 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
+                  onClick={() => go("/explore")}
+                  className="bg-charcoal-800 text-cream-100 hover:bg-charcoal-700 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
                 >
-                  Open Library
+                  Explore all presets
                 </button>
-              )}
-            </div>
-          </div>
-        </Command.Empty>
-
-        {isZeroQuery ? (
-          <>
-            {recents.length > 0 && showPresets && (
-              <Command.Group heading="Recent" className={GROUP_HEADING_CLASS}>
-                {recents.map((r) => (
-                  <Command.Item
-                    key={`recent-${r.slug}`}
-                    value={`recent-${r.slug}`}
-                    onSelect={() => goPreset(r)}
-                    className={ITEM_CLASS}
+                {scope === "library" && (
+                  <button
+                    type="button"
+                    onClick={() => go("/app/library")}
+                    className="text-text-secondary hover:text-cream-100 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
                   >
-                    <RowMarker />
-                    <Thumb url={r.thumbUrl} fallback={<Clock size={16} weight="bold" />} />
-                    <span className="text-cream-100 min-w-0 flex-1 truncate">
-                      {r.name}
-                    </span>
-                    <span className="text-text-muted text-xs">Recent</span>
-                  </Command.Item>
-                ))}
-              </Command.Group>
-            )}
-
-            {showPresets && presets.length > 0 && (
-              <Command.Group
-                heading="Trending now"
-                className={GROUP_HEADING_CLASS}
-              >
-                {presets.slice(0, 3).map((p) => (
-                  <PresetRow key={`trend-${p.slug}`} preset={p} onSelect={goPreset} />
-                ))}
-              </Command.Group>
-            )}
-
-            {showCategories && categories.length > 0 && (
-              <Command.Group
-                heading="Browse categories"
-                className={GROUP_HEADING_CLASS}
-              >
-                {categories.map((c) => (
-                  <CategoryRow
-                    key={`cat-${c.slug}`}
-                    category={c}
-                    onSelect={() => go(`/explore?category=${c.slug}`)}
-                  />
-                ))}
-              </Command.Group>
-            )}
-
-            {showLibrary && library.length > 0 && (
-              <Command.Group
-                heading="From your library"
-                className={GROUP_HEADING_CLASS}
-              >
-                {library.slice(0, 4).map((item) => (
-                  <LibraryRow
-                    key={`lib-${item.id}`}
-                    item={item}
-                    onSelect={() => go(generationHref(item))}
-                  />
-                ))}
-              </Command.Group>
-            )}
-          </>
-        ) : (
-          <>
-            {showPresets && filteredPresets.length > 0 && (
-              <Command.Group heading="Presets" className={GROUP_HEADING_CLASS}>
-                {filteredPresets.slice(0, presetCap).map((p) => (
-                  <PresetRow key={`p-${p.slug}`} preset={p} onSelect={goPreset} />
-                ))}
-                {filteredPresets.length > presetCap && (
-                  <Command.Item
-                    value="see-all-presets"
-                    onSelect={() =>
-                      go(`/explore?search=${encodeURIComponent(query)}`)
-                    }
-                    className={ITEM_CLASS}
-                  >
-                    <RowMarker />
-                    <span className="text-lime-300 flex flex-1 items-center gap-1.5 text-xs font-medium">
-                      See all {filteredPresets.length} matching presets
-                      <ArrowRight size={13} weight="bold" />
-                    </span>
-                  </Command.Item>
+                    Open Library
+                  </button>
                 )}
-              </Command.Group>
-            )}
+              </div>
+            </div>
+          </Command.Empty>
 
-            {showCategories && filteredCategories.length > 0 && (
-              <Command.Group
-                heading="Categories"
-                className={GROUP_HEADING_CLASS}
-              >
-                {filteredCategories.slice(0, categoryCap).map((c) => (
-                  <CategoryRow
-                    key={`cat-${c.slug}`}
-                    category={c}
-                    onSelect={() => go(`/explore?category=${c.slug}`)}
-                  />
-                ))}
-              </Command.Group>
-            )}
+          {isZeroQuery ? (
+            <>
+              {recents.length > 0 && showPresets && (
+                <Command.Group heading="Recent" className={GROUP_HEADING_CLASS}>
+                  {recents.map((r) => (
+                    <Command.Item
+                      key={`recent-${r.slug}`}
+                      value={`recent-${r.slug}`}
+                      onSelect={() => goPreset(r)}
+                      className={ITEM_CLASS}
+                    >
+                      <RowMarker />
+                      <Thumb
+                        url={r.thumbUrl}
+                        fallback={<Clock size={16} weight="bold" />}
+                      />
+                      <span className="text-cream-100 min-w-0 flex-1 truncate">
+                        {r.name}
+                      </span>
+                      <span className="text-text-muted text-xs">Recent</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
 
-            {showLibrary && filteredLibrary.length > 0 && (
-              <Command.Group heading="Library" className={GROUP_HEADING_CLASS}>
-                {filteredLibrary.slice(0, libraryCap).map((item) => (
-                  <LibraryRow
-                    key={`lib-${item.id}`}
-                    item={item}
-                    onSelect={() => go(generationHref(item))}
-                  />
-                ))}
-              </Command.Group>
-            )}
-          </>
-        )}
-      </Command.List>
+              {showPresets && presets.length > 0 && (
+                <Command.Group
+                  heading="Trending now"
+                  className={GROUP_HEADING_CLASS}
+                >
+                  {presets.slice(0, 3).map((p) => (
+                    <PresetRow
+                      key={`trend-${p.slug}`}
+                      preset={p}
+                      onSelect={goPreset}
+                    />
+                  ))}
+                </Command.Group>
+              )}
 
-      {/* Keyboard hints */}
-      <div className="border-cream-100/10 text-text-muted hidden items-center gap-4 border-t px-5 py-2.5 text-[11px] sm:flex">
-        <span className="flex items-center gap-1.5">
-          <kbd className="border-cream-100/15 rounded border px-1 font-mono">↑↓</kbd>
-          Navigate
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="border-cream-100/15 rounded border px-1 font-mono">↵</kbd>
-          Open
-        </span>
-        <span className="flex items-center gap-1.5">
-          <kbd className="border-cream-100/15 rounded border px-1 font-mono">esc</kbd>
-          Close
-        </span>
-      </div>
-    </Command.Dialog>
+              {showCategories && categories.length > 0 && (
+                <Command.Group
+                  heading="Browse categories"
+                  className={GROUP_HEADING_CLASS}
+                >
+                  {categories.map((c) => (
+                    <CategoryRow
+                      key={`cat-${c.slug}`}
+                      category={c}
+                      onSelect={() => go(`/explore?category=${c.slug}`)}
+                    />
+                  ))}
+                </Command.Group>
+              )}
+
+              {showLibrary && library.length > 0 && (
+                <Command.Group
+                  heading="From your library"
+                  className={GROUP_HEADING_CLASS}
+                >
+                  {library.slice(0, 4).map((item) => (
+                    <LibraryRow
+                      key={`lib-${item.id}`}
+                      item={item}
+                      onSelect={() => go(generationHref(item))}
+                    />
+                  ))}
+                </Command.Group>
+              )}
+            </>
+          ) : (
+            <>
+              {showPresets && filteredPresets.length > 0 && (
+                <Command.Group
+                  heading="Presets"
+                  className={GROUP_HEADING_CLASS}
+                >
+                  {filteredPresets.slice(0, presetCap).map((p) => (
+                    <PresetRow
+                      key={`p-${p.slug}`}
+                      preset={p}
+                      onSelect={goPreset}
+                    />
+                  ))}
+                  {filteredPresets.length > presetCap && (
+                    <Command.Item
+                      value="see-all-presets"
+                      onSelect={() =>
+                        go(`/explore?search=${encodeURIComponent(query)}`)
+                      }
+                      className={ITEM_CLASS}
+                    >
+                      <RowMarker />
+                      <span className="flex flex-1 items-center gap-1.5 text-xs font-medium text-lime-300">
+                        See all {filteredPresets.length} matching presets
+                        <ArrowRight size={13} weight="bold" />
+                      </span>
+                    </Command.Item>
+                  )}
+                </Command.Group>
+              )}
+
+              {showCategories && filteredCategories.length > 0 && (
+                <Command.Group
+                  heading="Categories"
+                  className={GROUP_HEADING_CLASS}
+                >
+                  {filteredCategories.slice(0, categoryCap).map((c) => (
+                    <CategoryRow
+                      key={`cat-${c.slug}`}
+                      category={c}
+                      onSelect={() => go(`/explore?category=${c.slug}`)}
+                    />
+                  ))}
+                </Command.Group>
+              )}
+
+              {showLibrary && filteredLibrary.length > 0 && (
+                <Command.Group
+                  heading="Library"
+                  className={GROUP_HEADING_CLASS}
+                >
+                  {filteredLibrary.slice(0, libraryCap).map((item) => (
+                    <LibraryRow
+                      key={`lib-${item.id}`}
+                      item={item}
+                      onSelect={() => go(generationHref(item))}
+                    />
+                  ))}
+                </Command.Group>
+              )}
+            </>
+          )}
+        </Command.List>
+
+        {/* Keyboard hints */}
+        <div className="border-cream-100/10 text-text-muted hidden items-center gap-4 border-t px-5 py-2.5 text-[11px] sm:flex">
+          <span className="flex items-center gap-1.5">
+            <kbd className="border-cream-100/15 rounded border px-1 font-mono">
+              ↑↓
+            </kbd>
+            Navigate
+          </span>
+          <span className="flex items-center gap-1.5">
+            <kbd className="border-cream-100/15 rounded border px-1 font-mono">
+              ↵
+            </kbd>
+            Open
+          </span>
+          <span className="flex items-center gap-1.5">
+            <kbd className="border-cream-100/15 rounded border px-1 font-mono">
+              esc
+            </kbd>
+            Close
+          </span>
+        </div>
+      </Command.Dialog>
+
+      <PresetQuickSheet
+        item={sheetItem}
+        onOpenChange={(openFlag) => {
+          if (!openFlag) setSheetItem(null);
+        }}
+        isAuthenticated
+        initialIsFavorite={sheetItem ? favorites.has(sheetItem.id) : false}
+        returnPath={pathname}
+        onFavoriteToggled={handleSheetFavorite}
+      />
+    </>
   );
 }
 
@@ -441,13 +511,16 @@ function PresetRow({
         </span>
         <span className="text-text-muted block truncate text-xs">
           {preset.description ??
-            [preset.categoryName, preset.type === "poster" ? "Poster" : "Filter"]
+            [
+              preset.categoryName,
+              preset.type === "poster" ? "Poster" : "Filter",
+            ]
               .filter(Boolean)
               .join(" · ")}
         </span>
       </span>
       {preset.badge === "trending" && (
-        <span className="bg-lime-400/15 text-lime-300 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide">
+        <span className="shrink-0 rounded-full bg-lime-400/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-lime-300">
           TRENDING
         </span>
       )}

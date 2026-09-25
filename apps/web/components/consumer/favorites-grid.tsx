@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ProductCard } from "@/components/consumer/product-card";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { RetiredPresetCard } from "@/components/consumer/retired-preset-card";
 import { toggleFavorite } from "@/app/actions/favorites";
 import type { FavoriteProduct } from "@/types/catalog";
@@ -12,11 +13,7 @@ import type { FavoriteProduct } from "@/types/catalog";
  * presets render muted with a recovery path. Unfavoriting removes the card
  * with a reversible toast per the design bible (FV-03).
  */
-export function FavoritesGrid({
-  favorites,
-}: {
-  favorites: FavoriteProduct[];
-}) {
+export function FavoritesGrid({ favorites }: { favorites: FavoriteProduct[] }) {
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
   const markRemoved = (productId: string, removed: boolean) =>
@@ -46,26 +43,33 @@ export function FavoritesGrid({
   };
 
   return (
-    <section
-      aria-label="Favorite presets"
-      className="columns-2 gap-5 md:columns-3 xl:columns-4"
+    <PresetQuickViewHost
+      isAuthenticated
+      favoriteIds={favorites.map((f) => f.product.id)}
+      returnPath="/app/favorites"
+      onFavoriteToggled={handleFavoriteChange}
     >
-      {favorites.map(({ product, isAvailable }) => {
-        if (removedIds.has(product.id)) return null;
-        return isAvailable ? (
-          <div key={product.id} className="mb-5 break-inside-avoid">
-            <ProductCard
-              product={product}
-              isAuthenticated
-              initialIsFavorite
-              returnPath="/app/favorites"
-              onFavoriteChange={handleFavoriteChange}
-            />
-          </div>
-        ) : (
-          <RetiredPresetCard key={product.id} product={product} />
-        );
-      })}
-    </section>
+      <section
+        aria-label="Favorite presets"
+        className="columns-2 gap-5 md:columns-3 xl:columns-4"
+      >
+        {favorites.map(({ product, isAvailable }) => {
+          if (removedIds.has(product.id)) return null;
+          return isAvailable ? (
+            <div key={product.id} className="mb-5 break-inside-avoid">
+              <ProductCard
+                product={product}
+                isAuthenticated
+                initialIsFavorite
+                returnPath="/app/favorites"
+                onFavoriteChange={handleFavoriteChange}
+              />
+            </div>
+          ) : (
+            <RetiredPresetCard key={product.id} product={product} />
+          );
+        })}
+      </section>
+    </PresetQuickViewHost>
   );
 }

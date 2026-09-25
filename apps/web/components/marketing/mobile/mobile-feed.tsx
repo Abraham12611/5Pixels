@@ -5,7 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowUpRight, Sparkle } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { PresetQuickSheet } from "./preset-quick-sheet";
+import { PresetQuickSheet } from "@/components/consumer/preset-quick-sheet";
+import { recordRecentPreset } from "@/lib/search/recents";
 import type { LandingFeedItem } from "./landing-feed-types";
 
 interface MobileFeedProps {
@@ -21,12 +22,19 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
   const [chip, setChip] = useState<string>("all");
   const [selected, setSelected] = useState<LandingFeedItem | null>(null);
 
+  const openItem = (item: LandingFeedItem) => {
+    recordRecentPreset({
+      slug: item.slug,
+      name: item.name,
+      thumbUrl: item.previewUrl,
+    });
+    setSelected(item);
+  };
+
   const trending = items.slice(0, 3);
   const filtered = useMemo(
     () =>
-      chip === "all"
-        ? items
-        : items.filter((i) => i.categorySlug === chip),
+      chip === "all" ? items : items.filter((i) => i.categorySlug === chip),
     [items, chip]
   );
 
@@ -40,7 +48,7 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
       <div
         role="tablist"
         aria-label="Filter looks"
-        className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4"
+        className="-mx-4 flex scrollbar-none gap-2 overflow-x-auto px-4"
       >
         <FilterChip
           label="All"
@@ -60,15 +68,15 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
       {/* Trending rail */}
       {chip === "all" && trending.length > 0 && (
         <section aria-label="Trending" className="mt-7">
-          <h2 className="text-lime-400 px-4 text-xs font-bold uppercase tracking-[0.18em]">
+          <h2 className="px-4 text-xs font-bold tracking-[0.18em] text-lime-400 uppercase">
             Trending
           </h2>
-          <div className="scrollbar-none -mx-4 mt-3 flex gap-3 overflow-x-auto px-4">
+          <div className="-mx-4 mt-3 flex scrollbar-none gap-3 overflow-x-auto px-4">
             {trending.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setSelected(item)}
+                onClick={() => openItem(item)}
                 className="media-frame relative aspect-[3/4] w-44 shrink-0 overflow-hidden rounded-xl text-left"
               >
                 {item.thumbUrl ? (
@@ -81,15 +89,19 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                   />
                 ) : (
                   <span className="bg-charcoal-800 absolute inset-0 flex items-center justify-center">
-                    <Sparkle size={28} weight="fill" className="text-lime-400" />
+                    <Sparkle
+                      size={28}
+                      weight="fill"
+                      className="text-lime-400"
+                    />
                   </span>
                 )}
-                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/90 to-transparent p-2.5 pt-8">
+                <span className="from-ink-950/90 absolute inset-x-0 bottom-0 bg-gradient-to-t to-transparent p-2.5 pt-8">
                   <span className="font-display text-cream-50 block truncate text-sm">
                     {item.name}
                   </span>
                   {item.categoryName && (
-                    <span className="text-text-muted text-[10px] font-medium uppercase tracking-wider">
+                    <span className="text-text-muted text-[10px] font-medium tracking-wider uppercase">
                       {item.categoryName}
                     </span>
                   )}
@@ -103,8 +115,10 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
       {/* Masonry feed */}
       <section aria-label="All looks" className="mt-7">
         <div className="flex items-baseline justify-between px-1">
-          <h2 className="text-lime-400 text-xs font-bold uppercase tracking-[0.18em]">
-            {chip === "all" ? "All looks" : usedCategories.find((c) => c.slug === chip)?.name}
+          <h2 className="text-xs font-bold tracking-[0.18em] text-lime-400 uppercase">
+            {chip === "all"
+              ? "All looks"
+              : usedCategories.find((c) => c.slug === chip)?.name}
           </h2>
           <Link
             href="/explore"
@@ -120,13 +134,17 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
             <button
               key={item.id}
               type="button"
-              onClick={() => setSelected(item)}
+              onClick={() => openItem(item)}
               className="media-frame group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl text-left"
             >
               <span
                 className={cn(
                   "relative block w-full",
-                  i % 3 === 0 ? "aspect-[3/4]" : i % 3 === 1 ? "aspect-[4/5]" : "aspect-square"
+                  i % 3 === 0
+                    ? "aspect-[3/4]"
+                    : i % 3 === 1
+                      ? "aspect-[4/5]"
+                      : "aspect-square"
                 )}
               >
                 {item.thumbUrl ? (
@@ -139,15 +157,19 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                   />
                 ) : (
                   <span className="bg-charcoal-800 absolute inset-0 flex items-center justify-center">
-                    <Sparkle size={28} weight="fill" className="text-lime-400" />
+                    <Sparkle
+                      size={28}
+                      weight="fill"
+                      className="text-lime-400"
+                    />
                   </span>
                 )}
               </span>
-              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink-950/95 via-ink-950/40 to-transparent p-2.5 pt-10">
-                <span className="text-cream-50 block truncate text-[13px] font-bold uppercase tracking-wide">
+              <span className="from-ink-950/95 via-ink-950/40 absolute inset-x-0 bottom-0 bg-gradient-to-t to-transparent p-2.5 pt-10">
+                <span className="text-cream-50 block truncate text-[13px] font-bold tracking-wide uppercase">
                   {item.name}
                 </span>
-                <span className="text-cream-100/60 text-[10px] font-medium uppercase tracking-wider">
+                <span className="text-cream-100/60 text-[10px] font-medium tracking-wider uppercase">
                   {item.categoryName ?? "Preset"}
                 </span>
               </span>
@@ -162,7 +184,14 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
         )}
       </section>
 
-      <PresetQuickSheet item={selected} onClose={() => setSelected(null)} />
+      <PresetQuickSheet
+        item={selected}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+        isAuthenticated={false}
+        returnPath="/"
+      />
     </>
   );
 }
@@ -185,7 +214,7 @@ function FilterChip({
       className={cn(
         "shrink-0 rounded-full px-4 py-2 text-[13px] font-semibold transition-colors",
         active
-          ? "bg-lime-400 text-ink-950"
+          ? "text-ink-950 bg-lime-400"
           : "bg-charcoal-800 text-text-secondary hover:text-cream-50"
       )}
     >

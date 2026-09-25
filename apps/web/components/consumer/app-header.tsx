@@ -8,10 +8,12 @@ import {
 import {
   getActiveCategories,
   getPublicProducts,
+  getUserFavoriteProductIds,
 } from "@/lib/db/explore";
 import { getAvatarUrl } from "@/lib/profile/actions";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
-import { selectCatalogMediaAsset } from "@/lib/catalog/media";
+import { publicAssetUrl, selectCatalogMediaAsset } from "@/lib/catalog/media";
+import { toQuickSheetPreset } from "@/lib/catalog/quick-sheet";
 import type { SafeGeneration } from "@/lib/generation/types";
 import type {
   SearchCategory,
@@ -26,10 +28,6 @@ const TERMINAL_STATUSES = new Set([
   "blocked",
   "cancelled",
 ]);
-
-function publicAssetUrl(bucket: string, storageKey: string): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${bucket}/${storageKey}`;
-}
 
 export async function AppHeader() {
   const supabase = await createClient();
@@ -57,19 +55,37 @@ export async function AppHeader() {
     newest,
     categories,
     generationsResult,
+    favoriteIds,
   ] = await Promise.all([
     getUserCreditBalance(),
     getUnreadNotificationCount(),
     getMyNotifications(15),
     getAvatarUrl(profile?.avatar_asset_id as string | null | undefined),
     getActivePlan(),
-    getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, 48),
-    getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, 8),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "featured",
+      1,
+      48
+    ),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "newest",
+      1,
+      8
+    ),
     getActiveCategories(),
     supabase.rpc("get_user_generations"),
+    getUserFavoriteProductIds(),
   ]);
 
-  const generations = ((generationsResult.data ?? []) as SafeGeneration[]);
+  const generations = (generationsResult.data ?? []) as SafeGeneration[];
 
   const newSlugs = new Set(newest.data.map((p) => p.slug));
   const searchPresets: SearchPreset[] = featured.data.map((p, index) => {
@@ -90,6 +106,7 @@ export async function AppHeader() {
       creditCost: p.credit_cost,
       thumbUrl: asset ? publicAssetUrl(asset.bucket, asset.storage_key) : null,
       badge,
+      quickView: toQuickSheetPreset(p),
     };
   });
 
@@ -106,7 +123,10 @@ export async function AppHeader() {
       let thumbUrl: string | null = null;
       if (g.status === "completed" && g.outputBucket && g.outputStorageKey) {
         try {
-          thumbUrl = await getSignedAssetUrl(g.outputBucket, g.outputStorageKey);
+          thumbUrl = await getSignedAssetUrl(
+            g.outputBucket,
+            g.outputStorageKey
+          );
         } catch {
           thumbUrl = null;
         }
@@ -154,6 +174,7 @@ export async function AppHeader() {
       searchPresets={searchPresets}
       searchCategories={searchCategories}
       searchLibrary={libraryItems}
+      searchFavoriteIds={favoriteIds}
       catalogError={Boolean(featured.error)}
     />
   );
