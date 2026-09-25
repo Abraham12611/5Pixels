@@ -1,0 +1,248 @@
+{
+  "$schema_comment": "Preset catalog seed manifest. Each preset becomes a products row + active product_versions v1 + uploaded preset-media assets linked via product_assets. Image files live under scripts/preset-media/<slug>/ (gitignored) or are https URLs. Seed with: node scripts/seed-catalog-presets.mjs",
+  "admin_user_id": "41b01f9c-f4bc-4bb8-912a-d13396b19be0",
+  "defaults": {
+    "provider_strategy": {
+      "primary_model": "openai/gpt-image-2/edit",
+      "fallback_model": "fal-ai/nano-banana-2/edit",
+      "primary_provider": "fal.ai",
+      "fallback_provider": "fal.ai"
+    },
+    "model_config": {},
+    "input_validation_config": {},
+    "post_process_config": {
+      "crop": false,
+      "format": "png",
+      "quality": 90,
+      "metadata_stripped": true
+    },
+    "safety_config": {
+      "allowed_nsfw": false,
+      "block_minors": true,
+      "block_public_figures": true
+    },
+    "output_sizes": [
+      {
+        "name": "square",
+        "width": 1024,
+        "height": 1024,
+        "is_default": false
+      },
+      {
+        "name": "Rectangle",
+        "width": 864,
+        "height": 1152,
+        "is_default": true
+      },
+      {
+        "name": "Landscape",
+        "width": 1152,
+        "height": 864,
+        "is_default": false
+      }
+    ],
+    "credit_cost": 5
+  },
+  "presets": [
+    {
+      "slug": "studio-standard",
+      "name": "Studio Standard",
+      "category_slug": "professional",
+      "featured_rank": 10,
+      "short_description": "A clean, polished studio portrait with soft professional lighting.",
+      "long_description": "Transform any photo into a polished studio portrait. Even, flattering key light, a tidy seamless backdrop, and a crisp editorial finish make this the reliable everyday portrait look.",
+      "style_archetype": "clean_studio_portrait",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-light and re-stage the photo as a professional studio portrait: a soft, even key light that flatters the face, gentle shadow fill, and a clean seamless neutral-gray studio backdrop behind the subject. Subtly smooth skin texture without altering features. Keep edges natural \u2014 no cutout look.\n\nDeliver a crisp, color-accurate editorial studio portrait. Do not add text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "founder-portrait",
+      "name": "Founder Portrait",
+      "category_slug": "professional",
+      "featured_rank": 20,
+      "short_description": "A confident executive portrait with refined editorial lighting.",
+      "long_description": "A boardroom-ready editorial portrait. Low-key directional light, a dark atmospheric backdrop, and a composed, confident finish \u2014 the portrait look of a founder profile in a business magazine.",
+      "style_archetype": "executive_editorial_portrait",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-stage the photo as an executive editorial portrait: low-key directional lighting with gentle falloff, a dark desaturated backdrop with subtle depth, restrained contrast, and a composed premium finish. Keep skin tones natural and features untouched. Do not add text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "editorial-profile",
+      "name": "Editorial Profile",
+      "category_slug": "cinematic",
+      "featured_rank": 30,
+      "short_description": "A magazine-style editorial portrait with moody, cinematic depth.",
+      "long_description": "A profile worthy of a magazine feature. Sculpted light, filmic grain, and a muted editorial palette give the portrait quiet drama while keeping the subject unmistakably themselves.",
+      "style_archetype": "moody_editorial_portrait",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-grade and re-light the photo as a moody editorial profile: sculpted directional light, deep but detailed shadows, a muted filmic palette, fine grain, and generous negative space. Preserve natural skin texture and every facial feature. Do not add text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "modern-professional",
+      "name": "Modern Professional",
+      "category_slug": "professional",
+      "featured_rank": 40,
+      "short_description": "A fresh, contemporary headshot with clean natural light.",
+      "long_description": "The updated professional headshot \u2014 bright window light, a softly blurred modern interior, and a warm, approachable grade. Polished without feeling stiff.",
+      "style_archetype": "contemporary_headshot",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-stage the photo as a modern professional headshot: bright soft window light, a clean contemporary interior blurred gently behind the subject, warm approachable color, and a crisp finish. Keep skin tones true and features untouched. Do not add text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "creative-headshot",
+      "name": "Creative Headshot",
+      "category_slug": "portraits",
+      "featured_rank": 50,
+      "short_description": "A stylized portrait with creative color grading and soft studio depth.",
+      "long_description": "A portrait with personality \u2014 dual-tone gel lighting, gentle haze, and a confident creative-studio finish that keeps the face honest while dialing up the mood.",
+      "style_archetype": "creative_gel_portrait",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-light the photo as a creative studio headshot: dual-tone gel lighting (warm key, cool rim), a hint of atmospheric haze, a deep toned backdrop, and a polished creative-studio grade. Keep features and skin texture natural. Do not add text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "cover-star",
+      "name": "Cover Star",
+      "category_slug": "posters",
+      "featured_rank": 60,
+      "short_description": "Turn your portrait into a bold magazine cover look.",
+      "long_description": "A cover-worthy portrait transformation \u2014 dramatic beauty lighting, a punchy editorial grade, and confident cover-shot composition that makes the subject look like the feature story.",
+      "style_archetype": "magazine_cover_portrait",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-stage the photo as a magazine cover portrait: dramatic beauty lighting, a bold editorial color grade, strong graphic negative space around the subject, and a confident cover-shot crop. Keep the face flawless but recognizable. Do not add text, mastheads, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "ink-portrait",
+      "name": "Ink Portrait",
+      "category_slug": "illustration",
+      "featured_rank": 70,
+      "short_description": "A hand-inked illustration that turns your photo into a painted ink portrait.",
+      "long_description": "An illustrated portrait rendered in confident ink linework with watercolor-wash accents \u2014 like a sketchbook illustration of the subject, keeping their likeness, pose, and expression intact.",
+      "style_archetype": "ink_illustration_portrait",
+      "identity_preservation": "high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nTransform the subject into a hand-inked illustration while keeping them unmistakably recognizable \u2014 same pose, expression, hairstyle, and outfit silhouette. Render the person in confident black ink linework with loose watercolor-wash accents and sketchbook texture, as if drawn on toned paper. The background becomes a minimal wash, not a photograph.\n\nKeep the likeness honest: do not change facial structure, age, or expression. No text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    },
+    {
+      "slug": "cinematic-still",
+      "name": "Cinematic Still",
+      "category_slug": "cinematic",
+      "featured_rank": 80,
+      "short_description": "Reframe your portrait as a dramatic cinematic film still.",
+      "long_description": "A film-still transformation \u2014 anamorphic light, a teal-and-amber grade, and widescreen drama that makes an everyday portrait feel pulled from a movie frame.",
+      "style_archetype": "cinematic_film_still",
+      "identity_preservation": "very_high",
+      "instruction_template": "EDIT THE PROVIDED SOURCE IMAGE.\n\nKeep the subject's identity, pose, expression, and outfit exactly as they are. Do not change who the person is, what they are wearing, or how they are positioned.\n\nRe-grade and re-stage the photo as a cinematic film still: anamorphic lens character, a teal-and-amber color grade, motivated practical light sources, shallow depth of field, and subtle film grain. Keep features and skin texture natural. Do not add text, logos, or props.",
+      "images": [
+        {
+          "role": "hero",
+          "file": "hero-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-1.jpg"
+        },
+        {
+          "role": "example",
+          "file": "example-2.jpg"
+        }
+      ]
+    }
+  ]
+}
