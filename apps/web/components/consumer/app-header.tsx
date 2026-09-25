@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
-import { getActivePlan } from "@/lib/billing/entitlements";
+import { getActivePlan, hasEverPaid } from "@/lib/billing/entitlements";
 import {
   getMyNotifications,
   getUnreadNotificationCount,
@@ -49,6 +49,7 @@ export async function AppHeader() {
 
   const [
     creditBalance,
+    everPaid,
     unreadCount,
     notifications,
     avatarUrl,
@@ -59,6 +60,7 @@ export async function AppHeader() {
     generationsResult,
   ] = await Promise.all([
     getUserCreditBalance(),
+    hasEverPaid(),
     getUnreadNotificationCount(),
     getMyNotifications(15),
     getAvatarUrl(profile?.avatar_asset_id as string | null | undefined),
@@ -141,6 +143,9 @@ export async function AppHeader() {
     <AppHeaderClient
       isAdmin={isAdmin}
       creditBalance={creditBalance}
+      // Chip hidden for never-paid zero-balance users (01): scarcity styling
+      // on an empty wallet reads as a dead end, not an offer.
+      showCredits={everPaid || creditBalance > 0}
       userName={name}
       userEmail={email}
       avatarUrl={avatarUrl}

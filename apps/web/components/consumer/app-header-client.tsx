@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 interface AppHeaderClientProps {
   isAdmin: boolean;
   creditBalance: number;
+  showCredits: boolean;
   userName: string;
   userEmail: string;
   avatarUrl?: string | null;
@@ -72,6 +73,7 @@ function isExploreActive(pathname: string): boolean {
 export function AppHeaderClient({
   isAdmin,
   creditBalance,
+  showCredits,
   userName,
   userEmail,
   avatarUrl,
@@ -131,10 +133,19 @@ export function AppHeaderClient({
             library={searchLibrary}
             catalogError={catalogError}
           />
-          <CreditBalanceChip
-            credits={creditBalance}
-            lowCreditAt={lowCreditAt}
-          />
+          {showCredits ? (
+            <CreditBalanceChip
+              credits={creditBalance}
+              lowCreditAt={lowCreditAt}
+            />
+          ) : (
+            <Link
+              href="/pricing"
+              className="bg-lime-500 text-ink-950 hover:bg-lime-400 focus-visible:ring-lime-500/50 flex h-8 items-center rounded-full px-3.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2"
+            >
+              Get credits
+            </Link>
+          )}
           <NotificationDropdown
             unreadCount={unreadCount}
             notifications={notifications}

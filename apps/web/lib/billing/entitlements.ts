@@ -17,6 +17,57 @@ export interface EntitlementResult {
   reason: string;
 }
 
+export type UserTier = "visitor" | "free" | "paid_active" | "paid_exhausted";
+
+/**
+ * Monotonic: once a user has ever paid (paid invoice) or held any subscription
+ * row — including cancelled/expired — this stays true. Used to decide whether
+ * monetization UI shows scarcity (never to first-timers) vs. normal surfaces.
+ */
+export async function hasEverPaid(userId?: string): Promise<boolean> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) return false;
+
+  const [invoiceCount, subscriptionCount] = await Promise.all([
+    supabase
+      .from("invoices")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", effectiveUserId)
+      .eq("status", "paid"),
+    supabase
+      .from("subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", effectiveUserId),
+  ]);
+
+  return (
+    (invoiceCount.count ?? 0) > 0 || (subscriptionCount.count ?? 0) > 0
+  );
+}
+
+export async function getUserTier(userId?: string): Promise<UserTier> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) return "visitor";
+
+  const [everPaid, activePlan, balance] = await Promise.all([
+    hasEverPaid(effectiveUserId),
+    getActivePlan(effectiveUserId),
+    getAvailableBalance(effectiveUserId),
+  ]);
+
+  if (!everPaid && balance <= 0 && !activePlan) return "free";
+  if (activePlan || balance > 0) return "paid_active";
+  return "paid_exhausted";
+}
+
 export async function getAvailableBalance(userId?: string): Promise<number> {
   const supabase = await createClient();
   const {

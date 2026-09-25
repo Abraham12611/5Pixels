@@ -1,6 +1,8 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
+import { getPaymentProvider } from "@/lib/billing/payment-provider";
+import { resolvePolarProductId } from "@/lib/billing/polar-client";
 
 export interface PlanForPurchase {
   id: string;
@@ -13,7 +15,8 @@ export interface PlanForPurchase {
   interval: string;
   is_trial: boolean;
   can_repurchase: boolean;
-  dodo_product_id: string | null;
+  /** Product id exists for the active payment provider — safe to offer. */
+  checkout_ready: boolean;
 }
 
 export async function getPlansForPurchase(): Promise<PlanForPurchase[]> {
@@ -29,9 +32,14 @@ export async function getPlansForPurchase(): Promise<PlanForPurchase[]> {
     return [];
   }
 
+  const provider = getPaymentProvider();
   return data.map((plan) => ({
     ...plan,
-    dodo_product_id:
-      (plan.metadata as { dodo_product_id?: string })?.dodo_product_id ?? null,
+    checkout_ready:
+      provider === "polar"
+        ? Boolean(resolvePolarProductId(plan.metadata))
+        : Boolean(
+            (plan.metadata as { dodo_product_id?: string })?.dodo_product_id
+          ),
   })) as PlanForPurchase[];
 }

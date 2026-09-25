@@ -46,7 +46,7 @@ export function PaywallSheet({
 
   const all = [...weekly, ...monthly, ...(oneTime ? [oneTime] : [])];
   const selected = all.find((p) => p.id === planId) ?? null;
-  const canCheckout = selected !== null && Boolean(selected.dodo_product_id);
+  const canCheckout = selected !== null && selected.checkout_ready;
 
   return (
     <div
@@ -192,7 +192,7 @@ export function PaywallSheet({
                 : "Choose a plan"}
             </Button>
           </form>
-          {selected && !selected.dodo_product_id && (
+          {selected && !selected.checkout_ready && (
             <p className="text-text-muted mt-2 text-center text-[11px]">
               This plan isn&rsquo;t available for checkout yet.
             </p>

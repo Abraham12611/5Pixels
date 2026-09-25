@@ -15,7 +15,7 @@ const plans: PlanForPurchase[] = [
     interval: "one_time",
     is_trial: true,
     can_repurchase: false,
-    dodo_product_id: "prod_w1",
+    checkout_ready: true,
   },
   {
     id: "w2",
@@ -28,7 +28,7 @@ const plans: PlanForPurchase[] = [
     interval: "one_time",
     is_trial: true,
     can_repurchase: false,
-    dodo_product_id: "prod_w2",
+    checkout_ready: true,
   },
   {
     id: "m1",
@@ -41,7 +41,7 @@ const plans: PlanForPurchase[] = [
     interval: "monthly",
     is_trial: false,
     can_repurchase: true,
-    dodo_product_id: "prod_m1",
+    checkout_ready: true,
   },
 ];
 
