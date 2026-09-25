@@ -1,6 +1,11 @@
 "use client";
 
-import { ArrowsOut, MagnifyingGlassMinus, MagnifyingGlassPlus, X } from "@phosphor-icons/react";
+import {
+  ArrowsOut,
+  MagnifyingGlassMinus,
+  MagnifyingGlassPlus,
+  X,
+} from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useDialogA11y } from "@/components/ui/dialog";
 import { LAYER_CLASS } from "@/lib/ui/layers";
@@ -22,6 +27,7 @@ export function ImageViewer({
   alt,
   caption,
   actions,
+  nested = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -30,6 +36,8 @@ export function ImageViewer({
   caption?: string;
   /** Optional trailing controls (download, share) in the top bar. */
   actions?: ReactNode;
+  /** Renders above a parent overlay (e.g. the preset quick sheet). */
+  nested?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [zoomIndex, setZoomIndex] = useState(0);
@@ -77,7 +85,7 @@ export function ImageViewer({
       tabIndex={-1}
       className={cn(
         "bg-ink-950 animate-overlay-in fixed inset-0 flex h-[100dvh] flex-col outline-none",
-        LAYER_CLASS.overlay
+        nested ? LAYER_CLASS.nestedOverlay : LAYER_CLASS.overlay
       )}
     >
       <div className="flex items-center justify-between gap-2 px-3 pt-[max(12px,env(safe-area-inset-top))] pb-2">
@@ -180,7 +188,7 @@ function ViewerControl({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 focus-visible:ring-lime-500/70 focus-visible:ring-offset-ink-950 flex h-11 w-11 items-center justify-center rounded-full transition focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-40"
+      className="bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 focus-visible:ring-offset-ink-950 flex h-11 w-11 items-center justify-center rounded-full transition focus-visible:ring-2 focus-visible:ring-lime-500/70 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-40"
     >
       {children}
     </button>

@@ -11,10 +11,16 @@ import {
 import { CatalogFilters } from "@/components/consumer/catalog-filters";
 import { CategoryChipWall } from "@/components/consumer/category-chip-wall";
 import { ProductCard } from "@/components/consumer/product-card";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { MagnifyingGlass, CaretLeft, CaretRight, Lightning } from "@phosphor-icons/react/dist/ssr";
+import {
+  MagnifyingGlass,
+  CaretLeft,
+  CaretRight,
+  Lightning,
+} from "@phosphor-icons/react/dist/ssr";
 
 export default async function ExplorePage({
   searchParams,
@@ -81,7 +87,7 @@ export default async function ExplorePage({
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           {activeCategoryName && (
-            <p className="text-text-muted mb-1.5 text-[11px] font-semibold uppercase tracking-wider">
+            <p className="text-text-muted mb-1.5 text-[11px] font-semibold tracking-wider uppercase">
               Category
             </p>
           )}
@@ -89,15 +95,17 @@ export default async function ExplorePage({
             <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
               {heading}
             </h1>
-            {filters.sort === "featured" && !filters.category && !filters.type && (
-              <Badge
-                variant="secondary"
-                className="bg-lime-400/15 text-lime-300 border-none"
-              >
-                <Lightning className="mr-1 h-3 w-3" />
-                Trending
-              </Badge>
-            )}
+            {filters.sort === "featured" &&
+              !filters.category &&
+              !filters.type && (
+                <Badge
+                  variant="secondary"
+                  className="border-none bg-lime-400/15 text-lime-300"
+                >
+                  <Lightning className="mr-1 h-3 w-3" />
+                  Trending
+                </Badge>
+              )}
           </div>
           <p className="text-text-secondary mt-2">{subcopy}</p>
         </div>
@@ -142,7 +150,7 @@ export default async function ExplorePage({
         {(filters.category || filters.type || filters.search) && (
           <Link
             href="/explore"
-            className="text-text-secondary hover:text-lime-400 text-[13px] font-medium transition-colors"
+            className="text-text-secondary text-[13px] font-medium transition-colors hover:text-lime-400"
           >
             Explore all presets
           </Link>
@@ -164,7 +172,11 @@ export default async function ExplorePage({
           </Button>
         </div>
       ) : (
-        <>
+        <PresetQuickViewHost
+          isAuthenticated={isAuthenticated}
+          favoriteIds={favoriteIds}
+          returnPath={returnPath}
+        >
           <section
             aria-label="Catalog presets"
             className={
@@ -203,8 +215,8 @@ export default async function ExplorePage({
                     ...filters,
                     page: filters.page - 1,
                   })}`}
-                    aria-disabled={filters.page <= 1}
-                  >
+                  aria-disabled={filters.page <= 1}
+                >
                   <CaretLeft className="mr-2 h-4 w-4" />
                   Previous
                 </Link>
@@ -237,7 +249,7 @@ export default async function ExplorePage({
               </Button>
             </nav>
           )}
-        </>
+        </PresetQuickViewHost>
       )}
     </main>
   );

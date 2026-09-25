@@ -34,6 +34,7 @@ interface AppHeaderClientProps {
   searchPresets: SearchPreset[];
   searchCategories: SearchCategory[];
   searchLibrary: SearchLibraryItem[];
+  searchFavoriteIds: string[];
   catalogError: boolean;
 }
 
@@ -85,6 +86,7 @@ export function AppHeaderClient({
   searchPresets,
   searchCategories,
   searchLibrary,
+  searchFavoriteIds,
   catalogError,
 }: AppHeaderClientProps) {
   const pathname = usePathname();
@@ -95,7 +97,7 @@ export function AppHeaderClient({
         {/* Logo */}
         <Link
           href="/app"
-          className="focus-visible:ring-lime-500/50 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2"
+          className="flex items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-lime-500/50"
         >
           <LogoMark className="h-7 w-7" />
           <span className="text-cream-50 hidden text-lg font-bold tracking-tight sm:block">
@@ -104,10 +106,7 @@ export function AppHeaderClient({
         </Link>
 
         {/* Primary nav */}
-        <nav
-          aria-label="Primary"
-          className="hidden items-center gap-1 md:flex"
-        >
+        <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
           <NavLink item={DISCOVER} pathname={pathname} />
           <ExploreMenu
             categories={searchCategories}
@@ -115,11 +114,7 @@ export function AppHeaderClient({
             active={isExploreActive(pathname)}
           />
           {AFTER_EXPLORE.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              pathname={pathname}
-            />
+            <NavLink key={item.href} item={item} pathname={pathname} />
           ))}
         </nav>
 
@@ -129,6 +124,7 @@ export function AppHeaderClient({
             presets={searchPresets}
             categories={searchCategories}
             library={searchLibrary}
+            favoriteIds={searchFavoriteIds}
             catalogError={catalogError}
           />
           <CreditBalanceChip
@@ -142,7 +138,7 @@ export function AppHeaderClient({
           {isAdmin && (
             <Link
               href="/admin"
-              className="border-cream-100/15 text-text-secondary hover:text-cream-100 focus-visible:ring-lime-500/50 hidden h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 sm:flex"
+              className="border-cream-100/15 text-text-secondary hover:text-cream-100 hidden h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-lime-500/50 focus-visible:outline-none sm:flex"
             >
               <Wrench size={14} weight="bold" />
               Admin
@@ -173,10 +169,8 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex h-9 items-center rounded-md px-3 text-sm font-medium outline-none transition-colors focus-visible:ring-lime-500/50 focus-visible:ring-2",
-        active
-          ? "text-cream-50"
-          : "text-text-secondary hover:text-cream-100"
+        "relative flex h-9 items-center rounded-md px-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-lime-500/50",
+        active ? "text-cream-50" : "text-text-secondary hover:text-cream-100"
       )}
     >
       {item.label}

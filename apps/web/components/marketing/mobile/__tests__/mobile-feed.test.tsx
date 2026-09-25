@@ -14,7 +14,10 @@ const items: LandingFeedItem[] = [
     categorySlug: "cinematic",
     creditCost: 4,
     thumbUrl: null,
+    previewUrl: null,
+    previewVideoUrl: null,
     exampleUrls: [],
+    available: true,
   },
   {
     id: "2",
@@ -26,7 +29,10 @@ const items: LandingFeedItem[] = [
     categorySlug: "covers",
     creditCost: 6,
     thumbUrl: null,
+    previewUrl: null,
+    previewVideoUrl: null,
     exampleUrls: [],
+    available: true,
   },
 ];
 
@@ -53,10 +59,10 @@ describe("MobileFeed", () => {
     render(<MobileFeed items={items} categories={categories} />);
     fireEvent.click(screen.getAllByText("Modern Cover")[0]!);
     expect(
-      screen.getByRole("dialog", { name: "Modern Cover preview" })
+      screen.getByRole("dialog", { name: "Modern Cover quick preview" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Upload a photo" })
+      screen.getByRole("link", { name: /use this look/i })
     ).toHaveAttribute("href", "/app/create/modern-cover");
   });
 });

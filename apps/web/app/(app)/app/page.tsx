@@ -12,6 +12,7 @@ import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { isFailureStatus, isTerminalStatus } from "@/lib/generation/stages";
 import { mapSafeGenerationRow } from "@/lib/generation/map";
 import { ProductCard } from "@/components/consumer/product-card";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { cn } from "@/lib/utils";
 import type { PublicProductSummary } from "@/types/catalog";
 
@@ -67,7 +68,7 @@ function SectionHeader({
       {href && action && (
         <Link
           href={href}
-          className="text-text-secondary hover:text-lime-400 inline-flex items-center gap-1 text-[13px] font-medium transition-colors"
+          className="text-text-secondary inline-flex items-center gap-1 text-[13px] font-medium transition-colors hover:text-lime-400"
         >
           {action}
           <ArrowRight className="h-3.5 w-3.5" />
@@ -79,7 +80,7 @@ function SectionHeader({
 
 function ProductRail({ products }: { products: PublicProductSummary[] }) {
   return (
-    <div className="scrollbar-none -mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
+    <div className="-mx-4 flex snap-x scrollbar-none gap-4 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
       {products.map((product) => (
         <ProductCard
           key={product.id}
@@ -104,19 +105,39 @@ export default async function DiscoverPage() {
     redirect("/login");
   }
 
-  const [generationsResult, trendingResult, newestResult, categories, favoriteIds] =
-    await Promise.all([
-      supabase.rpc("get_user_generations"),
-      getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, RAIL_SIZE),
-      getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, RAIL_SIZE),
-      getActiveCategories(),
-      getUserFavoriteProductIds(),
-    ]);
+  const [
+    generationsResult,
+    trendingResult,
+    newestResult,
+    categories,
+    favoriteIds,
+  ] = await Promise.all([
+    supabase.rpc("get_user_generations"),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "featured",
+      1,
+      RAIL_SIZE
+    ),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "newest",
+      1,
+      RAIL_SIZE
+    ),
+    getActiveCategories(),
+    getUserFavoriteProductIds(),
+  ]);
 
-  const generations = ((generationsResult.data ?? []) as Record<
-    string,
-    unknown
-  >[])
+  const generations = (
+    (generationsResult.data ?? []) as Record<string, unknown>[]
+  )
     .map(mapSafeGenerationRow)
     .slice(0, 8);
   const trending = trendingResult.data ?? [];
@@ -164,143 +185,149 @@ export default async function DiscoverPage() {
 
   return (
     <main className="flex flex-1 flex-col">
-      <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">
-        {isNewUser ? (
-          /* Orientation for a brand-new user */
-          <section className="shadow-border from-charcoal-850 to-charcoal-850 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">
-            <h1 className="text-cream-50 max-w-lg text-2xl font-bold sm:text-3xl">
-              Pick a look. We&apos;ll handle the rest.
-            </h1>
-            <p className="text-text-secondary mt-3 max-w-md text-sm sm:text-base">
-              Every preset is a complete transformation — add one photo, adjust
-              a couple of options, and get a finished result. No prompts, no
-              settings rabbit holes.
-            </p>
-            <Link
-              href="/explore"
-              className="bg-lime-400 text-ink-950 hover:bg-lime-300 mt-6 inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold transition-colors"
-            >
-              Browse looks
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </section>
-        ) : (
-          <section>
-            <SectionHeader
-              title="Continue"
-              href="/app/library"
-              action="View all"
-            />
-            <div className="scrollbar-none -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
-              {continueItems.map((item) => {
-                const chip = generationStatusChip(item.status);
-                return (
-                  <Link
-                    key={item.id}
-                    href={item.href}
-                    className="group shadow-border hover:shadow-border-hover w-36 shrink-0 snap-start overflow-hidden rounded-xl bg-charcoal-850 transition-shadow sm:w-40"
-                  >
-                    <div className="bg-charcoal-800 relative aspect-square overflow-hidden">
-                      {item.thumb ? (
-                        <Image
-                          src={item.thumb}
-                          alt=""
-                          fill
-                          className="object-cover"
-                          unoptimized
-                          sizes="160px"
-                        />
-                      ) : (
-                        <div className="bg-charcoal-700 h-full w-full" />
-                      )}
-                      <span
-                        className={cn(
-                          "absolute left-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur-sm",
-                          chip.className
+      <PresetQuickViewHost
+        isAuthenticated
+        favoriteIds={favoriteIds}
+        returnPath="/app"
+      >
+        <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">
+          {isNewUser ? (
+            /* Orientation for a brand-new user */
+            <section className="shadow-border from-charcoal-850 to-charcoal-850 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">
+              <h1 className="text-cream-50 max-w-lg text-2xl font-bold sm:text-3xl">
+                Pick a look. We&apos;ll handle the rest.
+              </h1>
+              <p className="text-text-secondary mt-3 max-w-md text-sm sm:text-base">
+                Every preset is a complete transformation — add one photo,
+                adjust a couple of options, and get a finished result. No
+                prompts, no settings rabbit holes.
+              </p>
+              <Link
+                href="/explore"
+                className="text-ink-950 mt-6 inline-flex items-center gap-2 rounded-md bg-lime-400 px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-lime-300"
+              >
+                Browse looks
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </section>
+          ) : (
+            <section>
+              <SectionHeader
+                title="Continue"
+                href="/app/library"
+                action="View all"
+              />
+              <div className="-mx-4 flex snap-x scrollbar-none gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
+                {continueItems.map((item) => {
+                  const chip = generationStatusChip(item.status);
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      className="group shadow-border hover:shadow-border-hover bg-charcoal-850 w-36 shrink-0 snap-start overflow-hidden rounded-xl transition-shadow sm:w-40"
+                    >
+                      <div className="bg-charcoal-800 relative aspect-square overflow-hidden">
+                        {item.thumb ? (
+                          <Image
+                            src={item.thumb}
+                            alt=""
+                            fill
+                            className="object-cover"
+                            unoptimized
+                            sizes="160px"
+                          />
+                        ) : (
+                          <div className="bg-charcoal-700 h-full w-full" />
                         )}
-                      >
-                        {chip.label}
-                      </span>
-                    </div>
-                    <div className="p-2.5">
-                      <p className="text-cream-50 truncate text-[13px] font-medium">
-                        {item.productName}
-                      </p>
-                      <p className="text-text-muted mt-0.5 text-[11px]">
-                        {item.when}
-                      </p>
-                    </div>
+                        <span
+                          className={cn(
+                            "absolute top-2 left-2 rounded px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur-sm",
+                            chip.className
+                          )}
+                        >
+                          {chip.label}
+                        </span>
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-cream-50 truncate text-[13px] font-medium">
+                          {item.productName}
+                        </p>
+                        <p className="text-text-muted mt-0.5 text-[11px]">
+                          {item.when}
+                        </p>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {trending.length > 0 && (
+            <section>
+              <SectionHeader
+                title="Trending now"
+                href="/explore"
+                action="Explore all"
+              />
+              <ProductRail products={trending} />
+            </section>
+          )}
+
+          {newest.length > 0 && (
+            <section>
+              <SectionHeader
+                title="New looks"
+                href="/explore?sort=newest"
+                action="See what's new"
+              />
+              <ProductRail products={newest} />
+            </section>
+          )}
+
+          {favorites.length > 0 && (
+            <section>
+              <SectionHeader
+                title="Your saved looks"
+                href="/app/favorites"
+                action="View favorites"
+              />
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {favorites.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    isAuthenticated
+                    initialIsFavorite={favoriteIdSet.has(product.id)}
+                    returnPath="/app"
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {categories.length > 0 && (
+            <section>
+              <SectionHeader
+                title="Browse by category"
+                href="/categories"
+                action="All categories"
+              />
+              <div className="flex flex-wrap gap-2">
+                {categories.map((category) => (
+                  <Link
+                    key={category.slug}
+                    href={`/explore?category=${category.slug}`}
+                    className="shadow-border hover:shadow-border-hover text-text-secondary hover:text-cream-50 bg-charcoal-800/80 rounded-lg px-3.5 py-2 text-[13px] font-medium transition-shadow"
+                  >
+                    {category.name}
                   </Link>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {trending.length > 0 && (
-          <section>
-            <SectionHeader
-              title="Trending now"
-              href="/explore"
-              action="Explore all"
-            />
-            <ProductRail products={trending} />
-          </section>
-        )}
-
-        {newest.length > 0 && (
-          <section>
-            <SectionHeader
-              title="New looks"
-              href="/explore?sort=newest"
-              action="See what's new"
-            />
-            <ProductRail products={newest} />
-          </section>
-        )}
-
-        {favorites.length > 0 && (
-          <section>
-            <SectionHeader
-              title="Your saved looks"
-              href="/app/favorites"
-              action="View favorites"
-            />
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {favorites.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  isAuthenticated
-                  initialIsFavorite={favoriteIdSet.has(product.id)}
-                  returnPath="/app"
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {categories.length > 0 && (
-          <section>
-            <SectionHeader
-              title="Browse by category"
-              href="/categories"
-              action="All categories"
-            />
-            <div className="flex flex-wrap gap-2">
-              {categories.map((category) => (
-                <Link
-                  key={category.slug}
-                  href={`/explore?category=${category.slug}`}
-                  className="shadow-border hover:shadow-border-hover text-text-secondary hover:text-cream-50 rounded-lg bg-charcoal-800/80 px-3.5 py-2 text-[13px] font-medium transition-shadow"
-                >
-                  {category.name}
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-      </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </PresetQuickViewHost>
     </main>
   );
 }

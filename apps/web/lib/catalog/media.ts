@@ -2,6 +2,11 @@ import type { PublicProductAsset } from "@/types/catalog";
 
 export type MediaKind = "card" | "hero";
 
+/** Public catalog assets live in public buckets — build the object URL directly. */
+export function publicAssetUrl(bucket: string, storageKey: string): string {
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${bucket}/${storageKey}`;
+}
+
 const CARD_ROLE_ORDER: string[] = [
   "preview_video",
   "preview_gif",
