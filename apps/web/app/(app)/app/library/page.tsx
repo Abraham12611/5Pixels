@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { mapSafeGenerationRow } from "@/lib/generation/map";
-import { isTerminalStatus } from "@/lib/generation/stages";
 import { getPublicProducts, getUserFavoriteProducts } from "@/lib/db/explore";
 import {
   LibrarySegments,
@@ -43,7 +42,9 @@ export default async function LibraryPage({
     tab === "presets" || tab === "runs" ? tab : "results";
 
   const completed = generations.filter((g) => g.status === "completed");
-  const inProgress = generations.filter((g) => !isTerminalStatus(g.status));
+  // The rail also surfaces failed/blocked/cancelled runs with a Retry chip —
+  // the loop the progress page promises (11 §4.1).
+  const attention = generations.filter((g) => g.status !== "completed");
 
   // Sign private output assets for the result grid, progress rail, and run
   // rows — all three segments share the same generation rows.
@@ -67,11 +68,13 @@ export default async function LibraryPage({
       )
     ),
     Promise.all(
-      inProgress.map(
+      attention.map(
         async (g): Promise<ActiveRun> => ({
           id: g.id,
           productName: g.productName,
+          productSlug: g.productSlug,
           status: g.status,
+          createdAt: g.createdAt,
           thumb:
             g.outputBucket && g.outputStorageKey
               ? await getSignedAssetUrl(g.outputBucket, g.outputStorageKey, 3600)
