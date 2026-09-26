@@ -292,14 +292,14 @@ export default async function DiscoverPage() {
           {favorites.length > 0 && (
             <MobileSection
               title="Your saved looks"
-              seeAllHref="/app/favorites"
+              seeAllHref="/app/library?tab=presets"
               seeAllLabel="View favorites"
               bleed
             >
               <ProductRail
                 products={favorites}
                 label="Saved looks"
-                moreHref="/app/favorites"
+                moreHref="/app/library?tab=presets"
                 favoriteIds={favoriteIdSet}
               />
             </MobileSection>

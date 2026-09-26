@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { Compass, Heart, House, Image, Lightning } from "@phosphor-icons/react";
+import { Compass, House, Image, Lightning, User } from "@phosphor-icons/react";
 import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ const LEFT_ITEMS = [
 
 const RIGHT_ITEMS = [
   { href: "/app/library", label: "Library", icon: Image },
-  { href: "/app/favorites", label: "Favorites", icon: Heart },
+  { href: "/app/account", label: "Account", icon: User },
 ];
 
 function isActive(pathname: string, href: string): boolean {

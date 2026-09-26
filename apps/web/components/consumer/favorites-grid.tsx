@@ -13,7 +13,13 @@ import type { FavoriteProduct } from "@/types/catalog";
  * presets render muted with a recovery path. Unfavoriting removes the card
  * with a reversible toast per the design bible (FV-03).
  */
-export function FavoritesGrid({ favorites }: { favorites: FavoriteProduct[] }) {
+export function FavoritesGrid({
+  favorites,
+  returnPath = "/app/library?tab=presets",
+}: {
+  favorites: FavoriteProduct[];
+  returnPath?: string;
+}) {
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
   const markRemoved = (productId: string, removed: boolean) =>
@@ -46,7 +52,7 @@ export function FavoritesGrid({ favorites }: { favorites: FavoriteProduct[] }) {
     <PresetQuickViewHost
       isAuthenticated
       favoriteIds={favorites.map((f) => f.product.id)}
-      returnPath="/app/favorites"
+      returnPath={returnPath}
       onFavoriteToggled={handleFavoriteChange}
     >
       <section
@@ -61,7 +67,7 @@ export function FavoritesGrid({ favorites }: { favorites: FavoriteProduct[] }) {
                 product={product}
                 isAuthenticated
                 initialIsFavorite
-                returnPath="/app/favorites"
+                returnPath={returnPath}
                 onFavoriteChange={handleFavoriteChange}
               />
             </div>
