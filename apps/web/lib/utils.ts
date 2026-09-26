@@ -27,3 +27,23 @@ export function formatRelativeTime(iso: string): string {
     year: time < Date.now() - 300 * 24 * 60 * 60 * 1000 ? "numeric" : undefined,
   });
 }
+
+/**
+ * Splits timestamped items into Today / Earlier groups for inbox-style lists
+ * (25_MOBILE_WEB_POLISH 14 §4.3). Order within each group is preserved.
+ */
+export function groupByDay<T extends { created_at: string }>(
+  items: T[]
+): { today: T[]; earlier: T[] } {
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  const today: T[] = [];
+  const earlier: T[] = [];
+  for (const item of items) {
+    (new Date(item.created_at).getTime() >= cutoff.getTime()
+      ? today
+      : earlier
+    ).push(item);
+  }
+  return { today, earlier };
+}

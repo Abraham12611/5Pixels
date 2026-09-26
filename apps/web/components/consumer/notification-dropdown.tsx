@@ -1,202 +1,285 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Bell, GearSix, Sparkle, Wallet, WarningCircle } from "@phosphor-icons/react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Bell,
-  Check,
-  CreditCard,
-  Image,
-  Info,
-} from "@phosphor-icons/react";
+import { Sheet } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { useIsNarrow } from "@/lib/ui/use-media-query";
 import {
   markAllNotificationsRead,
   markNotificationRead,
   type NotificationItem,
 } from "@/lib/db/notifications";
-import { cn } from "@/lib/utils";
+import { cn, groupByDay } from "@/lib/utils";
 
-interface NotificationDropdownProps {
-  unreadCount: number;
-  notifications: NotificationItem[];
+/** Badge shows the unread count, capped per spec `14 §4.3`. */
+export function unreadBadgeLabel(unreadCount: number): string | null {
+  if (unreadCount <= 0) return null;
+  return unreadCount > 9 ? "9+" : String(unreadCount);
 }
 
-function relativeTime(iso: string): string {
-  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (seconds < 60) return "now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString();
+const TYPE_ICON = {
+  generation: Sparkle,
+  billing: Wallet,
+  system: WarningCircle,
+} as const;
+
+export function NotificationRow({
+  n,
+  onRead,
+}: {
+  n: NotificationItem;
+  onRead: (id: string) => void;
+}) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const Icon = TYPE_ICON[n.type] ?? WarningCircle;
+  const unread = !n.read_at;
+
+  const activate = () => {
+    if (unread) {
+      onRead(n.id);
+      startTransition(() => {
+        void markNotificationRead(n.id);
+      });
+    }
+    if (n.link) router.push(n.link);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={activate}
+      className={cn(
+        "border-cream-100/10 hover:bg-elevated-2 flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors last:border-b-0",
+        unread && "bg-elevated-2/50"
+      )}
+      aria-label={
+        unread ? `${n.title} — unread` : n.title
+      }
+    >
+      <span className="bg-elevated-3 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
+        <Icon size={15} className="text-text-secondary" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "flex items-start justify-between gap-2",
+            unread ? "text-cream-50" : "text-text-secondary"
+          )}
+        >
+          <span className="truncate text-sm font-medium">{n.title}</span>
+          <span className="text-text-muted mt-0.5 shrink-0 text-xs">
+            {new Date(n.created_at).toLocaleTimeString([], {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </span>
+        </span>
+        {n.body && (
+          <span className="text-text-secondary mt-0.5 line-clamp-2 block text-xs leading-relaxed">
+            {n.body}
+          </span>
+        )}
+      </span>
+      {/* Unread dot — the row itself marks read on activation */}
+      <span
+        className={cn(
+          "mt-2 h-1.5 w-1.5 shrink-0 rounded-full",
+          unread ? "bg-accent-400" : "bg-transparent"
+        )}
+        aria-hidden="true"
+      />
+    </button>
+  );
 }
 
-function typeIcon(type: NotificationItem["type"]) {
-  switch (type) {
-    case "billing":
-      return CreditCard;
-    case "system":
-      return Info;
-    default:
-      return Image;
-  }
+/** Shared inbox body — the T2 sheet (mobile) and the desktop popover render this. */
+export function NotificationInboxList({
+  items,
+  unread,
+  onRead,
+  onMarkAll,
+  onClose,
+}: {
+  items: NotificationItem[];
+  unread?: number;
+  onRead: (id: string) => void;
+  onMarkAll?: () => void;
+  onClose?: () => void;
+}) {
+  const { today, earlier } = groupByDay(items);
+  const empty = items.length === 0;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Mobile sheets put Mark all read in-body — the sheet header only holds the title */}
+      {onMarkAll && unread !== undefined && unread > 0 && (
+        <div className="flex shrink-0 justify-end px-3 pt-1 pb-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-text-secondary h-8 text-xs"
+            onClick={onMarkAll}
+          >
+            Mark all read
+          </Button>
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {empty ? (
+          <p className="text-text-secondary px-4 py-12 text-center text-sm">
+            You&apos;re all caught up.
+          </p>
+        ) : (
+          <>
+            {today.length > 0 && (
+              <section aria-label="Today">
+                <h3 className="text-text-muted border-cream-100/10 bg-surface-base/95 sticky top-0 border-b px-4 py-1.5 text-[10px] font-semibold tracking-widest uppercase">
+                  Today
+                </h3>
+                {today.map((n) => (
+                  <NotificationRow key={n.id} n={n} onRead={onRead} />
+                ))}
+              </section>
+            )}
+            {earlier.length > 0 && (
+              <section aria-label="Earlier">
+                <h3 className="text-text-muted border-cream-100/10 bg-surface-base/95 sticky top-0 border-b px-4 py-1.5 text-[10px] font-semibold tracking-widest uppercase">
+                  Earlier
+                </h3>
+                {earlier.map((n) => (
+                  <NotificationRow key={n.id} n={n} onRead={onRead} />
+                ))}
+              </section>
+            )}
+          </>
+        )}
+      </div>
+      {/* Settings affordance lives at the foot of the inbox (14 §4.3) */}
+      <div className="border-cream-100/10 shrink-0 border-t p-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-text-secondary w-full justify-start gap-2"
+          asChild
+        >
+          <Link href="/app/account/notifications" onClick={onClose}>
+            <GearSix size={14} aria-hidden />
+            Notification settings
+          </Link>
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function NotificationDropdown({
-  unreadCount,
-  notifications,
-}: NotificationDropdownProps) {
-  const [isPending, startTransition] = useTransition();
-  const hasUnread = unreadCount > 0;
+  unreadCount: initialUnread,
+  notifications: initialNotifications,
+}: {
+  unreadCount: number;
+  notifications: NotificationItem[];
+}) {
+  const isNarrow = useIsNarrow();
+  const [items, setItems] = useState(initialNotifications);
+  const [unread, setUnread] = useState(initialUnread);
+  const [open, setOpen] = useState(false);
+  const [, startTransition] = useTransition();
 
-  const markRead = (id: string) => {
-    startTransition(() => {
-      void markNotificationRead(id);
-    });
-  };
+  const badge = unreadBadgeLabel(unread);
 
   const markAll = () => {
-    if (!hasUnread) return;
+    const stamp = new Date().toISOString();
+    setItems((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? stamp })));
+    setUnread(0);
     startTransition(() => {
       void markAllNotificationsRead();
     });
   };
 
+  const markOne = (id: string) => {
+    const target = items.find((n) => n.id === id);
+    if (!target || target.read_at) return;
+    setItems((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, read_at: new Date().toISOString() } : n
+      )
+    );
+    setUnread((c) => Math.max(0, c - 1));
+  };
+
+  const trigger = (
+    <button
+      type="button"
+      onClick={isNarrow ? () => setOpen(true) : undefined}
+      className="text-text-secondary hover:text-cream-50 hover:bg-elevated-2 relative flex h-10 w-10 items-center justify-center rounded-full transition-colors"
+      aria-label={
+        unread > 0 ? `Notifications, ${unread} unread` : "Notifications"
+      }
+    >
+      <Bell size={20} />
+      {badge && (
+        <span className="bg-error text-cream-50 absolute top-0 right-0 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-semibold">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+
+  const header = (
+    <div className="border-cream-100/10 flex items-center justify-between gap-2 border-b px-4 py-3">
+      <h2 className="text-cream-50 text-sm font-semibold">Notifications</h2>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-text-secondary h-8 text-xs"
+        onClick={markAll}
+        disabled={unread === 0}
+      >
+        Mark all read
+      </Button>
+    </div>
+  );
+
+  if (isNarrow) {
+    return (
+      <>
+        {trigger}
+        {/* T2 inbox — full-height content sheet on mobile (14 §4.3) */}
+        <Sheet
+          open={open}
+          onOpenChange={setOpen}
+          tier="content"
+          title="Notifications"
+          showClose
+          bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+        >
+          <NotificationInboxList
+            items={items}
+            unread={unread}
+            onRead={markOne}
+            onMarkAll={markAll}
+            onClose={() => setOpen(false)}
+          />
+        </Sheet>
+      </>
+    );
+  }
+
   return (
     <Popover>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                className="relative flex items-center rounded-full p-1.5 transition hover:bg-charcoal-800 focus-visible:ring-2 focus-visible:ring-lime-500/50 focus-visible:outline-none"
-                aria-label={
-                  hasUnread ? `Notifications, ${unreadCount} unread` : "Notifications"
-                }
-              >
-                {hasUnread ? (
-                  <Bell size={22} weight="fill" className="text-cream-50" />
-                ) : (
-                  <Bell size={22} weight="bold" className="text-text-secondary" />
-                )}
-                {hasUnread && (
-                  <span className="ring-ink-950 absolute right-1.5 top-1.5 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-lime-400 ring-2" />
-                )}
-              </button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Notifications</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-
-      <PopoverContent
-        className="w-96 border-cream-100/10 bg-charcoal-850 p-0 text-cream-50"
-        align="end"
-        sideOffset={8}
-      >
-        <div className="border-b-cream-100/10 flex items-center justify-between border-b px-4 py-3">
-          <h3 className="text-sm font-semibold">Notifications</h3>
-          <button
-            type="button"
-            onClick={markAll}
-            disabled={!hasUnread || isPending}
-            className="text-text-secondary hover:text-lime-300 disabled:text-text-muted flex items-center gap-1 text-xs font-medium transition disabled:cursor-default"
-          >
-            <Check size={14} weight="bold" />
-            Mark all read
-          </button>
-        </div>
-
-        <div className="max-h-80 overflow-y-auto">
-          {notifications.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-              <span className="bg-charcoal-800 text-text-muted flex h-11 w-11 items-center justify-center rounded-full">
-                <Bell size={20} weight="bold" />
-              </span>
-              <p className="text-cream-50 text-sm font-medium">
-                No notifications yet
-              </p>
-              <p className="text-text-muted text-xs">
-                We&apos;ll let you know when something happens.
-              </p>
-            </div>
-          ) : (
-            <ul>
-              {notifications.map((n) => {
-                const Icon = typeIcon(n.type);
-                const unread = !n.read_at;
-                return (
-                  <li key={n.id}>
-                    <div
-                      className={cn(
-                        "hover:bg-charcoal-850 border-b-cream-100/5 group flex gap-3 px-4 py-3 transition last:border-b-0",
-                        unread && "bg-charcoal-850/60"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
-                          unread
-                            ? "bg-lime-400/15 text-lime-300"
-                            : "bg-charcoal-800 text-text-secondary"
-                        )}
-                      >
-                        <Icon size={17} weight={unread ? "fill" : "bold"} />
-                      </span>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-cream-50 text-sm font-semibold leading-snug">
-                            {n.link ? (
-                              <Link href={n.link} className="hover:text-lime-300">
-                                {n.title}
-                              </Link>
-                            ) : (
-                              n.title
-                            )}
-                          </p>
-                          <span className="text-text-muted shrink-0 text-[11px]">
-                            {relativeTime(n.created_at)}
-                          </span>
-                        </div>
-                        {n.body ? (
-                          <p className="text-text-secondary mt-0.5 line-clamp-2 text-xs">
-                            {n.body}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      {unread && (
-                        <button
-                          type="button"
-                          onClick={() => markRead(n.id)}
-                          disabled={isPending}
-                          className="text-text-muted hover:text-lime-300 mt-0.5 shrink-0 opacity-0 transition group-hover:opacity-100"
-                          aria-label="Mark as read"
-                        >
-                          <Check size={15} weight="bold" />
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent className="w-96 p-0" align="end">
+        {header}
+        <NotificationInboxList items={items} onRead={markOne} />
       </PopoverContent>
     </Popover>
   );
