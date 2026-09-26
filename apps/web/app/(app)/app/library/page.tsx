@@ -87,6 +87,7 @@ export default async function LibraryPage({
         async (g): Promise<LibraryRun> => ({
           id: g.id,
           productName: g.productName,
+          productSlug: g.productSlug,
           status: g.status,
           creditCost: g.creditCost,
           createdAt: g.createdAt,
