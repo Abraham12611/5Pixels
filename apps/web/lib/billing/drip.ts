@@ -9,10 +9,10 @@ interface DrippablePlan {
 }
 
 function dripIdempotencyKey(
-  polarSubscriptionId: string,
+  providerSubscriptionId: string,
   dripIndex: number
 ): string {
-  return `subscription:${polarSubscriptionId}:drip:${dripIndex}`;
+  return `subscription:${providerSubscriptionId}:drip:${dripIndex}`;
 }
 
 /** Anchor + n months, clamped to the last valid day (Jan 31 +1mo => Feb 28/29). */
@@ -29,12 +29,12 @@ function addMonthsClamped(anchorIso: string, months: number): string {
 async function grantDripCredits(
   userId: string,
   plan: DrippablePlan,
-  polarSubscriptionId: string,
+  providerSubscriptionId: string,
   dripIndex: number,
   invoiceId?: string | null
 ): Promise<string> {
   const service = createServiceClient();
-  const idempotencyKey = dripIdempotencyKey(polarSubscriptionId, dripIndex);
+  const idempotencyKey = dripIdempotencyKey(providerSubscriptionId, dripIndex);
 
   const { data: existing } = await service
     .from("credit_ledger")
@@ -55,7 +55,7 @@ async function grantDripCredits(
       idempotency_key: idempotencyKey,
       metadata: {
         plan_id: plan.id,
-        subscription_id: polarSubscriptionId,
+        subscription_id: providerSubscriptionId,
         drip_index: dripIndex,
         ...(invoiceId ? { invoice_id: invoiceId } : {}),
       },
@@ -89,7 +89,7 @@ export async function initializeSubscriptionDrip(args: {
   subscriptionRowId: string;
   userId: string;
   plan: DrippablePlan;
-  polarSubscriptionId: string;
+  providerSubscriptionId: string;
   periodStart: string;
   invoiceId?: string | null;
 }): Promise<void> {
@@ -97,7 +97,7 @@ export async function initializeSubscriptionDrip(args: {
     subscriptionRowId,
     userId,
     plan,
-    polarSubscriptionId,
+    providerSubscriptionId,
     periodStart,
     invoiceId,
   } = args;
@@ -113,13 +113,7 @@ export async function initializeSubscriptionDrip(args: {
     return;
   }
 
-  await grantDripCredits(
-    userId,
-    plan,
-    polarSubscriptionId,
-    1,
-    invoiceId
-  );
+  await grantDripCredits(userId, plan, providerSubscriptionId, 1, invoiceId);
 
   const nextDripAt =
     plan.credit_drip_months > 1 ? addMonthsClamped(periodStart, 1) : null;
@@ -159,7 +153,7 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
   const { data: due, error } = await service
     .from("subscriptions")
     .select(
-      "id, user_id, plan_id, drips_granted, next_drip_at, drip_anchor_at, current_period_start, polar_subscription_id, plans(id, credits_grant, credit_drip_months)"
+      "id, user_id, plan_id, drips_granted, next_drip_at, drip_anchor_at, current_period_start, polar_subscription_id, creem_subscription_id, plans(id, credits_grant, credit_drip_months)"
     )
     .eq("status", "active")
     .not("next_drip_at", "is", null)
@@ -174,9 +168,11 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
     const plan = Array.isArray(row.plans) ? row.plans[0] : row.plans;
     const dripsGranted = Number(row.drips_granted ?? 0);
     const dripMonths = Number(plan?.credit_drip_months ?? 1);
-    const polarSubscriptionId = row.polar_subscription_id as string | null;
+    const providerSubscriptionId =
+      (row.polar_subscription_id as string | null) ??
+      (row.creem_subscription_id as string | null);
 
-    if (!plan || !polarSubscriptionId) {
+    if (!plan || !providerSubscriptionId) {
       continue;
     }
 
@@ -205,7 +201,7 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
           credits_grant: Number(plan.credits_grant),
           credit_drip_months: dripMonths,
         },
-        polarSubscriptionId,
+        providerSubscriptionId,
         dripIndex
       );
 

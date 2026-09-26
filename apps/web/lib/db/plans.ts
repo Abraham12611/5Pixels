@@ -3,6 +3,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { getPaymentProvider } from "@/lib/billing/payment-provider";
 import { resolvePolarProductId } from "@/lib/billing/polar-client";
+import { resolveCreemProductId } from "@/lib/billing/creem-client";
 
 export interface PlanForPurchase {
   id: string;
@@ -36,10 +37,12 @@ export async function getPlansForPurchase(): Promise<PlanForPurchase[]> {
   return data.map((plan) => ({
     ...plan,
     checkout_ready:
-      provider === "polar"
-        ? Boolean(resolvePolarProductId(plan.metadata))
-        : Boolean(
-            (plan.metadata as { dodo_product_id?: string })?.dodo_product_id
-          ),
+      provider === "creem"
+        ? Boolean(resolveCreemProductId(plan.metadata))
+        : provider === "polar"
+          ? Boolean(resolvePolarProductId(plan.metadata))
+          : Boolean(
+              (plan.metadata as { dodo_product_id?: string })?.dodo_product_id
+            ),
   })) as PlanForPurchase[];
 }

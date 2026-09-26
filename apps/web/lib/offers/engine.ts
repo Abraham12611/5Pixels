@@ -23,6 +23,19 @@ export interface OfferAssignment {
   campaignSlug: string;
   variant: string;
   steps: OfferStep[];
+  /**
+   * Set when rendered via the admin preview override (?offer_preview=).
+   * No promo_assignments row is written and the client must not record
+   * promo events — admin views must not pollute funnel metrics.
+   */
+  isAdminPreview?: boolean;
+}
+
+export interface AdminPreviewOption {
+  campaignSlug: string;
+  campaignName: string;
+  campaignStatus: string;
+  variant: string;
 }
 
 /** Events a client may write — `converted`/`refunded` come from webhooks only. */
@@ -179,6 +192,88 @@ export interface TakeoverState {
   reason: string;
   assignment: OfferAssignment | null;
   /** Campaign-level caps for client display/debug only. */
+  /**
+   * Every previewable campaign+variant combination — only populated for
+   * admin/owner accounts, so the takeover can render a variant switcher.
+   */
+  adminVariants?: AdminPreviewOption[];
+}
+
+/**
+ * Every campaign × variant that renders an offer flow — the admin "see all
+ * variants" index. Includes non-live statuses so drafts can be previewed
+ * before launch.
+ */
+export async function listAdminPreviewOptions(): Promise<AdminPreviewOption[]> {
+  const service = createServiceClient();
+  const [{ data: campaigns }, { data: steps }] = await Promise.all([
+    service
+      .from("promo_campaigns")
+      .select("id, slug, name, status, variant_weights")
+      .order("created_at", { ascending: true }),
+    service.from("promo_steps").select("campaign_id, variant"),
+  ]);
+
+  const variantsByCampaign = new Map<string, Set<string>>();
+  for (const s of steps ?? []) {
+    const set = variantsByCampaign.get(s.campaign_id as string) ?? new Set();
+    set.add(s.variant as string);
+    variantsByCampaign.set(s.campaign_id as string, set);
+  }
+
+  const options: AdminPreviewOption[] = [];
+  for (const c of campaigns ?? []) {
+    const weighted = Object.keys(
+      (c.variant_weights ?? {}) as Record<string, number>
+    );
+    const stepped = variantsByCampaign.get(c.id as string) ?? new Set();
+    const variants = [...new Set([...weighted, ...stepped])];
+    for (const variant of variants) {
+      options.push({
+        campaignSlug: c.slug as string,
+        campaignName: c.name as string,
+        campaignStatus: c.status as string,
+        variant,
+      });
+    }
+  }
+  return options;
+}
+
+/**
+ * Admin preview: build an assignment for `slug[:variant]` without writing a
+ * promo_assignments row, bypassing audience/tier/cap gates. Returns null
+ * when the campaign or variant can't be resolved or has no steps.
+ */
+async function buildAdminPreviewAssignment(
+  preview: string
+): Promise<OfferAssignment | null> {
+  const [slug, requestedVariant] = preview.split(":");
+  if (!slug) return null;
+
+  const service = createServiceClient();
+  const { data: campaign } = await service
+    .from("promo_campaigns")
+    .select("id, slug, variant_weights")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (!campaign) return null;
+
+  const variant =
+    requestedVariant ??
+    Object.keys((campaign.variant_weights ?? {}) as Record<string, number>)[0];
+  if (!variant) return null;
+
+  const steps = await loadSteps(campaign.id as string, variant);
+  if (steps.length === 0) return null;
+
+  return {
+    campaignId: campaign.id as string,
+    campaignSlug: campaign.slug as string,
+    variant,
+    steps,
+    isAdminPreview: true,
+  };
 }
 
 /**
@@ -186,8 +281,15 @@ export interface TakeoverState {
  * `signup_completed_no_credits` / `scheduled_takeover`). Eligibility: signed
  * in, free tier, zero balance, not opted out, under frequency caps, live
  * campaign assigned.
+ *
+ * `preview` is the `?offer_preview=slug[:variant]` escape hatch: honored
+ * only for admin/owner accounts (verified server-side from profiles), it
+ * renders the requested flow without bucketing, event logging, tier checks,
+ * or frequency caps. Non-admins get the normal randomized path regardless.
  */
-export async function getTakeoverStateForUser(): Promise<TakeoverState> {
+export async function getTakeoverStateForUser(
+  preview?: string
+): Promise<TakeoverState> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -195,31 +297,47 @@ export async function getTakeoverStateForUser(): Promise<TakeoverState> {
   if (!user) return { show: false, reason: "anonymous", assignment: null };
 
   const service = createServiceClient();
-  const [{ data: profile }, tier, balance] = await Promise.all([
-    service
-      .from("profiles")
-      .select("offers_opted_out")
-      .eq("id", user.id)
-      .maybeSingle(),
+  const { data: profile } = await service
+    .from("profiles")
+    .select("offers_opted_out, is_admin, is_owner")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const admin = Boolean(profile?.is_admin || profile?.is_owner);
+  const adminVariants = admin ? await listAdminPreviewOptions() : undefined;
+
+  if (admin && preview) {
+    const assignment = await buildAdminPreviewAssignment(preview);
+    return assignment
+      ? { show: true, reason: "admin_preview", assignment, adminVariants }
+      : {
+          show: false,
+          reason: "admin_preview_not_found",
+          assignment: null,
+          adminVariants,
+        };
+  }
+
+  const [tier, balance] = await Promise.all([
     getUserTier(user.id),
     getAvailableBalance(user.id),
   ]);
 
   if (profile?.offers_opted_out) {
-    return { show: false, reason: "opted_out", assignment: null };
+    return { show: false, reason: "opted_out", assignment: null, adminVariants };
   }
   if (balance > 0) {
-    return { show: false, reason: "has_credits", assignment: null };
+    return { show: false, reason: "has_credits", assignment: null, adminVariants };
   }
   if (tier !== "free") {
     // Never interrupt paid users with the promotional ladder — exhausted
     // paid users get functional surfaces (top-up), active ones need nothing.
-    return { show: false, reason: "not_free_tier", assignment: null };
+    return { show: false, reason: "not_free_tier", assignment: null, adminVariants };
   }
 
   const assignment = await getOrAssignCampaignForUser(user.id);
   if (!assignment || assignment.steps.length === 0) {
-    return { show: false, reason: "no_campaign", assignment: null };
+    return { show: false, reason: "no_campaign", assignment: null, adminVariants };
   }
 
   const { data: campaign } = await service
@@ -243,10 +361,10 @@ export async function getTakeoverStateForUser(): Promise<TakeoverState> {
   const impressions = (events ?? []).filter((e) => e.event === "impression");
   const todayCount = impressions.filter((e) => (e.created_at as string) >= dayAgo).length;
   if (todayCount >= caps.takeoverPerDay) {
-    return { show: false, reason: "daily_cap", assignment };
+    return { show: false, reason: "daily_cap", assignment, adminVariants };
   }
   if (impressions.length >= caps.takeoverLifetime) {
-    return { show: false, reason: "lifetime_cap", assignment };
+    return { show: false, reason: "lifetime_cap", assignment, adminVariants };
   }
 
   const lastDismiss = (events ?? []).find((e) => e.event === "dismiss");
@@ -255,11 +373,11 @@ export async function getTakeoverStateForUser(): Promise<TakeoverState> {
       new Date(lastDismiss.created_at as string).getTime() +
       caps.fullDeclineCooldownHours * 60 * 60 * 1000;
     if (Date.now() < cooldownEnds) {
-      return { show: false, reason: "cooldown", assignment };
+      return { show: false, reason: "cooldown", assignment, adminVariants };
     }
   }
 
-  return { show: true, reason: "eligible", assignment };
+  return { show: true, reason: "eligible", assignment, adminVariants };
 }
 
 /**

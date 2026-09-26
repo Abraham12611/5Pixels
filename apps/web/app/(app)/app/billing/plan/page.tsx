@@ -149,7 +149,7 @@ export default async function BillingPlanPage() {
               <Button asChild size="sm">
                 <Link href="/pricing">Change plan</Link>
               </Button>
-              {billing.dodoCustomerId && (
+              {billing.billingCustomerId && (
                 <form action="/api/billing/portal" method="post">
                   <Button type="submit" variant="secondary" size="sm">
                     Manage subscription
@@ -338,7 +338,7 @@ export default async function BillingPlanPage() {
         )}
 
         {/* Cancellation / downgrade — secondary */}
-        {isSubscriber && billing.dodoCustomerId && (
+        {isSubscriber && billing.billingCustomerId && (
           <div className="border-cream-100/10 rounded-[15px] border p-5">
             <p className="text-cream-50 text-sm font-medium">
               Cancel your subscription

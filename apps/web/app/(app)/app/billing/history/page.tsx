@@ -82,7 +82,7 @@ export default async function BillingHistoryPage() {
         <SettingCard
           title="Invoices &amp; purchases"
           action={
-            billing.dodoCustomerId ? (
+            billing.billingCustomerId ? (
               <form action="/api/billing/portal" method="post">
                 <Button type="submit" variant="ghost" size="sm">
                   Manage in billing portal
@@ -187,7 +187,7 @@ export default async function BillingHistoryPage() {
               ))}
             </ul>
           )}
-          {paymentMethods.portalAvailable && billing.dodoCustomerId && (
+          {paymentMethods.portalAvailable && billing.billingCustomerId && (
             <form action="/api/billing/portal" method="post" className="mt-4">
               <Button type="submit" variant="secondary" size="sm">
                 Add or manage payment methods
@@ -201,7 +201,7 @@ export default async function BillingHistoryPage() {
           title="Billing information"
           description="The name and address on your receipts, managed in the billing portal."
           action={
-            billing.dodoCustomerId ? (
+            billing.billingCustomerId ? (
               <form action="/api/billing/portal" method="post">
                 <Button type="submit" variant="secondary" size="sm">
                   Manage
@@ -218,7 +218,7 @@ export default async function BillingHistoryPage() {
               <p className="text-text-secondary mt-0.5 text-sm">{email}</p>
             </div>
           </div>
-          {!billing.dodoCustomerId && (
+          {!billing.billingCustomerId && (
             <p className="text-text-muted mt-3 text-xs">
               A billing profile is created automatically at your first purchase.
             </p>

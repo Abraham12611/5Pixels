@@ -105,8 +105,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
-# Billing — Polar is the default provider; set PAYMENT_PROVIDER=dodo to roll back
-PAYMENT_PROVIDER=polar
+# Billing — Creem is the default provider; set PAYMENT_PROVIDER=polar|dodo to roll back
+PAYMENT_PROVIDER=creem
+CREEM_API_KEY=
+CREEM_WEBHOOK_SECRET=
 POLAR_ACCESS_TOKEN=
 POLAR_SERVER=sandbox
 POLAR_WEBHOOK_SECRET=

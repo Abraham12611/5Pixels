@@ -3,15 +3,21 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { verifyGrowSurfSignature } from "@/lib/growsurf/verify";
 import { growSurfCampaignId } from "@/lib/growsurf/client";
 import { recordGrowSurfParticipant } from "@/lib/growsurf/sync";
-import { grantRewardRow } from "@/lib/referrals/rewards";
+import {
+  grantRewardRow,
+  insertGrowSurfMilestoneReward,
+} from "@/lib/referrals/rewards";
 
 /**
  * GrowSurf webhook receiver (docs/growsurf/Webhooks.md).
  *
  * - Signature: `GrowSurf-Signature: ts=<ms>,v=<hmac>` verified over the
  *   RAW body — JSON re-serialization would break the HMAC.
- * - PARTICIPANT_REACHED_A_GOAL is the only event that moves money: when a
- *   referrer reward is approved we grant the pending_hold credit row. The
+ * - PARTICIPANT_REACHED_A_GOAL is the only event that moves money. Two
+ *   grant paths: (1) referrer rewards settle a local pending_hold credit
+ *   row ("Sign Up + Qualifying Action" trigger), (2) any approved reward
+ *   carrying `spx_credits` metadata grants milestone credits to the
+ *   earner — referrer or referee ("Sign Up" trigger). The
  *   ParticipantReward id (`data.reward.id`) is the idempotency key —
  *   GrowSurf retries deliveries for days.
  * - NEW_PARTICIPANT_ADDED backfills growsurf_id for participants added
@@ -51,6 +57,16 @@ function metaUserId(metadata: Record<string, unknown> | undefined): string | nul
   if (!metadata) return null;
   const v = metadata.spxUserId ?? metadata.spx_user_id;
   return typeof v === "string" && v ? v : null;
+}
+
+/** Reward metadata `spx_credits` (→ spxCredits) names the credit grant. */
+function metaCredits(metadata: Record<string, unknown> | undefined): number {
+  if (!metadata) return 0;
+  const v = metadata.spxCredits ?? metadata.spx_credits;
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n > 0
+    ? Math.floor(n)
+    : 0;
 }
 
 async function resolveUserId(p: GsParticipant | undefined): Promise<string | null> {
@@ -98,9 +114,7 @@ async function handleReachedGoal(data: ReachedGoalData): Promise<void> {
 
   const reward = data.reward;
   const participant = data.participant;
-
-  // Referee-side rewards are handled locally at signup (free unlock).
-  if (!reward?.isReferrer) return;
+  if (!reward) return;
 
   // Manual approval configured → the first delivery arrives unapproved;
   // wait for the approved one (Webhooks.md §PARTICIPANT_REACHED_A_GOAL).
@@ -122,12 +136,79 @@ async function handleReachedGoal(data: ReachedGoalData): Promise<void> {
     .maybeSingle();
   if (seen) return;
 
+  // Path 1 — referrer-side settle of a held payment share (only relevant
+  // when the program trigger is "Sign Up + Qualifying Action"; under the
+  // saved "Sign Up" trigger there is no held row and this no-ops).
+  if (reward.isReferrer === true) {
+    if (await settleHeldPaymentShare({ reward, participant, prewId })) {
+      return;
+    }
+  }
+
+  // Path 2 — GrowSurf campaign reward carrying `spx_credits` metadata,
+  // set in Program Editor > Rewards (Metadata.md). Works for both sides
+  // of double-sided rewards: the event's participant is the earner.
+  const credits = metaCredits(reward.metadata);
+  if (credits <= 0) {
+    console.error(
+      `[growsurf webhook] reward ${prewId}: no held reward and no spx_credits metadata — acknowledged`
+    );
+    return;
+  }
+
+  const earnerUserId = await resolveUserId(participant);
+  if (!earnerUserId) {
+    console.error(
+      `[growsurf webhook] reward ${prewId}: no local user for participant ${participant?.id} (${participant?.email})`
+    );
+    return;
+  }
+
+  const isReferrer = reward.isReferrer === true;
+  const counterpartId = await resolveUserId(
+    isReferrer ? participant?.referee : participant?.referrer
+  );
+  const milestoneBase = {
+    participantRewardId: prewId,
+    earnerUserId,
+    isReferrer,
+    referrerUserId: isReferrer ? earnerUserId : counterpartId,
+    refereeUserId: isReferrer ? counterpartId : earnerUserId,
+    credits,
+    campaignRewardId: reward.rewardId ?? null,
+  };
+
+  // Fraud gate: HIGH-risk earners get the reward rejected rather than
+  // granted — recorded as 'rejected' so redeliveries stay idempotent.
+  if (participant?.fraudRiskLevel === "HIGH") {
+    await insertGrowSurfMilestoneReward({ ...milestoneBase, status: "rejected" });
+    console.error(
+      `[growsurf webhook] reward ${prewId} rejected: fraudRiskLevel HIGH`
+    );
+    return;
+  }
+
+  const granted = await insertGrowSurfMilestoneReward(milestoneBase);
+  if (!granted) {
+    console.error(`[growsurf webhook] reward ${prewId}: milestone grant failed`);
+  }
+}
+
+/** Settles a pending_hold payment-share row against a delivered reward. */
+async function settleHeldPaymentShare(input: {
+  reward: NonNullable<ReachedGoalData["reward"]>;
+  participant: GsParticipant | undefined;
+  prewId: string;
+}): Promise<boolean> {
+  const { reward, participant, prewId } = input;
+  const service = createServiceClient();
+
   const referrerUserId = await resolveUserId(participant);
   if (!referrerUserId) {
     console.error(
       `[growsurf webhook] reward ${prewId}: no local user for participant ${participant?.id} (${participant?.email})`
     );
-    return;
+    return true;
   }
 
   const refereeUserId = await resolveUserId(participant?.referee);
@@ -148,12 +229,7 @@ async function handleReachedGoal(data: ReachedGoalData): Promise<void> {
     : await rewardQuery.eq("status", "pending_hold").limit(2);
 
   const held = (candidates ?? [])[0];
-  if (!held) {
-    console.error(
-      `[growsurf webhook] reward ${prewId}: no pending reward for referrer ${referrerUserId}`
-    );
-    return;
-  }
+  if (!held) return false;
 
   if (held.status !== "pending_hold") {
     // Already settled locally (immediate-grant path) — attach the
@@ -163,7 +239,7 @@ async function handleReachedGoal(data: ReachedGoalData): Promise<void> {
       .update({ growsurf_prew_id: prewId })
       .eq("id", held.id)
       .is("growsurf_prew_id", null);
-    return;
+    return true;
   }
 
   // Fraud gate: GrowSurf's fraud assessment rides the event; HIGH-risk
@@ -181,7 +257,7 @@ async function handleReachedGoal(data: ReachedGoalData): Promise<void> {
     console.error(
       `[growsurf webhook] reward ${prewId} rejected: fraudRiskLevel HIGH`
     );
-    return;
+    return true;
   }
 
   const granted = await grantRewardRow({
@@ -201,6 +277,7 @@ async function handleReachedGoal(data: ReachedGoalData): Promise<void> {
       `[growsurf webhook] reward ${prewId}: grant failed for row ${held.id}`
     );
   }
+  return true;
 }
 
 async function handleNewParticipant(data: {

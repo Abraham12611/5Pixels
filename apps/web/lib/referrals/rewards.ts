@@ -255,6 +255,65 @@ export async function grantReferrerPaymentShare(
   }
 }
 
+/**
+ * GrowSurf campaign reward (milestone or referee-side): the reward's
+ * Program Editor metadata `spx_credits` names the credit amount; the
+ * PARTICIPANT_REACHED_A_GOAL webhook calls this. `source_ref` doubles as
+ * the DB-level idempotency key alongside `growsurf_prew_id`'s unique
+ * index, so manual-approval redeliveries and retries can't double-grant.
+ * Pass status 'rejected' to record a fraud-blocked reward for audit.
+ */
+export async function insertGrowSurfMilestoneReward(input: {
+  participantRewardId: string;
+  earnerUserId: string;
+  isReferrer: boolean;
+  referrerUserId?: string | null;
+  refereeUserId?: string | null;
+  credits: number;
+  campaignRewardId?: string | null;
+  status?: "granted" | "rejected";
+}): Promise<boolean> {
+  const service = createServiceClient();
+  const status = input.status ?? "granted";
+  const prewId = input.participantRewardId;
+
+  let ledgerId: string | null = null;
+  if (status === "granted") {
+    ledgerId = await insertLedgerAllocation({
+      userId: input.earnerUserId,
+      credits: input.credits,
+      idempotencyKey: `growsurf_prew:${prewId}`,
+      metadata: {
+        reason: "growsurf_milestone",
+        is_referrer: input.isReferrer,
+        growsurf_reward_id: input.campaignRewardId ?? null,
+      },
+    });
+    if (!ledgerId) return false;
+  }
+
+  const { data, error } = await service
+    .from("referral_rewards")
+    .insert({
+      source_ref: `gsprew:${prewId}`,
+      growsurf_prew_id: prewId,
+      kind: "growsurf_milestone",
+      status,
+      credits: input.credits,
+      earner_user_id: input.earnerUserId,
+      referrer_user_id: input.referrerUserId ?? null,
+      referee_user_id: input.refereeUserId ?? null,
+      ledger_entry_id: ledgerId,
+      granted_at: status === "granted" ? new Date().toISOString() : null,
+    })
+    .select("id")
+    .maybeSingle();
+
+  // Unique violation on source_ref/growsurf_prew_id = redelivery.
+  if (error) return error.message.includes("duplicate key");
+  return Boolean(data);
+}
+
 export interface ReferralStats {
   referredCount: number;
   paidReferrals: number;
@@ -270,19 +329,27 @@ export async function getReferralStats(): Promise<ReferralStats | null> {
   if (!user) return null;
 
   const service = createServiceClient();
-  const [{ count }, { data: rewards }] = await Promise.all([
-    service
-      .from("referral_participants")
-      .select("*", { count: "exact", head: true })
-      .eq("referred_by", user.id),
-    service
-      .from("referral_rewards")
-      .select("kind, credits, status")
-      .eq("referrer_user_id", user.id)
-      .eq("kind", "referrer_payment_share"),
-  ]);
+  const [{ count }, { data: rewards }, { data: milestoneRewards }] =
+    await Promise.all([
+      service
+        .from("referral_participants")
+        .select("*", { count: "exact", head: true })
+        .eq("referred_by", user.id),
+      service
+        .from("referral_rewards")
+        .select("kind, credits, status")
+        .eq("referrer_user_id", user.id)
+        .eq("kind", "referrer_payment_share"),
+      service
+        .from("referral_rewards")
+        .select("kind, credits, status")
+        .eq("earner_user_id", user.id)
+        .eq("kind", "growsurf_milestone"),
+    ]);
 
-  const granted = (rewards ?? []).filter((r) => r.status === "granted");
+  const granted = [...(rewards ?? []), ...(milestoneRewards ?? [])].filter(
+    (r) => r.status === "granted"
+  );
   return {
     referredCount: count ?? 0,
     paidReferrals: granted.length,

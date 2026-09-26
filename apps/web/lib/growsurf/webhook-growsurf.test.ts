@@ -37,6 +37,7 @@ function reachedGoalEvent(overrides: {
   campaignId?: string;
   fraudRiskLevel?: string;
   prewId?: string;
+  rewardMetadata?: Record<string, unknown>;
 } = {}) {
   const {
     approved = true,
@@ -44,22 +45,35 @@ function reachedGoalEvent(overrides: {
     campaignId = CAMPAIGN,
     fraudRiskLevel = "LOW",
     prewId = "prew_1",
+    rewardMetadata,
   } = overrides;
+  const participant = {
+    id: "gs-ref-1",
+    email: "referrer@example.com",
+    fraudRiskLevel,
+    metadata: { spxUserId: "ref-1" },
+    referee: {
+      id: "gs-buyer-1",
+      email: "buyer@example.com",
+      metadata: { spxUserId: "buyer-1" },
+    },
+    referrer: {
+      id: "gs-ref-1",
+      email: "referrer@example.com",
+      metadata: { spxUserId: "ref-1" },
+    },
+  };
+  // Referee-side events: the participant IS the referred friend.
+  if (!isReferrer) {
+    participant.id = "gs-buyer-1";
+    participant.email = "buyer@example.com";
+    participant.metadata = { spxUserId: "buyer-1" };
+  }
   return {
     event: "PARTICIPANT_REACHED_A_GOAL",
     createdAt: Date.now(),
     data: {
-      participant: {
-        id: "gs-ref-1",
-        email: "referrer@example.com",
-        fraudRiskLevel,
-        metadata: { spxUserId: "ref-1" },
-        referee: {
-          id: "gs-buyer-1",
-          email: "buyer@example.com",
-          metadata: { spxUserId: "buyer-1" },
-        },
-      },
+      participant,
       reward: {
         id: prewId,
         rewardId: "crew_1",
@@ -67,6 +81,7 @@ function reachedGoalEvent(overrides: {
         approved,
         referrerId: "gs-ref-1",
         referredId: "gs-buyer-1",
+        ...(rewardMetadata ? { metadata: rewardMetadata } : {}),
       },
       campaign: { id: campaignId, type: "REFERRAL" },
     },
@@ -139,11 +154,84 @@ describe("growsurf webhook route", () => {
     expect(fake.table("referral_rewards")[0].status).toBe("pending_hold");
   });
 
-  it("ignores referee-side reward events (unlock is granted locally)", async () => {
+  it("acknowledges referee-side events without spx_credits metadata", async () => {
     const body = JSON.stringify(reachedGoalEvent({ isReferrer: false }));
     const res = await post(body, sign(body));
     expect(res.status).toBe(200);
     expect(fake.table("credit_ledger")).toHaveLength(0);
+  });
+
+  it("grants a referrer milestone reward carrying spx_credits metadata", async () => {
+    fake.seed("referral_rewards", []); // no held row to settle
+    const body = JSON.stringify(
+      reachedGoalEvent({ rewardMetadata: { spxCredits: 500 } })
+    );
+    const res = await post(body, sign(body));
+
+    expect(res.status).toBe(200);
+    const ledger = fake.table("credit_ledger");
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].user_id).toBe("ref-1");
+    expect(ledger[0].amount).toBe(500);
+    expect(ledger[0].idempotency_key).toBe("growsurf_prew:prew_1");
+
+    const rewards = fake.table("referral_rewards");
+    expect(rewards).toHaveLength(1);
+    expect(rewards[0].kind).toBe("growsurf_milestone");
+    expect(rewards[0].status).toBe("granted");
+    expect(rewards[0].earner_user_id).toBe("ref-1");
+    expect(rewards[0].growsurf_prew_id).toBe("prew_1");
+  });
+
+  it("grants a referee-side milestone reward to the referred friend", async () => {
+    fake.seed("referral_rewards", []);
+    const body = JSON.stringify(
+      reachedGoalEvent({
+        isReferrer: false,
+        rewardMetadata: { spx_credits: 100 },
+      })
+    );
+    const res = await post(body, sign(body));
+
+    expect(res.status).toBe(200);
+    const ledger = fake.table("credit_ledger");
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0].user_id).toBe("buyer-1");
+    expect(ledger[0].amount).toBe(100);
+
+    const reward = fake.table("referral_rewards")[0];
+    expect(reward.earner_user_id).toBe("buyer-1");
+    expect(reward.referrer_user_id).toBe("ref-1");
+    expect(reward.referee_user_id).toBe("buyer-1");
+  });
+
+  it("milestone grants are idempotent across redeliveries", async () => {
+    fake.seed("referral_rewards", []);
+    const body = JSON.stringify(
+      reachedGoalEvent({ rewardMetadata: { spxCredits: 50 } })
+    );
+    const sig = sign(body);
+    for (let i = 0; i < 3; i++) {
+      expect((await post(body, sig)).status).toBe(200);
+    }
+    expect(fake.table("credit_ledger")).toHaveLength(1);
+    expect(fake.table("referral_rewards")).toHaveLength(1);
+  });
+
+  it("records a rejected milestone row for HIGH-fraud earners", async () => {
+    fake.seed("referral_rewards", []);
+    const body = JSON.stringify(
+      reachedGoalEvent({
+        fraudRiskLevel: "HIGH",
+        rewardMetadata: { spxCredits: 500 },
+      })
+    );
+    const res = await post(body, sign(body));
+    expect(res.status).toBe(200);
+    expect(fake.table("credit_ledger")).toHaveLength(0);
+    const reward = fake.table("referral_rewards")[0];
+    expect(reward.status).toBe("rejected");
+    expect(reward.kind).toBe("growsurf_milestone");
   });
 
   it("ignores events for other campaigns", async () => {

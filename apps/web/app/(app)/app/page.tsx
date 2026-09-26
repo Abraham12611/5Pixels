@@ -99,7 +99,11 @@ function ProductRail({ products }: { products: PublicProductSummary[] }) {
   );
 }
 
-export default async function DiscoverPage() {
+export default async function DiscoverPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -110,6 +114,12 @@ export default async function DiscoverPage() {
     redirect("/login");
   }
 
+  // Admin preview: ?offer_preview=<campaignSlug>[:<variant>] — ignored for
+  // non-admins inside getTakeoverStateForUser.
+  const params = await searchParams;
+  const offerPreview =
+    typeof params?.offer_preview === "string" ? params.offer_preview : undefined;
+
   const [generationsResult, trendingResult, newestResult, categories, favoriteIds, pending, balance, takeover, purchasePlans] =
     await Promise.all([
       supabase.rpc("get_user_generations"),
@@ -119,7 +129,7 @@ export default async function DiscoverPage() {
       getUserFavoriteProductIds(),
       getPendingGenerationForUser(),
       getUserCreditBalance(),
-      getTakeoverStateForUser(),
+      getTakeoverStateForUser(offerPreview),
       getPlansForPurchase(),
     ]);
 
@@ -180,6 +190,7 @@ export default async function DiscoverPage() {
           plans={purchasePlans}
           pendingProductName={pending?.productName}
           referralUserId={user.id}
+          adminVariants={takeover.adminVariants}
         />
       )}
       <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">

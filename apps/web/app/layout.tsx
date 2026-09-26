@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
 import "./globals.css";
+
+const GROWSURF_CAMPAIGN_ID =
+  process.env.NEXT_PUBLIC_GROWSURF_CAMPAIGN_ID ?? "whr2c0";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,6 +45,15 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-ink-950 text-text-primary">
         {children}
+        {GROWSURF_CAMPAIGN_ID ? (
+          <Script
+            id="growsurf-universal"
+            strategy="beforeInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `(function(g,r,s,f){g.grsfSettings={campaignId:"${GROWSURF_CAMPAIGN_ID}",version:"2.0.0"};s=r.getElementsByTagName("head")[0];f=r.createElement("script");f.async=1;f.src="https://app.growsurf.com/growsurf.js"+"?v="+g.grsfSettings.version;f.setAttribute("grsf-campaign", g.grsfSettings.campaignId);!g.grsfInit?s.appendChild(f):"";})(window,document);`,
+            }}
+          />
+        ) : null}
       </body>
     </html>
   );

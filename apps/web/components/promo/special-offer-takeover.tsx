@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { OfferBadge } from "./offer-badge";
@@ -10,7 +12,11 @@ import { SaveLine } from "./save-line";
 import { recordOfferEvent, optOutOffers } from "@/lib/offers/actions";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { OfferAssignment, OfferStep } from "@/lib/offers/engine";
+import type {
+  AdminPreviewOption,
+  OfferAssignment,
+  OfferStep,
+} from "@/lib/offers/engine";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
 /**
@@ -26,6 +32,7 @@ export function SpecialOfferTakeover({
   context = "signup_completed_no_credits",
   pendingProductName,
   referralUserId,
+  adminVariants,
   onClose,
 }: {
   assignment: OfferAssignment;
@@ -34,9 +41,13 @@ export function SpecialOfferTakeover({
   /** Set when a saved teaser exists — copy leans on the pending result. */
   pendingProductName?: string;
   referralUserId?: string;
+  /** Admin preview switcher — every campaign+variant the admin can load. */
+  adminVariants?: AdminPreviewOption[];
   onClose: () => void;
 }) {
+  const router = useRouter();
   const { campaignId, variant } = assignment;
+  const isAdminPreview = assignment.isAdminPreview === true;
   const steps = useMemo(() => assignment.steps.slice(0, 3), [assignment.steps]);
   const [stepIndex, setStepIndex] = useState(0);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
@@ -52,6 +63,8 @@ export function SpecialOfferTakeover({
     event: Parameters<typeof recordOfferEvent>[0]["event"],
     extra?: { meta?: Record<string, unknown> }
   ) {
+    // Admin previews never write funnel events — they'd skew metrics.
+    if (isAdminPreview) return;
     void recordOfferEvent({
       campaignId,
       variant,
@@ -64,7 +77,7 @@ export function SpecialOfferTakeover({
   }
 
   useEffect(() => {
-    if (impressionSent.current) return;
+    if (impressionSent.current || isAdminPreview) return;
     impressionSent.current = true;
     void recordOfferEvent({
       campaignId,
@@ -73,10 +86,10 @@ export function SpecialOfferTakeover({
       event: "impression",
       context,
     });
-  }, [campaignId, variant, context]);
+  }, [campaignId, variant, context, isAdminPreview]);
 
   useEffect(() => {
-    if (!step || closed) return;
+    if (!step || closed || isAdminPreview) return;
     void recordOfferEvent({
       campaignId,
       variant,
@@ -86,7 +99,7 @@ export function SpecialOfferTakeover({
       context,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepIndex, closed]);
+  }, [stepIndex, closed, isAdminPreview]);
 
   if (closed || !step) return null;
 
@@ -109,7 +122,7 @@ export function SpecialOfferTakeover({
 
   function optOut() {
     fire("opt_out");
-    void optOutOffers(campaignId);
+    if (!isAdminPreview) void optOutOffers(campaignId);
     setClosed(true);
     onClose();
   }
@@ -117,26 +130,28 @@ export function SpecialOfferTakeover({
   async function acceptPlan(planId: string) {
     // accept/checkout_started matter for measurement — await them before
     // the POST navigates away and cancels in-flight requests.
-    await Promise.all([
-      recordOfferEvent({
-        campaignId,
-        variant,
-        step: step?.position,
-        surface: "takeover",
-        event: "accept",
-        context,
-        meta: { plan_id: planId },
-      }),
-      recordOfferEvent({
-        campaignId,
-        variant,
-        step: step?.position,
-        surface: "takeover",
-        event: "checkout_started",
-        context,
-        meta: { plan_id: planId },
-      }),
-    ]);
+    if (!isAdminPreview) {
+      await Promise.all([
+        recordOfferEvent({
+          campaignId,
+          variant,
+          step: step?.position,
+          surface: "takeover",
+          event: "accept",
+          context,
+          meta: { plan_id: planId },
+        }),
+        recordOfferEvent({
+          campaignId,
+          variant,
+          step: step?.position,
+          surface: "takeover",
+          event: "checkout_started",
+          context,
+          meta: { plan_id: planId },
+        }),
+      ]);
+    }
     if (planInputRef.current) planInputRef.current.value = planId;
     checkoutFormRef.current?.submit();
   }
@@ -150,7 +165,9 @@ export function SpecialOfferTakeover({
     <div className="fixed inset-0 z-[60] overflow-y-auto bg-ink-950">
       {/* Header bar */}
       <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-950/90 px-5 py-4 backdrop-blur">
-        <OfferBadge tone="promo">Special offer</OfferBadge>
+        <OfferBadge tone="promo">
+          {isAdminPreview ? "Admin preview" : "Special offer"}
+        </OfferBadge>
         <button
           type="button"
           onClick={dismiss}
@@ -160,6 +177,48 @@ export function SpecialOfferTakeover({
           <X size={16} weight="bold" />
         </button>
       </div>
+
+      {/* Admin preview switcher — jump between any campaign+variant flow. */}
+      {adminVariants && adminVariants.length > 0 && (
+        <div className="border-b border-cream-100/10 bg-charcoal-900 px-5 py-2.5">
+          <div className="mx-auto flex w-full max-w-lg items-center gap-3">
+            <label
+              htmlFor="offer-preview-variant"
+              className="text-text-muted shrink-0 text-[11px] font-semibold uppercase tracking-wide"
+            >
+              Previewing
+            </label>
+            <select
+              id="offer-preview-variant"
+              className="bg-charcoal-800 text-cream-50 border-cream-100/10 min-w-0 flex-1 rounded-md border px-2 py-1.5 text-xs"
+              value={`${assignment.campaignSlug}:${variant}`}
+              onChange={(e) => {
+                router.push(
+                  `/app?offer_preview=${encodeURIComponent(e.target.value)}`
+                );
+              }}
+            >
+              {adminVariants.map((option) => (
+                <option
+                  key={`${option.campaignSlug}:${option.variant}`}
+                  value={`${option.campaignSlug}:${option.variant}`}
+                >
+                  {option.campaignName} — {option.variant}
+                  {option.campaignStatus !== "live"
+                    ? ` (${option.campaignStatus})`
+                    : ""}
+                </option>
+              ))}
+            </select>
+            <Link
+              href="/app"
+              className="text-text-muted hover:text-cream-50 shrink-0 text-[11px] transition-colors"
+            >
+              Exit preview
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-lg flex-col px-5 pb-28 pt-6">
         {pendingProductName && (

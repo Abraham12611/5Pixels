@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { SpecialOfferTakeover } from "@/components/promo/special-offer-takeover";
-import type { OfferAssignment } from "@/lib/offers/engine";
+import type {
+  AdminPreviewOption,
+  OfferAssignment,
+} from "@/lib/offers/engine";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
 /**
@@ -15,11 +18,13 @@ export function OfferTakeoverGate({
   plans,
   pendingProductName,
   referralUserId,
+  adminVariants,
 }: {
   assignment: OfferAssignment;
   plans: PlanForPurchase[];
   pendingProductName?: string;
   referralUserId?: string;
+  adminVariants?: AdminPreviewOption[];
 }) {
   const [open, setOpen] = useState(true);
   if (!open) return null;
@@ -29,6 +34,7 @@ export function OfferTakeoverGate({
       plans={plans}
       pendingProductName={pendingProductName}
       referralUserId={referralUserId}
+      adminVariants={adminVariants}
       onClose={() => setOpen(false)}
     />
   );

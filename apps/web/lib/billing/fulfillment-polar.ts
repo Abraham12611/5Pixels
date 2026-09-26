@@ -810,7 +810,7 @@ export async function fulfillPolarSubscriptionEvent(
         subscriptionRowId: subscriptionId,
         userId: mapping.userId,
         plan,
-        polarSubscriptionId: info.subscriptionId,
+        providerSubscriptionId: info.subscriptionId,
         periodStart: info.currentPeriodStart,
         invoiceId,
       });

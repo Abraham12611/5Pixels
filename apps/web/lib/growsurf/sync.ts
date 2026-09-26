@@ -109,7 +109,10 @@ export async function syncParticipantToGrowSurf(userId: string): Promise<void> {
  * - Configured + hold days > 0 → claim the reward as pending_hold and
  *   trigger GrowSurf's delayed referral; PARTICIPANT_REACHED_A_GOAL grants
  *   when the hold elapses. A refund inside the window cancels the trigger
- *   so the bonus never lands.
+ *   so the bonus never lands. NOTE: delayInDays only applies when the
+ *   program's referral trigger is "Sign Up + Qualifying Action" — under
+ *   the saved "Sign Up" trigger the API reports failure (credit was
+ *   already given at signup) and we fall back to the local grant.
  * - Configured + no hold → trigger for tracking, grant immediately.
  *
  * If the delayed trigger fails after the slot was claimed, we grant

@@ -193,7 +193,7 @@ export default async function BillingPage() {
                     : "Upgrade for more credits and premium looks."}
                 </p>
               </div>
-              {billing.dodoCustomerId && planName ? (
+              {billing.billingCustomerId && planName ? (
                 <form action="/api/billing/portal" method="post">
                   <Button type="submit" variant="secondary" size="sm">
                     Manage plan

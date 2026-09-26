@@ -102,6 +102,31 @@ export default async function CampaignDetailPage({
         )}
       </div>
 
+      {/* Admin preview — loads the takeover with this variant, bypassing
+          bucketing, tier, balance, and frequency caps. */}
+      {[...byVariant.keys()].length > 0 && (
+        <section className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-5">
+          <h2 className="text-cream-50 text-sm font-semibold">
+            Preview as a user
+          </h2>
+          <p className="text-text-secondary mt-1 text-sm">
+            Opens the app home with this variant forced on — no assignment is
+            written and no events are recorded.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[...byVariant.keys()].map((variant) => (
+              <Link
+                key={variant}
+                href={`/app?offer_preview=${encodeURIComponent(`${campaign.slug}:${variant}`)}`}
+                className="border-cream-100/10 bg-charcoal-800 text-cream-100 hover:border-lime-500/40 rounded-lg border px-3 py-1.5 font-mono text-xs transition-colors"
+              >
+                {variant}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Per-variant funnel */}
       <section className="mt-10">
         <h2 className="text-cream-50 text-xl font-semibold">
