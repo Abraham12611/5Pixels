@@ -95,4 +95,26 @@ describe("MobileFeed", () => {
       screen.getByRole("link", { name: /use this look/i })
     ).toHaveAttribute("href", "/app/create/modern-cover");
   });
+
+  it("caps the feed at 18 and reveals more behind Show more looks", () => {
+    const many: LandingFeedItem[] = Array.from({ length: 22 }, (_, i) => ({
+      ...items[0]!,
+      id: `m${i}`,
+      slug: `look-${i}`,
+      name: `Look ${i}`,
+    }));
+    render(
+      <LandingQuickViewHost isAuthenticated={false}>
+        <MobileFeed items={many} categories={categories} />
+      </LandingQuickViewHost>
+    );
+    // 18 feed cards + trending rail reuses the first 6 names
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show more looks \(4\)/ })
+    );
+    expect(screen.getAllByText("Look 21").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: /Show more looks/ })
+    ).not.toBeInTheDocument();
+  });
 });

@@ -14,6 +14,7 @@ import { useLandingQuickView } from "./landing-quick-view";
 import type { LandingFeedItem } from "./landing-feed-types";
 
 const TRENDING_COUNT = 6;
+const FEED_PAGE = 18;
 
 interface MobileFeedProps {
   items: LandingFeedItem[];
@@ -23,10 +24,12 @@ interface MobileFeedProps {
 /**
  * Mobile preset feed — the leader-style tappable grid (05 §2.3–§2.4). Chips
  * filter in place and stick beneath the header once the hero scrolls out;
- * every card opens the shared quick sheet via `LandingQuickViewHost`.
+ * every card opens the shared quick sheet via `LandingQuickViewHost`. The
+ * feed reveals a page at a time behind an explicit "Show more looks" (5.5).
  */
 export function MobileFeed({ items, categories }: MobileFeedProps) {
   const [chip, setChip] = useState<string>("all");
+  const [feedPages, setFeedPages] = useState(1);
   const openItem = useLandingQuickView();
 
   const trending = items.slice(0, TRENDING_COUNT);
@@ -35,6 +38,16 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
       chip === "all" ? items : items.filter((i) => i.categorySlug === chip),
     [items, chip]
   );
+
+  // Collapse back to one page when the chip changes (render-phase adjust).
+  const [lastChip, setLastChip] = useState(chip);
+  if (chip !== lastChip) {
+    setLastChip(chip);
+    setFeedPages(1);
+  }
+
+  const shown = filtered.slice(0, feedPages * FEED_PAGE);
+  const remaining = filtered.length - shown.length;
 
   const usedCategories = categories.filter((c) =>
     items.some((i) => i.categorySlug === c.slug)
@@ -104,11 +117,11 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                   </span>
                 )}
                 <span className="from-ink-950/90 absolute inset-x-0 bottom-0 bg-gradient-to-t to-transparent p-2.5 pt-8">
-                  <span className="font-display text-cream-50 block truncate text-sm">
+                  <span className="text-cream-50 block truncate text-[13px] font-semibold">
                     {item.name}
                   </span>
                   {item.categoryName && (
-                    <span className="text-text-muted text-[10px] font-medium tracking-wider uppercase">
+                    <span className="text-text-muted text-[11px] font-medium">
                       {item.categoryName}
                     </span>
                   )}
@@ -123,7 +136,7 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
       {/* Masonry feed */}
       <MobileSection title={activeCategoryName} seeAllHref="/explore">
         <div className="columns-2 gap-3 [column-fill:_balance]">
-          {filtered.map((item, i) => (
+          {shown.map((item, i) => (
             <button
               key={item.id}
               type="button"
@@ -158,17 +171,31 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                   </span>
                 )}
               </span>
+              {/* Typography normalised to the app card grammar (5.9): name
+                  13px semibold, category 11px muted — no shouty uppercase */}
               <span className="from-ink-950/95 via-ink-950/40 absolute inset-x-0 bottom-0 bg-gradient-to-t to-transparent p-2.5 pt-10">
-                <span className="text-cream-50 block truncate text-[13px] font-bold tracking-wide uppercase">
+                <span className="text-cream-50 block truncate text-[13px] font-semibold">
                   {item.name}
                 </span>
-                <span className="text-cream-100/60 text-[10px] font-medium tracking-wider uppercase">
+                <span className="text-text-muted text-[11px] font-medium">
                   {item.categoryName ?? "Preset"}
                 </span>
               </span>
             </button>
           ))}
         </div>
+
+        {remaining > 0 && (
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setFeedPages((p) => p + 1)}
+              className="focus-visible:ring-lime-500/70 bg-charcoal-850 shadow-border hover:shadow-border-hover text-cream-50 flex h-11 items-center rounded-full px-5 text-sm font-medium transition-shadow focus-visible:ring-2 focus-visible:outline-none"
+            >
+              Show more looks ({remaining})
+            </button>
+          </div>
+        )}
 
         {filtered.length === 0 && (
           <p className="text-text-muted py-10 text-center text-sm">

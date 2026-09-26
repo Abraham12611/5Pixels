@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
+import { ArrowCounterClockwise, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import { createClient } from "@/lib/supabase/server";
 import {
   getActiveCategories,
@@ -165,6 +165,7 @@ export default async function DiscoverPage() {
       return {
         id: gen.id,
         productName: gen.productName,
+        productSlug: gen.productSlug,
         thumb,
         status: gen.status,
         when: relativeTime(gen.createdAt),
@@ -214,12 +215,20 @@ export default async function DiscoverPage() {
               <MobileRail label="Continue editing" itemClassName="w-36 sm:w-40">
                 {continueItems.map((item) => {
                   const chip = generationStatusChip(item.status);
+                  const failed = isFailureStatus(item.status);
                   return (
-                    <Link
+                    <div
                       key={item.id}
-                      href={item.href}
-                      className="group shadow-border hover:shadow-border-hover bg-charcoal-850 block w-full overflow-hidden rounded-xl transition-shadow"
+                      className="group shadow-border hover:shadow-border-hover bg-charcoal-850 relative w-full overflow-hidden rounded-xl transition-shadow"
                     >
+                      {/* Stretched link keeps the card tappable while Retry
+                          stays independently clickable (5.7) */}
+                      <Link
+                        href={item.href}
+                        prefetch={false}
+                        aria-label={`${item.productName} — ${chip.label}`}
+                        className="absolute inset-0 z-10 rounded-xl"
+                      />
                       <div className="bg-charcoal-800 relative aspect-square overflow-hidden">
                         {item.thumb ? (
                           <Image
@@ -241,6 +250,16 @@ export default async function DiscoverPage() {
                         >
                           {chip.label}
                         </span>
+                        {failed && (
+                          <Link
+                            href={`/app/create/${item.productSlug}`}
+                            prefetch={false}
+                            className="bg-lime-400 text-ink-950 hover:bg-lime-300 absolute bottom-2 left-2 z-20 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold transition-colors"
+                          >
+                            <ArrowCounterClockwise size={11} weight="bold" />
+                            Retry
+                          </Link>
+                        )}
                       </div>
                       <div className="p-2.5">
                         <p className="text-cream-50 truncate text-[13px] font-medium">
@@ -250,7 +269,7 @@ export default async function DiscoverPage() {
                           {item.when}
                         </p>
                       </div>
-                    </Link>
+                    </div>
                   );
                 })}
               </MobileRail>
