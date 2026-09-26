@@ -1,24 +1,44 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  CalendarBlank,
-  Check,
+  ArrowDown,
+  ArrowsDownUp,
+  CheckSquare,
   Funnel,
-  MagnifyingGlass,
+  Trash,
   X,
 } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
+import { SheetActionRow } from "@/components/ui/sheet";
 import { FivePixelMark } from "@/components/consumer/five-pixel";
 import { LibraryResultCard } from "@/components/consumer/library-result-card";
+import { LibraryFilterModal } from "@/components/consumer/library-filter-modal";
+import {
+  applyLibraryFilters,
+  countActiveLibraryFilters,
+  DATE_RANGE_LABELS,
+  DEFAULT_LIBRARY_FILTERS,
+  SORT_LABELS,
+  SOURCE_LABELS,
+  type LibraryFilterState,
+} from "@/lib/library/filters";
+import {
+  deleteGeneration,
+  markGenerationDownloaded,
+} from "@/lib/library/actions";
+import { useIsNarrow } from "@/lib/ui/use-media-query";
 import { cn } from "@/lib/utils";
 
 export interface LibraryItem {
@@ -33,23 +53,7 @@ export interface LibraryItem {
   outputHeight: number | null;
 }
 
-type LibraryTab = "all" | "saved" | "downloaded";
-type DateRange = "any" | "7" | "30" | "90";
-
 const PAGE_SIZE = 12;
-
-const DATE_RANGE_LABELS: Record<DateRange, string> = {
-  any: "Any time",
-  "7": "Last 7 days",
-  "30": "Last 30 days",
-  "90": "Last 90 days",
-};
-
-function withinDays(iso: string, days: number): boolean {
-  const time = new Date(iso).getTime();
-  if (Number.isNaN(time)) return false;
-  return Date.now() - time <= days * 24 * 60 * 60 * 1000;
-}
 
 function GhostCards() {
   const aspects = ["4 / 5", "1 / 1", "4 / 3", "3 / 4"];
@@ -104,53 +108,25 @@ function EmptyPanel({
 
 export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
   const [items, setItems] = useState(initialItems);
-  const [tab, setTab] = useState<LibraryTab>("all");
-  const [query, setQuery] = useState("");
-  const [dateRange, setDateRange] = useState<DateRange>("any");
-  const [preset, setPreset] = useState<string | null>(null);
-
-  const presetNames = useMemo(
-    () => [...new Set(items.map((i) => i.productName))].sort(),
-    [items]
+  const [filters, setFilters] = useState<LibraryFilterState>(
+    DEFAULT_LIBRARY_FILTERS
   );
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const isNarrow = useIsNarrow();
+  const [, startTransition] = useTransition();
 
-  const hasFilters =
-    dateRange !== "any" || preset !== null || query.trim() !== "";
-
-  const clearFilters = () => {
-    setDateRange("any");
-    setPreset(null);
-    setQuery("");
-  };
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (tab === "saved" && !item.savedAt) return false;
-      if (tab === "downloaded" && !item.downloadedAt) return false;
-      if (dateRange !== "any" && !withinDays(item.createdAt, Number(dateRange)))
-        return false;
-      if (preset && item.productName !== preset) return false;
-      if (q && !item.productName.toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [items, tab, dateRange, preset, query]);
-
-  const updateItem = (id: string, patch: Partial<LibraryItem>) =>
-    setItems((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, ...patch } : i))
-    );
-
+  const filtered = applyLibraryFilters(items, filters);
+  const activeFilterCount = countActiveLibraryFilters(filters);
+  const hasFilters = activeFilterCount > 0;
   const hasLibrary = items.length > 0;
 
-  // Progressive reveal: an explicit first "Load more", then the sentinel
-  // auto-appends — the same rule as /explore (06 §5).
+  // --- Progressive reveal: explicit first "Load more", then sentinel ---
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [autoLoad, setAutoLoad] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Reset pagination when the result set changes (render-phase adjust idiom).
-  const filtersKey = `${tab}|${query}|${dateRange}|${preset}`;
+  const filtersKey = `${filters.source}|${filters.query}|${filters.dateRange}|${filters.preset}|${filters.sort}`;
   const [lastFiltersKey, setLastFiltersKey] = useState(filtersKey);
   if (lastFiltersKey !== filtersKey) {
     setLastFiltersKey(filtersKey);
@@ -178,135 +154,232 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
     return () => observer.disconnect();
   }, [autoLoad, hasMore]);
 
+  // --- Scroll-up reveal for the filter row (11 §3) ---
+  const [filtersHidden, setFiltersHidden] = useState(false);
+  const lastScrollY = useRef(0);
+  useEffect(() => {
+    lastScrollY.current = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      if (y > 200 && y > lastScrollY.current + 8) {
+        setFiltersHidden(true);
+      } else if (y < lastScrollY.current - 8 || y <= 200) {
+        setFiltersHidden(false);
+      }
+      lastScrollY.current = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // --- Selection mode (11 §4.4) ---
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const enterSelection = useCallback((id: string) => {
+    setSelecting(true);
+    setSelected(new Set([id]));
+  }, []);
+
+  const exitSelection = useCallback(() => {
+    setSelecting(false);
+    setSelected(new Set());
+  }, []);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") exitSelection();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selecting, exitSelection]);
+
+  const selectedItems = filtered.filter((i) => selected.has(i.id));
+
+  const updateItem = (id: string, patch: Partial<LibraryItem>) =>
+    setItems((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, ...patch } : i))
+    );
+
+  const handleBulkDownload = async () => {
+    const downloadable = selectedItems.filter((i) => i.outputUrl);
+    if (downloadable.length === 0) return;
+    const toastId = toast.loading(
+      `Downloading 1 of ${downloadable.length}…`
+    );
+    try {
+      for (const [index, item] of downloadable.entries()) {
+        toast.loading(
+          `Downloading ${index + 1} of ${downloadable.length}…`,
+          { id: toastId }
+        );
+        const a = document.createElement("a");
+        a.href = item.outputUrl as string;
+        a.download = "";
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        a.click();
+        updateItem(item.id, { downloadedAt: new Date().toISOString() });
+        void markGenerationDownloaded(item.id);
+        // Browsers throttle rapid programmatic downloads — small settle gap.
+        await new Promise((r) => setTimeout(r, 350));
+      }
+      toast.success(`Downloaded ${downloadable.length} results`, {
+        id: toastId,
+      });
+      exitSelection();
+    } catch {
+      toast.error("Downloads stopped partway — try again.", { id: toastId });
+    }
+  };
+
+  const handleBulkDelete = () => {
+    const ids = selectedItems.map((i) => i.id);
+    if (ids.length === 0) return;
+    setBusy(`Deleting 1 of ${ids.length}…`);
+    startTransition(async () => {
+      try {
+        for (const [index, id] of ids.entries()) {
+          setBusy(`Deleting ${index + 1} of ${ids.length}…`);
+          const result = await deleteGeneration(id);
+          if (!result.success) {
+            throw new Error(result.error ?? "delete failed");
+          }
+          setItems((prev) => prev.filter((i) => i.id !== id));
+        }
+        toast.success(
+          `Deleted ${ids.length} ${ids.length === 1 ? "result" : "results"}`
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Could not delete everything."
+        );
+      } finally {
+        setBusy(null);
+        setBulkDeleteOpen(false);
+        exitSelection();
+      }
+    });
+  };
+
+  const clearFilters = () => setFilters(DEFAULT_LIBRARY_FILTERS);
+
   return (
     <div>
-      {/* Controls */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Tabs
-          value={tab}
-          onValueChange={(v) => setTab(v as LibraryTab)}
-          className="w-fit"
-        >
-          <TabsList variant="line" className="h-10">
-            <TabsTrigger value="all" className="px-3">
-              All
-            </TabsTrigger>
-            <TabsTrigger value="saved" className="px-3">
-              Saved
-            </TabsTrigger>
-            <TabsTrigger value="downloaded" className="px-3">
-              Downloaded
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        <div className="flex items-center gap-2">
-          <label className="bg-charcoal-850 shadow-border focus-within:shadow-border-hover relative flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-3 transition-shadow sm:w-48 sm:flex-none">
-            <MagnifyingGlass
-              size={14}
-              className="text-text-muted shrink-0"
-              aria-hidden
-            />
-            <span className="sr-only">Search library</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search"
-              className="text-cream-50 placeholder:text-text-muted w-full bg-transparent text-sm outline-none"
-            />
-          </label>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="sm"
-                className={cn(
-                  "h-9 gap-1.5",
-                  dateRange !== "any" && "text-lime-300"
-                )}
-              >
-                <CalendarBlank size={14} />
-                <span className="hidden sm:inline">
-                  {DATE_RANGE_LABELS[dateRange]}
+      {/* Filter row — scrolls away on scroll-down, returns on scroll-up
+          (11 §3). Swaps to the selection header while selecting (§4.4). */}
+      <div
+        className={cn(
+          "bg-ink-950/95 supports-[backdrop-filter]:bg-ink-950/85 sticky top-[120px] z-20 -mx-4 mb-5 px-4 py-2 backdrop-blur-sm transition-all duration-200 sm:-mx-6 sm:px-6",
+          !selecting &&
+            filtersHidden &&
+            "-translate-y-[130%] opacity-0"
+        )}
+      >
+        {selecting ? (
+          <div className="flex h-10 items-center justify-between">
+            <span
+              aria-live="polite"
+              className="text-cream-50 text-sm font-semibold"
+            >
+              {selected.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={exitSelection}
+              className="focus-visible:ring-lime-500/70 text-text-secondary hover:text-cream-50 flex h-10 items-center rounded-full px-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex h-10 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFilterOpen(true)}
+              aria-haspopup="dialog"
+              className="focus-visible:ring-lime-500/70 bg-charcoal-850 shadow-border hover:shadow-border-hover text-cream-50 flex h-10 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-shadow focus-visible:ring-2 focus-visible:outline-none"
+            >
+              <Funnel size={15} aria-hidden />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="bg-lime-400 text-ink-950 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] font-bold">
+                  {activeFilterCount}
                 </span>
-                <span className="sm:hidden">Date</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              {(Object.keys(DATE_RANGE_LABELS) as DateRange[]).map((range) => (
-                <DropdownMenuItem
-                  key={range}
-                  onSelect={() => setDateRange(range)}
-                  className="justify-between"
-                >
-                  {DATE_RANGE_LABELS[range]}
-                  {dateRange === range && (
-                    <Check size={14} className="text-lime-400" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="sm"
-                className={cn("h-9 gap-1.5", preset && "text-lime-300")}
-              >
-                <Funnel size={14} />
-                <span className="max-w-28 truncate">
-                  {preset ?? "Preset"}
-                </span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                onSelect={() => setPreset(null)}
-                className="justify-between"
-              >
-                All presets
-                {preset === null && (
-                  <Check size={14} className="text-lime-400" />
-                )}
-              </DropdownMenuItem>
-              {presetNames.map((name) => (
-                <DropdownMenuItem
-                  key={name}
-                  onSelect={() => setPreset(name)}
-                  className="justify-between"
-                >
-                  <span className="truncate">{name}</span>
-                  {preset === name && (
-                    <Check size={14} className="text-lime-400 shrink-0" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortOpen(true)}
+              aria-haspopup="dialog"
+              className={cn(
+                "focus-visible:ring-lime-500/70 bg-charcoal-850 shadow-border hover:shadow-border-hover flex h-10 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-shadow focus-visible:ring-2 focus-visible:outline-none",
+                filters.sort !== "newest"
+                  ? "text-lime-300"
+                  : "text-text-secondary"
+              )}
+            >
+              <ArrowsDownUp size={15} aria-hidden />
+              {SORT_LABELS.find((s) => s.value === filters.sort)?.label}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelecting(true)}
+              className="focus-visible:ring-lime-500/70 text-text-secondary hover:text-cream-50 ml-auto flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none"
+            >
+              <CheckSquare size={15} aria-hidden />
+              Select
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Active filter chips */}
-      {(dateRange !== "any" || preset) && (
+      {!selecting && hasFilters && (
         <div className="mb-5 flex flex-wrap items-center gap-2">
-          {dateRange !== "any" && (
+          {filters.source !== "all" && (
             <FilterChip
-              label={DATE_RANGE_LABELS[dateRange]}
-              onClear={() => setDateRange("any")}
+              label={SOURCE_LABELS[filters.source]}
+              onClear={() =>
+                setFilters((f) => ({ ...f, source: "all" }))
+              }
             />
           )}
-          {preset && (
-            <FilterChip label={preset} onClear={() => setPreset(null)} />
+          {filters.dateRange !== "any" && (
+            <FilterChip
+              label={DATE_RANGE_LABELS[filters.dateRange]}
+              onClear={() => setFilters((f) => ({ ...f, dateRange: "any" }))}
+            />
+          )}
+          {filters.preset && (
+            <FilterChip
+              label={filters.preset}
+              onClear={() => setFilters((f) => ({ ...f, preset: null }))}
+            />
+          )}
+          {filters.query.trim() !== "" && (
+            <FilterChip
+              label={`“${filters.query.trim()}”`}
+              onClear={() => setFilters((f) => ({ ...f, query: "" }))}
+            />
           )}
         </div>
       )}
 
       {/* Grid / empty states */}
-      {!hasLibrary && tab === "all" && !hasFilters ? (
+      {!hasLibrary ? (
         <EmptyPanel
           motif
           title="Your transformations will appear here."
@@ -317,43 +390,14 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
           </Button>
         </EmptyPanel>
       ) : filtered.length === 0 ? (
-        hasFilters ? (
-          <EmptyPanel
-            title="No results match these filters."
-            body="Try widening the date range or clearing a filter."
-          >
-            <Button variant="secondary" onClick={clearFilters}>
-              Clear filters
-            </Button>
-            <Button
-              variant="tertiary"
-              onClick={() => {
-                clearFilters();
-                setTab("all");
-              }}
-            >
-              View all
-            </Button>
-          </EmptyPanel>
-        ) : tab === "saved" ? (
-          <EmptyPanel
-            title="Nothing saved yet."
-            body="Save results you want to come back to."
-          >
-            <Button variant="secondary" onClick={() => setTab("all")}>
-              View all results
-            </Button>
-          </EmptyPanel>
-        ) : (
-          <EmptyPanel
-            title="Nothing downloaded yet."
-            body="Downloads you prepare will be easy to find here."
-          >
-            <Button variant="secondary" onClick={() => setTab("all")}>
-              View all results
-            </Button>
-          </EmptyPanel>
-        )
+        <EmptyPanel
+          title="No results match these filters."
+          body="Try widening the date range or clearing a filter."
+        >
+          <Button variant="secondary" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        </EmptyPanel>
       ) : (
         <>
           {/* Uniform owned-content grid — 4:5, 10px gutters (11 §4.2) */}
@@ -366,6 +410,10 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
                 key={item.id}
                 item={item}
                 priority={index < 4}
+                selecting={selecting}
+                selected={selected.has(item.id)}
+                onToggleSelect={toggleSelect}
+                onEnterSelection={enterSelection}
                 onSaved={(id, saved) =>
                   updateItem(id, {
                     savedAt: saved ? new Date().toISOString() : null,
@@ -380,7 +428,7 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
               />
             ))}
           </section>
-          {hasMore && (
+          {hasMore && !selecting && (
             <div className="mt-6 flex flex-col items-center gap-2">
               <Button
                 variant="secondary"
@@ -398,6 +446,144 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
             </div>
           )}
         </>
+      )}
+
+      {/* Selection-mode docked bar — sits above the tab bar on mobile,
+          floats bottom-center on desktop */}
+      {selecting && (
+        <div
+          className={cn(
+            "fixed inset-x-0 z-40 px-4 md:left-1/2 md:right-auto md:w-auto md:-translate-x-1/2",
+            "bottom-[calc(4.5rem+env(safe-area-inset-bottom))] md:bottom-6"
+          )}
+        >
+          <div className="border-cream-100/10 bg-charcoal-850/95 supports-[backdrop-filter]:bg-charcoal-850/90 mx-auto flex max-w-md items-center gap-2 rounded-2xl border p-2 shadow-lg backdrop-blur-md md:rounded-full">
+            <Button
+              variant="secondary"
+              className="h-11 flex-1 md:flex-none md:px-5"
+              onClick={() => void handleBulkDownload()}
+              disabled={selected.size === 0 || busy !== null}
+            >
+              <ArrowDown size={15} weight="bold" />
+              Download
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-11 flex-1 md:flex-none md:px-5"
+              onClick={() => setBulkDeleteOpen(true)}
+              disabled={selected.size === 0 || busy !== null}
+            >
+              <Trash size={15} weight="bold" />
+              Delete
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <LibraryFilterModal
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        applied={filters}
+        items={items}
+        onApply={setFilters}
+      />
+
+      {/* Sort — T1 sheet */}
+      <Sheet
+        open={sortOpen}
+        onOpenChange={setSortOpen}
+        tier="action"
+        title="Sort results"
+      >
+        <div className="space-y-1">
+          {SORT_LABELS.map((option) => (
+            <SheetActionRow
+              key={option.value}
+              label={option.label}
+              icon={
+                option.value === filters.sort ? (
+                  <span className="bg-lime-400 h-2 w-2 rounded-full" />
+                ) : (
+                  <span className="border-cream-100/20 h-2 w-2 rounded-full border" />
+                )
+              }
+              onClick={() => {
+                setSortOpen(false);
+                setFilters((f) => ({ ...f, sort: option.value }));
+              }}
+            />
+          ))}
+        </div>
+      </Sheet>
+
+      {/* Bulk delete confirm — T1 sheet on mobile, dialog on desktop. Names
+          the count and permanence (02 §3.2). */}
+      {isNarrow ? (
+        <Sheet
+          open={bulkDeleteOpen}
+          onOpenChange={setBulkDeleteOpen}
+          tier="action"
+          title={`Delete ${selected.size} ${selected.size === 1 ? "result" : "results"}?`}
+        >
+          <div className="space-y-3">
+            <p className="text-text-secondary text-sm">
+              This permanently removes {selected.size}{" "}
+              {selected.size === 1 ? "result" : "results"} and their files.
+              This can&apos;t be undone.
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              className="w-full"
+              onClick={handleBulkDelete}
+              disabled={busy !== null}
+            >
+              {busy ?? "Delete permanently"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => setBulkDeleteOpen(false)}
+              disabled={busy !== null}
+            >
+              Keep them
+            </Button>
+          </div>
+        </Sheet>
+      ) : (
+        <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+          <DialogContent className="bg-charcoal-850 border-cream-100/10 sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-cream-50">
+                Delete {selected.size}{" "}
+                {selected.size === 1 ? "result" : "results"}?
+              </DialogTitle>
+              <DialogDescription className="text-text-secondary">
+                This permanently removes the selected results and their
+                files. This can&apos;t be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setBulkDeleteOpen(false)}
+                disabled={busy !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={busy !== null}
+              >
+                {busy ?? "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
