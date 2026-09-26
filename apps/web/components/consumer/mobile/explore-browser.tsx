@@ -11,9 +11,11 @@ import {
 import { FilterModal } from "@/components/consumer/mobile/filter-modal";
 import { ProductCard } from "@/components/consumer/product-card";
 import { Button } from "@/components/ui/button";
+import { FilterChip } from "@/components/ui/filter-chip";
 import { Sheet, SheetActionRow } from "@/components/ui/sheet";
 import { fetchCatalogPage } from "@/lib/catalog/browser";
 import { buildCatalogSearchParams } from "@/lib/catalog/filters";
+import { openGlobalSearch } from "@/lib/ui/open-search";
 import type { CatalogSort } from "@/lib/db/explore";
 import type { ParsedCatalogFilters } from "@/lib/catalog/filters";
 import type { ProductType, PublicProductSummary } from "@/types/catalog";
@@ -73,7 +75,6 @@ export function ExploreMobileBrowser({
   const [loadError, setLoadError] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState(filters.search ?? "");
   const [searchCollapsed, setSearchCollapsed] = useState(false);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -208,11 +209,6 @@ export function ExploreMobileBrowser({
     void loadMore();
   }, [loadMore]);
 
-  const handleSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    navigate({ search: searchValue.trim() || null });
-  };
-
   const clearFilters = () =>
     router.push(
       filters.search
@@ -237,30 +233,24 @@ export function ExploreMobileBrowser({
           {searchCollapsed ? (
             <button
               type="button"
-              aria-label="Expand search"
-              onClick={() => setSearchCollapsed(false)}
+              aria-label="Open search"
+              onClick={openGlobalSearch}
               className="focus-visible:ring-lime-500/70 border-cream-100/10 bg-charcoal-800 text-text-secondary flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-colors hover:text-cream-50 focus-visible:ring-2 focus-visible:outline-none"
             >
               <MagnifyingGlass size={18} />
             </button>
           ) : (
-            <form
-              onSubmit={handleSearchSubmit}
-              className="relative min-w-0 flex-1"
+            <button
+              type="button"
+              onClick={openGlobalSearch}
+              aria-label="Open search"
+              className="border-cream-100/10 bg-charcoal-800 text-text-muted focus-visible:ring-lime-500/70 flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full border pr-3 pl-3.5 text-sm transition-colors hover:text-cream-50 focus-visible:ring-2 focus-visible:outline-none"
             >
-              <MagnifyingGlass
-                size={16}
-                className="text-text-muted pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
-              />
-              <input
-                type="search"
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                placeholder="Search looks…"
-                aria-label="Search looks"
-                className="border-cream-100/10 bg-charcoal-800 text-cream-50 placeholder:text-text-muted focus:border-lime-400/60 h-11 w-full rounded-full border pr-3 pl-9 text-sm focus:outline-none"
-              />
-            </form>
+              <MagnifyingGlass size={16} className="shrink-0" />
+              <span className="truncate">
+                {filters.search ? `“${filters.search}”` : "Search looks…"}
+              </span>
+            </button>
           )}
 
           <button
@@ -300,13 +290,13 @@ export function ExploreMobileBrowser({
         aria-label="Filter by category"
         className="scrollbar-none -mx-4 mt-4 flex gap-2 overflow-x-auto px-4"
       >
-        <CategoryChip
+        <FilterChip
           label="All"
           active={filters.category === null}
           onClick={() => navigate({ category: null })}
         />
         {categories.map((c) => (
-          <CategoryChip
+          <FilterChip
             key={c.slug}
             label={c.name}
             active={filters.category === c.slug}
@@ -460,29 +450,3 @@ export function ExploreMobileBrowser({
   );
 }
 
-function CategoryChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "focus-visible:ring-lime-500/70 min-h-11 shrink-0 rounded-full px-4 text-[13px] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none",
-        active
-          ? "bg-lime-400 text-ink-950"
-          : "bg-charcoal-800 text-text-secondary hover:text-cream-50"
-      )}
-    >
-      {label}
-    </button>
-  );
-}

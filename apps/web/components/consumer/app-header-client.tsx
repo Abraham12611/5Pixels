@@ -125,6 +125,7 @@ export function AppHeaderClient({
             categories={searchCategories}
             library={searchLibrary}
             favoriteIds={searchFavoriteIds}
+            isAuthenticated
             catalogError={catalogError}
           />
           <CreditBalanceChip

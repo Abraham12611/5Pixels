@@ -90,7 +90,9 @@ beforeEach(() => {
 describe("ExploreMobileBrowser", () => {
   it("renders the sticky controls and result count", () => {
     renderBrowser();
-    expect(screen.getByLabelText("Search looks")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open search" })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Filters" })
     ).toBeInTheDocument();

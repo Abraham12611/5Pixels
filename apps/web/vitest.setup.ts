@@ -15,3 +15,13 @@ if (typeof window !== "undefined" && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList) as typeof window.matchMedia;
 }
+
+// jsdom has no ResizeObserver — cmdk and layout-aware components need a stub.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  window.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+}

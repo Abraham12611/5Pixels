@@ -24,6 +24,7 @@ import {
   type SearchScope,
 } from "@/lib/search";
 import {
+  clearRecentPresets,
   getRecentPresets,
   recordRecentPreset,
   type RecentPreset,
@@ -52,6 +53,8 @@ export interface SearchPaletteProps {
   library: SearchLibraryItem[];
   /** Favorite product ids — seeds the quick sheet heart on mobile. */
   favoriteIds?: string[];
+  /** Anonymous palettes get an auth-gated heart instead of silent toggles. */
+  isAuthenticated?: boolean;
   /** True when the catalog fetch failed — shows a retryable error state. */
   catalogError?: boolean;
 }
@@ -63,6 +66,7 @@ export function SearchPalette({
   categories,
   library,
   favoriteIds = [],
+  isAuthenticated = false,
   catalogError,
 }: SearchPaletteProps) {
   const router = useRouter();
@@ -285,7 +289,24 @@ export function SearchPalette({
           {isZeroQuery ? (
             <>
               {recents.length > 0 && showPresets && (
-                <Command.Group heading="Recent" className={GROUP_HEADING_CLASS}>
+                <Command.Group
+                  heading={
+                    <span className="flex items-center justify-between">
+                      Recent
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearRecentPresets();
+                          setRecents([]);
+                        }}
+                        className="text-text-muted hover:text-cream-50 rounded px-1.5 py-0.5 text-[11px] font-medium normal-case transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </span>
+                  }
+                  className={GROUP_HEADING_CLASS}
+                >
                   {recents.map((r) => (
                     <Command.Item
                       key={`recent-${r.slug}`}
@@ -445,7 +466,7 @@ export function SearchPalette({
         onOpenChange={(openFlag) => {
           if (!openFlag) setSheetItem(null);
         }}
-        isAuthenticated
+        isAuthenticated={isAuthenticated}
         initialIsFavorite={sheetItem ? favorites.has(sheetItem.id) : false}
         returnPath={pathname}
         onFavoriteToggled={handleSheetFavorite}

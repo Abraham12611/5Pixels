@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { mapCatalogRow } from "@/lib/catalog/catalog-rows";
 import type {
@@ -29,7 +30,9 @@ export type CatalogSort =
  * version number, credit cost, and public asset references. Private recipe
  * columns are never returned.
  */
-export async function getPublicProducts(
+// React `cache` dedupes identical calls within a request — layouts and pages
+// often fetch the same catalog slices (categories, featured) in one render.
+export const getPublicProducts = cache(async function getPublicProducts(
   type?: "filter" | "poster",
   categorySlug?: string,
   productIds?: string[],
@@ -61,7 +64,7 @@ export async function getPublicProducts(
   const products = typedData.map(mapCatalogRow);
 
   return { data: products, totalCount };
-}
+});
 
 export async function getPublicProductBySlug(
   slug: string
@@ -105,7 +108,7 @@ export async function getPublicAssetUrl(
  * Return the product IDs favorited by the currently authenticated user.
  * Returns an empty set when anonymous or on error.
  */
-export async function getActiveCategories(): Promise<
+export const getActiveCategories = cache(async function getActiveCategories(): Promise<
   { slug: string; name: string }[]
 > {
   const supabase = await createClient();
@@ -121,7 +124,7 @@ export async function getActiveCategories(): Promise<
   }
 
   return (data ?? []) as { slug: string; name: string }[];
-}
+});
 
 /**
  * Favorited products for the signed-in user, including presets that have
