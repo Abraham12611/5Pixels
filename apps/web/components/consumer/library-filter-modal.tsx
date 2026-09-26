@@ -9,7 +9,6 @@ import {
   countActiveLibraryFilters,
   DATE_RANGE_LABELS,
   SOURCE_LABELS,
-  SORT_LABELS,
   type LibraryDateRange,
   type LibraryFilterState,
   type LibrarySource,
