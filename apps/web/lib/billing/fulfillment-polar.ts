@@ -4,7 +4,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { createPolarClient } from "./polar-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
-import { grantReferrerPaymentShare } from "@/lib/referrals/rewards";
+import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
 import type { Order } from "@polar-sh/sdk/models/components/order.js";
 import type { Subscription } from "@polar-sh/sdk/models/components/subscription.js";
 
@@ -622,7 +622,11 @@ export async function fulfillPolarOneTimeOrder(order: Order) {
   );
 
   try {
-    await grantReferrerPaymentShare(mapping.userId, plan, order.id);
+    await awardOrHoldReferrerShare({
+      buyerUserId: mapping.userId,
+      plan,
+      orderId: order.id,
+    });
   } catch (err) {
     // Referral rewards must never break fulfillment — log and move on.
     console.error(
@@ -695,7 +699,11 @@ export async function fulfillPolarSubscriptionOrder(order: Order) {
   );
 
   try {
-    await grantReferrerPaymentShare(mapping.userId, plan, order.id);
+    await awardOrHoldReferrerShare({
+      buyerUserId: mapping.userId,
+      plan,
+      orderId: order.id,
+    });
   } catch (err) {
     console.error(
       "[fulfillPolarSubscriptionOrder] referral reward failed:",

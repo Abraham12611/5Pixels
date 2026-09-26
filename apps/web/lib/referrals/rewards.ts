@@ -1,9 +1,11 @@
-"use server";
-
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 
 /**
+ * Server-only module — NOT "use server": nothing here is invoked as a
+ * client-side action (callers are route handlers, server components, and
+ * server libs), and the module mixes sync helpers with async functions.
+ *
  * Referral rewards (03 §4): grants flow through the same credit_ledger
  * idempotency pattern as billing fulfillment — webhooks and retries can
  * never double-grant because source_ref and the partial unique indexes on
@@ -120,76 +122,137 @@ export async function grantRefereeUnlock(
   return true;
 }
 
-/**
- * Referrer reward (03 §1): when a referred user makes their FIRST payment,
- * the referrer gets 30% of that plan's monthly credit grant, complimentary.
- * Called from Polar fulfillment after the conversion is recorded; the
- * once-per-referee index + ledger idempotency make retries safe.
- */
-export async function grantReferrerPaymentShare(
-  buyerUserId: string,
-  plan: PlanCredits,
-  orderId: string
-): Promise<void> {
+/** Buyer → referrer lookup shared by the grant and hold paths. */
+async function findReferrer(buyerUserId: string): Promise<string | null> {
   const service = createServiceClient();
-
   const { data: participant } = await service
     .from("referral_participants")
     .select("referred_by")
     .eq("user_id", buyerUserId)
     .not("referred_by", "is", null)
     .maybeSingle();
-  const referrerId = participant?.referred_by as string | undefined;
-  if (!referrerId) return;
+  return (participant?.referred_by as string | undefined) ?? null;
+}
 
-  const credits = Math.floor(plan.credits_grant * REFERRER_SHARE);
-  if (credits <= 0) return;
+export function paymentShareCredits(plan: PlanCredits): number {
+  return Math.floor(plan.credits_grant * REFERRER_SHARE);
+}
 
-  const sourceRef = `payment_share:${buyerUserId}`;
-  const { data: reward, error: rewardError } = await service
+/** Claims the once-per-referee payment-share slot. Null = already claimed. */
+export async function insertPaymentShareReward(input: {
+  buyerUserId: string;
+  referrerId: string;
+  credits: number;
+  status: "pending" | "pending_hold";
+  holdUntil?: string;
+}): Promise<{ id: string } | null> {
+  const service = createServiceClient();
+  const { data: reward, error } = await service
     .from("referral_rewards")
     .insert({
-      source_ref: sourceRef,
-      referrer_user_id: referrerId,
-      referee_user_id: buyerUserId,
+      source_ref: `payment_share:${input.buyerUserId}`,
+      referrer_user_id: input.referrerId,
+      referee_user_id: input.buyerUserId,
       kind: "referrer_payment_share",
-      credits,
-      status: "pending",
+      credits: input.credits,
+      status: input.status,
+      hold_until: input.holdUntil ?? null,
     })
     .select("id")
     .maybeSingle();
+  if (error || !reward) return null;
+  return { id: reward.id as string };
+}
 
-  if (rewardError || !reward) return; // already rewarded for this referee
-
+/**
+ * Grants the credits for a pending/pending_hold reward row and marks it
+ * granted. Used by the immediate path (first-party) and by the GrowSurf
+ * webhook when a held reward lands (03 §4). Idempotent on the reward id —
+ * a row already granted/clawed_back/cancelled is left untouched.
+ */
+export async function grantRewardRow(input: {
+  rewardId: string;
+  referrerId: string;
+  refereeUserId: string;
+  credits: number;
+  metadata: Record<string, unknown>;
+  growsurfPrewId?: string;
+}): Promise<boolean> {
+  const service = createServiceClient();
   const ledgerId = await insertLedgerAllocation({
-    userId: referrerId,
-    credits,
-    idempotencyKey: `referral:${sourceRef}`,
+    userId: input.referrerId,
+    credits: input.credits,
+    idempotencyKey: `referral:payment_share:${input.refereeUserId}`,
     metadata: {
       reason: "referral_payment_share",
-      referee_user_id: buyerUserId,
-      plan_id: plan.id,
-      order_id: orderId,
+      referee_user_id: input.refereeUserId,
       share: REFERRER_SHARE,
+      ...input.metadata,
     },
   });
-  if (!ledgerId) {
-    await service
-      .from("referral_rewards")
-      .delete()
-      .eq("id", reward.id)
-      .eq("status", "pending");
-    return;
-  }
+  if (!ledgerId) return false;
 
-  await service
+  const { data: updated } = await service
     .from("referral_rewards")
     .update({
       status: "granted",
       ledger_entry_id: ledgerId,
       granted_at: new Date().toISOString(),
+      hold_until: null,
+      growsurf_prew_id: input.growsurfPrewId ?? undefined,
     })
-    .eq("id", reward.id);
+    .eq("id", input.rewardId)
+    .in("status", ["pending", "pending_hold"])
+    .select("id")
+    .maybeSingle();
+
+  return Boolean(updated);
+}
+
+/**
+ * Referrer reward (03 §1): when a referred user makes their FIRST payment,
+ * the referrer gets 30% of that plan's monthly credit grant, complimentary.
+ * Called from Polar fulfillment after the conversion is recorded; the
+ * once-per-referee index + ledger idempotency make retries safe.
+ *
+ * When GrowSurf's delayed trigger is configured the reward parks in
+ * pending_hold instead — lib/growsurf/sync.ts decides the path; this
+ * function is the immediate-grant path and the hold fallback.
+ */
+export async function grantReferrerPaymentShare(
+  buyerUserId: string,
+  plan: PlanCredits,
+  orderId: string
+): Promise<void> {
+  const referrerId = await findReferrer(buyerUserId);
+  if (!referrerId) return;
+
+  const credits = paymentShareCredits(plan);
+  if (credits <= 0) return;
+
+  const reward = await insertPaymentShareReward({
+    buyerUserId,
+    referrerId,
+    credits,
+    status: "pending",
+  });
+  if (!reward) return; // already rewarded for this referee
+
+  const granted = await grantRewardRow({
+    rewardId: reward.id,
+    referrerId,
+    refereeUserId: buyerUserId,
+    credits,
+    metadata: { plan_id: plan.id, order_id: orderId },
+  });
+  if (!granted) {
+    const service = createServiceClient();
+    await service
+      .from("referral_rewards")
+      .delete()
+      .eq("id", reward.id)
+      .eq("status", "pending");
+  }
 }
 
 export interface ReferralStats {

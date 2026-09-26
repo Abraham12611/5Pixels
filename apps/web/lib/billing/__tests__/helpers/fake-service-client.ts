@@ -18,6 +18,7 @@ class FakeQuery {
   private headCount = false;
   private updateValues: Row | null = null;
   private insertRows: Row[] | null = null;
+  private deleteMode = false;
   private orderBy: { col: string; ascending: boolean } | null = null;
   private limitN: number | null = null;
   private selectCols: string | null = null;
@@ -61,6 +62,14 @@ class FakeQuery {
   eq(col: string, val: any) {
     return this.compare("eq", col, val);
   }
+  in(col: string, vals: any[]) {
+    const set = new Set(vals);
+    this.filters.push((r) => set.has(getPath(r, col)));
+    return this;
+  }
+  is(col: string, val: any) {
+    return this.compare("is", col, val);
+  }
   neq(col: string, val: any) {
     return this.compare("neq", col, val);
   }
@@ -99,6 +108,11 @@ class FakeQuery {
 
   update(values: Row) {
     this.updateValues = values;
+    return this;
+  }
+
+  delete() {
+    this.deleteMode = true;
     return this;
   }
 
@@ -153,6 +167,16 @@ class FakeQuery {
       return { data: inserted, error: null, count: null };
     }
 
+    if (this.deleteMode) {
+      const matched = this.applyFilters();
+      const table = this.db.get(this.table) ?? [];
+      this.db.set(
+        this.table,
+        table.filter((r) => !matched.includes(r))
+      );
+      return { data: matched, error: null, count: null };
+    }
+
     if (this.updateValues) {
       const matched = this.applyFilters();
       for (const row of matched) Object.assign(row, this.updateValues);
@@ -194,6 +218,8 @@ class FakeQuery {
 
 export class FakeServiceClient {
   db = new Map<string, Row[]>();
+  /** storage.remove() calls recorded as `${bucket}:${key}` for assertions. */
+  removedObjects: string[] = [];
 
   seed(table: string, rows: Row[]) {
     this.db.set(table, rows);
@@ -206,4 +232,13 @@ export class FakeServiceClient {
   from(table: string) {
     return new FakeQuery(table, this.db) as any;
   }
+
+  storage = {
+    from: (bucket: string) => ({
+      remove: async (keys: string[]) => {
+        this.removedObjects.push(...keys.map((k) => `${bucket}:${k}`));
+        return { data: keys.map((k) => ({ name: k })), error: null };
+      },
+    }),
+  };
 }

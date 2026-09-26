@@ -1,6 +1,7 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
+import { reverseReferrerShareForRefund } from "@/lib/growsurf/sync";
 import type { Refund } from "@polar-sh/sdk/models/components/refund.js";
 
 /**
@@ -78,8 +79,6 @@ export async function handlePolarRefund(refund: Refund): Promise<void> {
       granted_credits: grantedCredits,
       reversed_credits: reversal,
       unrecovered_credits: unrecovered,
-      // TODO(03 §4): referral clawback hooks in here — if this purchase
-      // qualified a referrer bonus, debit the referrer's ledger too.
     },
   });
 
@@ -93,6 +92,23 @@ export async function handlePolarRefund(refund: Refund): Promise<void> {
     .from("invoices")
     .update({ status: "refunded" })
     .eq("id", invoice.id);
+
+  // Referral clawback (03 §4): if this purchase qualified a referrer
+  // bonus, cancel its pending GrowSurf hold or reverse the granted
+  // credits — capped at the referrer's available balance, same rule as
+  // the buyer reversal above. Best-effort: never fail the refund over it.
+  try {
+    await reverseReferrerShareForRefund({
+      buyerUserId: invoice.user_id,
+      orderId: refund.orderId,
+      refundId: refund.id,
+    });
+  } catch (err) {
+    console.error(
+      `[handlePolarRefund] referral reversal failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
   console.log(
     `[handlePolarRefund] reversed ${reversal}/${grantedCredits} credits for order ${refund.orderId}` +
