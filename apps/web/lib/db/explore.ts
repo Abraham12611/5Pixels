@@ -163,32 +163,6 @@ export async function getUserFavoriteProducts(): Promise<
   };
 }
 
-/**
- * Median credit cost across the active catalogue — used for "enough for N
- * more transformations" and cost-per-image copy on billing/pricing surfaces.
- * Falls back to 5 when the catalogue is empty.
- */
-export const getMedianPresetCost = cache(async function getMedianPresetCost() {
-  const { data } = await getPublicProducts(
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    "featured",
-    1,
-    50
-  );
-  const costs = (data ?? [])
-    .map((p) => p.credit_cost)
-    .filter((c): c is number => typeof c === "number" && c > 0)
-    .sort((a, b) => a - b);
-  if (costs.length === 0) return 5;
-  const mid = Math.floor(costs.length / 2);
-  return costs.length % 2 === 0
-    ? Math.round((costs[mid - 1]! + costs[mid]!) / 2)
-    : costs[mid]!;
-});
-
 export async function getUserFavoriteProductIds(): Promise<string[]> {
   const supabase = await createClient();
   const {

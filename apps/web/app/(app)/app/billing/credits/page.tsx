@@ -2,14 +2,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
-import { getActivePlan, canPurchaseExtraCredits } from "@/lib/billing/entitlements";
-import { getPlansForPurchase } from "@/lib/db/plans";
-import { getMedianPresetCost } from "@/lib/db/explore";
+import { getActivePlan } from "@/lib/billing/entitlements";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { CreditMeter } from "@/components/consumer/five-pixel";
-import { CreditPacks } from "@/components/consumer/credit-packs";
 import { Button } from "@/components/ui/button";
 import { Coins } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
@@ -45,18 +42,12 @@ export default async function BillingCreditsPage() {
     redirect("/login?next=/app/billing/credits");
   }
 
-  const [summary, activity, activePlan, profile, plans, medianCredits, canTopUp] =
-    await Promise.all([
-      getCreditPeriodSummary(),
-      getCreditActivity(),
-      getActivePlan(),
-      getMyProfile(),
-      getPlansForPurchase(),
-      getMedianPresetCost(),
-      canPurchaseExtraCredits(user.id),
-    ]);
-
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit") ?? null;
+  const [summary, activity, activePlan, profile] = await Promise.all([
+    getCreditPeriodSummary(),
+    getCreditActivity(),
+    getActivePlan(),
+    getMyProfile(),
+  ]);
 
   const name =
     profile?.display_name ??
@@ -150,29 +141,6 @@ export default async function BillingCreditsPage() {
             </div>
           </div>
         </SettingCard>
-
-        {/* Extra-credit packs — subscribers only (13 §6) */}
-        {extraCreditPlan &&
-          (canTopUp.allowed ? (
-            <SettingCard
-              title="Add credits"
-              description="One-time top-ups — pick a pack, credits land instantly."
-            >
-              <CreditPacks
-                planId={extraCreditPlan.id}
-                medianCredits={medianCredits}
-              />
-            </SettingCard>
-          ) : (
-            <SettingCard title="Add credits">
-              <p className="text-text-secondary text-sm">
-                Extra credits are available on a monthly plan.
-              </p>
-              <Button asChild variant="brand" size="sm" className="mt-3">
-                <Link href="/pricing">See monthly plans</Link>
-              </Button>
-            </SettingCard>
-          ))}
 
         {/* Metric tiles */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

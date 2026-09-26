@@ -20,8 +20,9 @@ import {
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
-import { Paywall } from "@/components/consumer/paywall-sheet";
+import { InsufficientCreditsDialog } from "@/components/consumer/insufficient-credits-dialog";
 import { AuthGateModal } from "@/components/consumer/auth-gate-modal";
+import { PaywallSheet } from "@/components/consumer/paywall-sheet";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import {
@@ -178,7 +179,7 @@ export function CreateGenerationForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
-
+  const [isNarrow, setIsNarrow] = useState(false);
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -252,7 +253,15 @@ export function CreateGenerationForm({
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
   }, [product.public_assets]);
 
-
+  // Below `sm` → paywall sheet; wider → the centred dialog. Sheet tiers
+  // switch at `sm` per 25_MOBILE_WEB_POLISH/15.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639.98px)");
+    const update = () => setIsNarrow(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Restore a staged draft after the auth round trip (?draft=1).
   useEffect(() => {
@@ -769,16 +778,25 @@ export function CreateGenerationForm({
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
-      <Paywall
-        open={insufficientOpen}
-        onOpenChange={setInsufficientOpen}
-        plans={plans}
-        required={displayCost}
-        balance={initialBalance}
-        presetName={product.name}
-        presetThumbUrl={presetThumb}
-        returnPath={`/app/create/${product.slug}`}
-      />
+      {isNarrow ? (
+        <PaywallSheet
+          open={insufficientOpen}
+          onOpenChange={setInsufficientOpen}
+          plans={plans}
+          required={displayCost}
+          balance={initialBalance}
+          presetName={product.name}
+        />
+      ) : (
+        <InsufficientCreditsDialog
+          open={insufficientOpen}
+          onOpenChange={setInsufficientOpen}
+          required={displayCost}
+          balance={initialBalance}
+          presetName={product.name}
+          presetThumbUrl={presetThumb}
+        />
+      )}
       <AuthGateModal
         open={authGateOpen}
         onOpenChange={setAuthGateOpen}
