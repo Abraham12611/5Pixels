@@ -121,13 +121,53 @@ describe("LibrarySegments", () => {
         initialTab="results"
         {...baseProps}
         activeRuns={[
-          { id: "a1", productName: "Ink Portrait", status: "generating", thumb: null },
+          {
+            id: "a1",
+            productName: "Ink Portrait",
+            productSlug: "ink-portrait",
+            status: "generating",
+            createdAt: new Date().toISOString(),
+            thumb: null,
+          },
         ]}
       />
     );
     expect(
       screen.getByRole("heading", { name: "In progress" })
     ).toBeInTheDocument();
+  });
+
+  it("failed runs show a Retry chip and can be dismissed", () => {
+    render(
+      <LibrarySegments
+        initialTab="results"
+        {...baseProps}
+        activeRuns={[
+          {
+            id: "f1",
+            productName: "Cover Star",
+            productSlug: "cover-star",
+            status: "failed",
+            createdAt: new Date().toISOString(),
+            thumb: null,
+          },
+        ]}
+      />
+    );
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Retry" })).toHaveAttribute(
+      "href",
+      "/app/create/cover-star"
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Dismiss Cover Star from this list",
+      })
+    );
+    expect(screen.queryByText("Cover Star")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "In progress" })
+    ).not.toBeInTheDocument();
   });
 
   it("shows suggested looks in an empty Presets segment", () => {
