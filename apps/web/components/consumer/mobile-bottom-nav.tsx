@@ -14,7 +14,7 @@ const CENTER_LABEL = "Create";
  * `04 §6`): the tab bar must not stack under it, and the page keeps no
  * tab-bar clearance. Add a prefix here when a surface gains a docked bar.
  */
-const DOCKED_BAR_PREFIXES = ["/app/create/", "/app/results/"];
+const DOCKED_BAR_PREFIXES = ["/app/create/", "/app/results/", "/presets/"];
 
 const LEFT_ITEMS = [
   { href: "/app", label: "Discover", icon: House },
@@ -61,6 +61,11 @@ export function MobileNavShell({ children }: { children: ReactNode }) {
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+
+  // Docked-action-bar routes own the thumb zone — no tab bar (04 §6).
+  if (DOCKED_BAR_PREFIXES.some((p) => pathname.startsWith(p))) {
+    return null;
+  }
 
   return (
     <nav
