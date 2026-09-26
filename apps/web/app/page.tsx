@@ -1,9 +1,19 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { LandingPage } from "@/components/marketing/landing-page";
+import { LandingSkeleton } from "@/components/marketing/landing-skeleton";
 import { getPublicProducts, getActiveCategories } from "@/lib/db/explore";
 import { buildSearchPresets } from "@/lib/search/search-presets";
 
-export default async function HomePage() {
+export default function HomePage() {
+  return (
+    <Suspense fallback={<LandingSkeleton />}>
+      <LandingData />
+    </Suspense>
+  );
+}
+
+async function LandingData() {
   const supabase = await createClient();
   const [
     { data: userData },

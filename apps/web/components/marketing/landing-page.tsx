@@ -51,7 +51,11 @@ export function LandingPage({
 
       {/* Mobile composition — tappable feed-first flow */}
       <main className="flex-1 lg:hidden">
-        <LandingMobile products={products} categories={categories} />
+        <LandingMobile
+          isAuthenticated={isAuthenticated}
+          products={products}
+          categories={categories}
+        />
       </main>
 
       <MarketingFooter isAuthenticated={isAuthenticated} />
