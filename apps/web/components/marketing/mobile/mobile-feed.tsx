@@ -1,14 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import { FilterChip } from "@/components/ui/filter-chip";
-import { ArrowUpRight, Sparkle } from "@phosphor-icons/react";
+import { Sparkle } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { PresetQuickSheet } from "@/components/consumer/preset-quick-sheet";
-import { recordRecentPreset } from "@/lib/search/recents";
+import { MobileSection } from "@/components/consumer/mobile/mobile-section";
+import {
+  MobileRail,
+  MobileRailMoreCard,
+} from "@/components/consumer/mobile/mobile-rail";
+import { useLandingQuickView } from "./landing-quick-view";
 import type { LandingFeedItem } from "./landing-feed-types";
+
+const TRENDING_COUNT = 6;
 
 interface MobileFeedProps {
   items: LandingFeedItem[];
@@ -16,23 +21,15 @@ interface MobileFeedProps {
 }
 
 /**
- * Mobile preset feed — the leader-style tappable grid. Chips filter by
- * category; every card opens the quick-view sheet (no navigation, no auth).
+ * Mobile preset feed — the leader-style tappable grid (05 §2.3–§2.4). Chips
+ * filter in place and stick beneath the header once the hero scrolls out;
+ * every card opens the shared quick sheet via `LandingQuickViewHost`.
  */
 export function MobileFeed({ items, categories }: MobileFeedProps) {
   const [chip, setChip] = useState<string>("all");
-  const [selected, setSelected] = useState<LandingFeedItem | null>(null);
+  const openItem = useLandingQuickView();
 
-  const openItem = (item: LandingFeedItem) => {
-    recordRecentPreset({
-      slug: item.slug,
-      name: item.name,
-      thumbUrl: item.previewUrl,
-    });
-    setSelected(item);
-  };
-
-  const trending = items.slice(0, 3);
+  const trending = items.slice(0, TRENDING_COUNT);
   const filtered = useMemo(
     () =>
       chip === "all" ? items : items.filter((i) => i.categorySlug === chip),
@@ -43,42 +40,51 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
     items.some((i) => i.categorySlug === c.slug)
   );
 
+  const activeCategoryName =
+    chip === "all"
+      ? "All looks"
+      : (usedCategories.find((c) => c.slug === chip)?.name ?? "Looks");
+
   return (
     <>
-      {/* Filter chips */}
-      <div
-        role="tablist"
-        aria-label="Filter looks"
-        className="-mx-4 flex scrollbar-none gap-2 overflow-x-auto px-4"
-      >
-        <FilterChip
-          label="All"
-          active={chip === "all"}
-          onClick={() => setChip("all")}
-        />
-        {usedCategories.map((c) => (
+      {/* Sticky chips row — pins beneath the header past the hero (05 §2.3) */}
+      <div className="border-cream-100/5 bg-ink-950/90 sticky top-16 z-20 border-b backdrop-blur-md">
+        <div
+          role="tablist"
+          aria-label="Filter looks"
+          className="scrollbar-none flex gap-2 overflow-x-auto px-5 py-2.5"
+        >
           <FilterChip
-            key={c.slug}
-            label={c.name}
-            active={chip === c.slug}
-            onClick={() => setChip(c.slug)}
+            label="All"
+            active={chip === "all"}
+            onClick={() => setChip("all")}
           />
-        ))}
+          {usedCategories.map((c) => (
+            <FilterChip
+              key={c.slug}
+              label={c.name}
+              active={chip === c.slug}
+              onClick={() => setChip(c.slug)}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Trending rail */}
       {chip === "all" && trending.length > 0 && (
-        <section aria-label="Trending" className="mt-7">
-          <h2 className="px-4 text-xs font-bold tracking-[0.18em] text-lime-400 uppercase">
-            Trending
-          </h2>
-          <div className="-mx-4 mt-3 flex scrollbar-none gap-3 overflow-x-auto px-4">
+        <MobileSection title="Trending" seeAllHref="/explore" bleed>
+          <MobileRail label="Trending looks" itemClassName="w-[156px]">
             {trending.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => openItem(item)}
-                className="media-frame relative aspect-[3/4] w-44 shrink-0 overflow-hidden rounded-xl text-left"
+                onClick={() => openItem?.(item)}
+                aria-label={`${item.name}, ${item.type}${
+                  item.creditCost
+                    ? `, ${item.creditCost} ${item.creditCost === 1 ? "credit" : "credits"}`
+                    : ""
+                }`}
+                className="media-frame relative aspect-[4/5] w-full overflow-hidden rounded-xl text-left"
               >
                 {item.thumbUrl ? (
                   <Image
@@ -109,33 +115,19 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                 </span>
               </button>
             ))}
-          </div>
-        </section>
+            <MobileRailMoreCard href="/explore" />
+          </MobileRail>
+        </MobileSection>
       )}
 
       {/* Masonry feed */}
-      <section aria-label="All looks" className="mt-7">
-        <div className="flex items-baseline justify-between px-1">
-          <h2 className="text-xs font-bold tracking-[0.18em] text-lime-400 uppercase">
-            {chip === "all"
-              ? "All looks"
-              : usedCategories.find((c) => c.slug === chip)?.name}
-          </h2>
-          <Link
-            href="/explore"
-            className="text-text-muted flex items-center gap-1 text-[11px] font-medium"
-          >
-            Browse all
-            <ArrowUpRight size={11} weight="bold" />
-          </Link>
-        </div>
-
-        <div className="mt-3 columns-2 gap-3 [column-fill:_balance]">
+      <MobileSection title={activeCategoryName} seeAllHref="/explore">
+        <div className="columns-2 gap-3 [column-fill:_balance]">
           {filtered.map((item, i) => (
             <button
               key={item.id}
               type="button"
-              onClick={() => openItem(item)}
+              onClick={() => openItem?.(item)}
               className="media-frame group relative mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl text-left"
             >
               <span
@@ -179,22 +171,11 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
         </div>
 
         {filtered.length === 0 && (
-          <p className="text-text-muted px-4 py-10 text-center text-sm">
+          <p className="text-text-muted py-10 text-center text-sm">
             No looks in this category yet — check back soon.
           </p>
         )}
-      </section>
-
-      <PresetQuickSheet
-        item={selected}
-        onOpenChange={(open) => {
-          if (!open) setSelected(null);
-        }}
-        isAuthenticated={false}
-        returnPath="/"
-      />
+      </MobileSection>
     </>
   );
 }
-
-

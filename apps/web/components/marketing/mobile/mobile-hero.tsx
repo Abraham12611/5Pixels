@@ -3,19 +3,24 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowUpRight, Sparkle } from "@phosphor-icons/react";
+import { Eye, Sparkle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { useMediaQuery } from "@/lib/ui/use-media-query";
 import { cn } from "@/lib/utils";
+import { useLandingQuickView } from "./landing-quick-view";
 import type { LandingFeedItem } from "./landing-feed-types";
 
 /**
- * Mobile hero — one dominant featured-preset card, swipeable through the top
- * featured looks. "Try this look" goes straight into the studio; tapping the
- * art opens the preset detail.
+ * Mobile hero carousel — up to three featured presets as full-bleed 4:5
+ * slides (25_MOBILE_WEB_POLISH/05 §2.1). The carousel never auto-advances;
+ * only the active slide's muted video loops, and reduced motion swaps it for
+ * the poster frame.
  */
 export function MobileHero({ items }: { items: LandingFeedItem[] }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
+  const openQuickView = useLandingQuickView();
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   if (items.length === 0) return null;
 
@@ -27,15 +32,24 @@ export function MobileHero({ items }: { items: LandingFeedItem[] }) {
   };
 
   return (
-    <section aria-label="Featured looks" className="px-4">
+    <section
+      role="group"
+      aria-roledescription="carousel"
+      aria-label="Featured looks"
+      className="px-5"
+    >
       <div
         ref={trackRef}
         onScroll={onScroll}
-        className="scrollbar-none -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-4"
+        tabIndex={0}
+        aria-label="Featured preset slides"
+        className="scrollbar-none focus-visible:ring-lime-500/70 -mx-5 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth rounded-lg px-5 focus-visible:ring-2 focus-visible:outline-none"
       >
-        {items.map((item) => (
+        {items.map((item, index) => (
           <article
             key={item.id}
+            aria-roledescription="slide"
+            aria-label={`${index + 1} of ${items.length}`}
             className="media-frame relative aspect-[4/5] w-full shrink-0 snap-center overflow-hidden rounded-2xl"
           >
             <Link
@@ -43,7 +57,17 @@ export function MobileHero({ items }: { items: LandingFeedItem[] }) {
               aria-label={`See ${item.name}`}
               className="absolute inset-0"
             >
-              {item.thumbUrl ? (
+              {item.previewVideoUrl && index === active && !reducedMotion ? (
+                <video
+                  src={item.previewVideoUrl}
+                  poster={item.thumbUrl ?? undefined}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : item.thumbUrl ? (
                 <Image
                   src={item.thumbUrl}
                   alt={`${item.name} preset example`}
@@ -74,13 +98,17 @@ export function MobileHero({ items }: { items: LandingFeedItem[] }) {
               ) : null}
               <div className="pointer-events-auto mt-3.5 flex items-center gap-2">
                 <Button asChild variant="brand">
-                  <Link href={`/app/create/${item.slug}`}>Try this look</Link>
+                  <Link href={`/app/create/${item.slug}`}>Use this look</Link>
                 </Button>
-                <Button asChild variant="secondary" size="icon" aria-label={`Open ${item.name} details`}>
-                  <Link href={`/presets/${item.slug}`}>
-                    <ArrowUpRight size={16} weight="bold" />
-                  </Link>
-                </Button>
+                {openQuickView ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => openQuickView(item)}
+                  >
+                    <Eye size={16} weight="bold" />
+                    Preview
+                  </Button>
+                ) : null}
               </div>
             </div>
           </article>
