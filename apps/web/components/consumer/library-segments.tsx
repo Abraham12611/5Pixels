@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { X } from "@phosphor-icons/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { FivePixelMark } from "@/components/consumer/five-pixel";
@@ -12,7 +13,7 @@ import { RunsList, type LibraryRun } from "@/components/consumer/runs-list";
 import { ProductCard } from "@/components/consumer/product-card";
 import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { isFailureStatus } from "@/lib/generation/stages";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import type { FavoriteProduct, PublicProductSummary } from "@/types/catalog";
 
 export type LibrarySegment = "results" | "presets" | "runs";
@@ -30,7 +31,9 @@ export function parseLibrarySegment(tab: string | null): LibrarySegment {
 export interface ActiveRun {
   id: string;
   productName: string;
+  productSlug: string;
   status: string;
+  createdAt: string;
   thumb: string | null;
 }
 
@@ -42,50 +45,94 @@ function runStatusChip(status: string): { label: string; className: string } {
 }
 
 function InProgressRail({ runs }: { runs: ActiveRun[] }) {
+  // Failed runs stay in the rail with a Retry chip until dismissed (11 §4.1).
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const visible = runs.filter(
+    (r) => !(isFailureStatus(r.status) && dismissed.has(r.id))
+  );
+  if (visible.length === 0) return null;
+
   return (
     <section className="mb-8" aria-label="In progress">
       <h2 className="text-text-secondary mb-3 text-sm font-medium">
         In progress
       </h2>
       <div className="scrollbar-none -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
-        {runs.map((gen) => {
+        {visible.map((gen) => {
           const chip = runStatusChip(gen.status);
+          const failed = isFailureStatus(gen.status);
           return (
-            <Link
+            <div
               key={gen.id}
-              href={`/app/generations/${gen.id}`}
-              className="group shadow-border hover:shadow-border-hover w-36 shrink-0 snap-start overflow-hidden rounded-xl bg-charcoal-850 transition-colors sm:w-40"
+              className="group shadow-border hover:shadow-border-hover relative w-36 shrink-0 snap-start overflow-hidden rounded-xl bg-charcoal-850 transition-colors sm:w-40"
             >
-              <span className="bg-charcoal-800 media-frame relative block aspect-[4/5]">
-                {gen.thumb ? (
-                  <Image
-                    src={gen.thumb}
-                    alt=""
-                    fill
-                    unoptimized
-                    sizes="160px"
-                    className="object-cover"
-                  />
-                ) : (
-                  <span className="absolute inset-0 grid place-items-center">
-                    <span className="bg-charcoal-700 h-8 w-8 animate-pulse rounded-md" />
-                  </span>
-                )}
-              </span>
-              <span className="block p-2.5">
-                <span className="text-cream-50 block truncate text-xs font-medium">
-                  {gen.productName}
-                </span>
-                <span
-                  className={cn(
-                    "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                    chip.className
+              <Link
+                href={
+                  failed
+                    ? `/app/create/${gen.productSlug}`
+                    : `/app/generations/${gen.id}`
+                }
+                prefetch={false}
+                className="block"
+              >
+                <span className="bg-charcoal-800 media-frame relative block aspect-[4/5]">
+                  {gen.thumb ? (
+                    <Image
+                      src={gen.thumb}
+                      alt=""
+                      fill
+                      unoptimized
+                      sizes="160px"
+                      className="object-cover"
+                    />
+                  ) : (
+                    <span className="absolute inset-0 grid place-items-center">
+                      <span className="bg-charcoal-700 h-8 w-8 animate-pulse rounded-md" />
+                    </span>
                   )}
-                >
-                  {chip.label}
                 </span>
-              </span>
-            </Link>
+                <span className="block p-2.5">
+                  <span className="text-cream-50 block truncate text-xs font-medium">
+                    {gen.productName}
+                  </span>
+                  <span className="mt-1 flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                        chip.className,
+                        !failed && "animate-pulse"
+                      )}
+                    >
+                      {chip.label}
+                    </span>
+                    <span className="text-text-muted text-[10px] tabular-nums">
+                      {formatRelativeTime(gen.createdAt)}
+                    </span>
+                  </span>
+                </span>
+              </Link>
+              {failed && (
+                <>
+                  <Link
+                    href={`/app/create/${gen.productSlug}`}
+                    prefetch={false}
+                    className="bg-lime-400 text-ink-950 hover:bg-lime-300 absolute bottom-2 left-2 rounded-full px-2.5 py-1 text-[10px] font-bold transition-colors"
+                  >
+                    Retry
+                  </Link>
+                  <button
+                    type="button"
+                    aria-label={`Dismiss ${gen.productName} from this list`}
+                    onClick={() =>
+                      setDismissed((prev) => new Set(prev).add(gen.id))
+                    }
+                    className="bg-ink-950/60 text-cream-50 hover:bg-ink-950/80 absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-full backdrop-blur-sm transition-colors after:absolute after:-inset-1.5 after:content-['']"
+                  >
+                    <X size={12} weight="bold" />
+                  </button>
+                </>
+              )}
+            </div>
           );
         })}
       </div>

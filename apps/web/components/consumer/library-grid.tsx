@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   CalendarBlank,
@@ -35,6 +35,8 @@ export interface LibraryItem {
 
 type LibraryTab = "all" | "saved" | "downloaded";
 type DateRange = "any" | "7" | "30" | "90";
+
+const PAGE_SIZE = 12;
 
 const DATE_RANGE_LABELS: Record<DateRange, string> = {
   any: "Any time",
@@ -140,6 +142,41 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
     );
 
   const hasLibrary = items.length > 0;
+
+  // Progressive reveal: an explicit first "Load more", then the sentinel
+  // auto-appends — the same rule as /explore (06 §5).
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [autoLoad, setAutoLoad] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Reset pagination when the result set changes (render-phase adjust idiom).
+  const filtersKey = `${tab}|${query}|${dateRange}|${preset}`;
+  const [lastFiltersKey, setLastFiltersKey] = useState(filtersKey);
+  if (lastFiltersKey !== filtersKey) {
+    setLastFiltersKey(filtersKey);
+    setVisibleCount(PAGE_SIZE);
+    setAutoLoad(false);
+  }
+
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !autoLoad || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((c) => c + PAGE_SIZE);
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [autoLoad, hasMore]);
 
   return (
     <div>
@@ -318,29 +355,49 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
           </EmptyPanel>
         )
       ) : (
-        <section
-          aria-label="Library results"
-          className="columns-2 gap-5 md:columns-3 xl:columns-4"
-        >
-          {filtered.map((item, index) => (
-            <LibraryResultCard
-              key={item.id}
-              item={item}
-              priority={index < 4}
-              onSaved={(id, saved) =>
-                updateItem(id, {
-                  savedAt: saved ? new Date().toISOString() : null,
-                })
-              }
-              onDownloaded={(id) =>
-                updateItem(id, { downloadedAt: new Date().toISOString() })
-              }
-              onDeleted={(id) =>
-                setItems((prev) => prev.filter((i) => i.id !== id))
-              }
-            />
-          ))}
-        </section>
+        <>
+          {/* Uniform owned-content grid — 4:5, 10px gutters (11 §4.2) */}
+          <section
+            aria-label="Library results"
+            className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-4"
+          >
+            {visible.map((item, index) => (
+              <LibraryResultCard
+                key={item.id}
+                item={item}
+                priority={index < 4}
+                onSaved={(id, saved) =>
+                  updateItem(id, {
+                    savedAt: saved ? new Date().toISOString() : null,
+                  })
+                }
+                onDownloaded={(id) =>
+                  updateItem(id, { downloadedAt: new Date().toISOString() })
+                }
+                onDeleted={(id) =>
+                  setItems((prev) => prev.filter((i) => i.id !== id))
+                }
+              />
+            ))}
+          </section>
+          {hasMore && (
+            <div className="mt-6 flex flex-col items-center gap-2">
+              <Button
+                variant="secondary"
+                className="h-11 min-w-44"
+                onClick={() => {
+                  setVisibleCount((c) => c + PAGE_SIZE);
+                  setAutoLoad(true);
+                }}
+              >
+                Load more results
+              </Button>
+              {autoLoad && (
+                <div ref={sentinelRef} aria-hidden className="h-px w-full" />
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
