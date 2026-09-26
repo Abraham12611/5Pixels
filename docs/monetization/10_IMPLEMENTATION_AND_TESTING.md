@@ -128,9 +128,20 @@ re-apply it or the CLI will hit production with test keys.
 signup/lead form, tracking = programmatic REST, participant auth disabled,
 auto-approve rewards, share URL `https://www.5pixels.app/`.
 
-**Still pending:** step 4 of the install guide — how users open the referral
-portal (popup button / embedded elements / hosted link). Needs a product
-decision.
+**Portal surface (step 4): white-label embedded page** — chosen over the
+popup window and hosted portal:
+
+| File | What it does |
+|---|---|
+| `apps/web/app/(app)/app/referrals/page.tsx` | `/app/referrals` — auth-gated settings page; resolves `display_name` → `first`/`last`, renders the blocks. Falls back to a "not available" card when `NEXT_PUBLIC_GROWSURF_CAMPAIGN_ID` is empty or no email is on file. |
+| `apps/web/components/growsurf/blocks.tsx` | The six embedded elements: `data-grsf-block-form` (share link + social), `referral-summary`, `next-milestone`, `referral-status`, `rewards`, `invite`. All carry `data-grsf-email`/`first-name`/`last-name` (participant/auth view) plus dark-theme `*-style` overrides (lime `#82ea3a` buttons, charcoal `#141714` cards). |
+| `apps/web/components/growsurf/init.tsx` | Client-side `grsfReady` listener → `growsurf.initElements()` — needed because Next.js client-side navigation mounts blocks after the universal script has loaded. |
+| `apps/web/components/consumer/settings-shell.tsx` | "Referrals" nav item (Billing group — rewards are credits). |
+| `apps/web/app/(app)/app/account/page.tsx` | "Refer & earn" shortcut card. |
+
+The universal code lives in `app/layout.tsx` (`beforeInteractive`, campaign
+`whr2c0` default). Participant creation is implicit — `data-grsf-email`
+auto-adds the user to the program on first view.
 
 ### Referral reward lifecycle
 
@@ -205,6 +216,7 @@ pnpm vitest list lib/billing           # enumerate test names without running
 | `lib/billing/__tests__/webhook-creem.test.ts` (13 tests) | Signature accept/reject/tamper/missing, `checkout.completed` one-time grant + replay dedup, `subscription.paid` grant + invoice + subscription upsert, checkout+paid first-period dedup, refund debit + invoice `refunded`, pending-refund no-op, dispute chargeback reversal, cancel/past_due lifecycle, unknown event → 200. |
 | `lib/growsurf/webhook-growsurf.test.ts` (15) | Signature rejection, campaign scoping, milestone grants via `spx_credits` (both participant sides), held-share settle, HIGH-fraud rejection, idempotent redelivery, participant backfill. |
 | `lib/growsurf/verify.test.ts` (6) | `ts=,v=` parsing, raw-body HMAC, timestamp window. |
+| `components/growsurf/__tests__/blocks.test.tsx` (3) | All six embedded blocks render with participant identity, name attrs omitted when absent, every `*-style` attr stays JSON-parseable. |
 | `lib/offers/admin-preview.test.ts` (5) | Forced variant without bucketing, draft-campaign preview, switcher index completeness, unknown slug, non-admin ignores param. |
 | `lib/offers/pick-variant.test.ts` | Weighted bucket math. |
 | `lib/billing/__tests__/webhook-polar.test.ts`, `polar.test.ts` | Legacy Polar paths (kept green as rollback coverage). |
@@ -229,7 +241,8 @@ Full gates: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
   available for purchase yet" until `plans.metadata` carries `prod_*` ids.
 - Creem account review not submitted — approval claims can't be made until
   it passes.
-- GrowSurf portal surface (step 4) not chosen — referral link UX is
-  currently only the in-app `ReferralCard` share URL.
+- GrowSurf embedded blocks render empty until `growsurf.js` loads — blocked
+  by aggressive ad-blockers; acceptable degradation (card headers still
+  explain the feature).
 - Moderation API integration absent — likely review blocker; needs a
   decision on whether preset-internal prompting still requires it.

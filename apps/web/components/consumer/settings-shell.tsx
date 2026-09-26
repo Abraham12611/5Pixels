@@ -12,6 +12,7 @@ import {
   Coins,
   Receipt,
   Question,
+  Gift,
   SignOut,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
@@ -43,6 +44,7 @@ const BILLING_ITEMS: SettingsNavItem[] = [
   { label: "Plan", href: "/app/billing/plan", icon: Crown },
   { label: "Credits", href: "/app/billing/credits", icon: Coins },
   { label: "History", href: "/app/billing/history", icon: Receipt },
+  { label: "Referrals", href: "/app/referrals", icon: Gift },
 ];
 
 function isActive(pathname: string, item: SettingsNavItem): boolean {
