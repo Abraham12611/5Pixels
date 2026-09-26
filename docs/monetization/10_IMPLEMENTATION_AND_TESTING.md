@@ -69,17 +69,21 @@ CREEM_WEBHOOK_SECRET=           # Dashboard → Developers → Webhooks
    signing secret into `CREEM_WEBHOOK_SECRET`.
 3. Local testing: `creem listen --forward-to http://localhost:3000/api/webhooks/creem`.
 
-### CLI note
+### CLI note — verified working
 
-`creem-cli` was installed globally from the GitHub tarball (npm package
-`creem-cli` is unpublished). Its config schema only accepts
-`environment`/`api_key`/`output_format` and its `serverIdx` mapping is
-inverted — the installed binary was patched locally
-(`node_modules/creem-cli/dist/lib/api.js`). Login with the supplied test key
-returned `401 Invalid API Key` from the SDK path; plain REST with the same
-key should be re-verified against `test-api.creem.io` before relying on CLI
-auth. **Not confirmed working** — if the key is rejected by plain REST too,
-request a fresh test key from the Creem dashboard.
+`creem-cli` is installed globally (from the GitHub tarball; the npm package
+is unpublished). Its `serverIdx` mapping was inverted — test keys were sent
+to production — so the installed client was patched to pass `serverURL`
+(`node_modules/creem-cli/dist/lib/api.js`). Config lives at
+`~/.creem/config.json` (`environment: "test"`).
+
+Verified: `creem whoami` → authenticated, `test`, `test-api.creem.io`;
+`creem products list` → authenticated empty list (no products yet — see
+dashboard setup). Plain REST against `test-api.creem.io` with the same key
+returns proper validation errors (auth passes).
+
+**Reinstall warning:** `npm i -g` again will wipe the `serverURL` patch —
+re-apply it or the CLI will hit production with test keys.
 
 ### Compliance requirements (from Creem docs — not yet verified)
 
@@ -214,7 +218,7 @@ Full gates: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
 | Var | Needed for |
 |---|---|
-| `CREEM_API_KEY` | Live Creem calls. Test key supplied is unverified (see §1 CLI note). |
+| `CREEM_API_KEY` | Test key supplied is verified working against `test-api.creem.io` — set it in `.env.local`/Vercel to activate checkout. |
 | `CREEM_WEBHOOK_SECRET` | Webhook signature verification — from dashboard endpoint creation. |
 | `GROWSURF_API_KEY`, `GROWSURF_WEBHOOK_SECRET` | GrowSurf REST + webhook activation. |
 | `GROWSURF_REFERRAL_HOLD_DAYS` | Optional 1–90 day referrer-reward hold (signup trigger means it falls back to immediate grant unless the trigger is changed to qualifying-action). |
