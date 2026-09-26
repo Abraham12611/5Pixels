@@ -8,6 +8,13 @@ vi.mock("../library-result-card", () => ({
   ),
 }));
 
+// Server actions can't load in jsdom — bulk paths are covered separately.
+vi.mock("@/lib/library/actions", () => ({
+  deleteGeneration: vi.fn(async () => ({ success: true })),
+  markGenerationDownloaded: vi.fn(async () => ({ success: true })),
+  setGenerationSaved: vi.fn(async () => ({ success: true })),
+}));
+
 function makeItems(count: number): LibraryItem[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `g${i}`,
@@ -40,5 +47,54 @@ describe("LibraryGrid", () => {
     const grid = container.querySelector("[aria-label='Library results']");
     expect(grid?.className).toContain("grid-cols-2");
     expect(grid?.className).not.toContain("columns-");
+  });
+
+  it("Select enters selection mode with a count header and bulk bar", () => {
+    render(<LibraryGrid items={makeItems(3)} />);
+    fireEvent.click(screen.getByRole("button", { name: /Select/ }));
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Cancel" })
+    ).toBeInTheDocument();
+    // Docked bulk bar
+    expect(
+      screen.getByRole("button", { name: "Download" })
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("0 selected")).not.toBeInTheDocument();
+  });
+
+  it("Filters opens the T3 modal and applies a preset facet", () => {
+    render(<LibraryGrid items={makeItems(15)} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Filters/ })
+    );
+    // Staged modal sections
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getByText("Preset")).toBeInTheDocument();
+    // Choose the "Preset 0" facet → apply → only that card remains
+    fireEvent.click(screen.getByRole("radio", { name: /Preset 0/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show 1 result" })
+    );
+    expect(screen.getAllByTestId("result-card")).toHaveLength(1);
+    // Applied chip reflects the facet and clears it
+    expect(
+      screen.getByRole("button", { name: "Remove Preset 0 filter" })
+    ).toBeInTheDocument();
+  });
+
+  it("Sort sheet applies a different order", () => {
+    render(<LibraryGrid items={makeItems(2)} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Newest first/ })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Oldest first" })
+    );
+    expect(
+      screen.getByRole("button", { name: /Oldest first/ })
+    ).toBeInTheDocument();
   });
 });

@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import {
+  useRef,
+  useState,
+  useTransition,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,6 +14,7 @@ import {
   ArrowCounterClockwise,
   ArrowSquareOut,
   BookmarkSimple,
+  CheckCircle,
   Download,
   DotsThree,
   ShareNetwork,
@@ -40,6 +47,11 @@ import type { LibraryItem } from "./library-grid";
 interface LibraryResultCardProps {
   item: LibraryItem;
   priority?: boolean;
+  /** Selection mode (11 §4.4): media tap toggles instead of navigating. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+  onEnterSelection?: (id: string) => void;
   onSaved: (id: string, saved: boolean) => void;
   onDownloaded: (id: string) => void;
   onDeleted: (id: string) => void;
@@ -53,6 +65,10 @@ interface LibraryResultCardProps {
 export function LibraryResultCard({
   item,
   priority = false,
+  selecting = false,
+  selected = false,
+  onToggleSelect,
+  onEnterSelection,
   onSaved,
   onDownloaded,
   onDeleted,
@@ -65,6 +81,58 @@ export function LibraryResultCard({
   const [isPending, startTransition] = useTransition();
 
   const resultHref = `/app/results/${item.id}`;
+
+  // Long-press (touch only) enters selection mode; the trailing click is
+  // swallowed so it doesn't navigate (11 §4.4).
+  const pressTimer = useRef<number | null>(null);
+  const pressOrigin = useRef<{ x: number; y: number } | null>(null);
+  const longFired = useRef(false);
+  const clearPress = () => {
+    if (pressTimer.current !== null) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+    pressOrigin.current = null;
+  };
+  const handlePointerDown = (e: ReactPointerEvent) => {
+    if (selecting || e.pointerType === "mouse" || !onEnterSelection) return;
+    pressOrigin.current = { x: e.clientX, y: e.clientY };
+    pressTimer.current = window.setTimeout(() => {
+      longFired.current = true;
+      onEnterSelection(item.id);
+      navigator.vibrate?.(8);
+    }, 500);
+  };
+  const handlePointerMove = (e: ReactPointerEvent) => {
+    const origin = pressOrigin.current;
+    if (!origin) return;
+    if (Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > 10) {
+      clearPress();
+    }
+  };
+  const handleClickCapture = (e: ReactMouseEvent) => {
+    if (longFired.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      longFired.current = false;
+    }
+  };
+
+  const mediaInner = item.outputUrl ? (
+    <Image
+      src={item.outputUrl}
+      alt={`Result made with ${item.productName}`}
+      fill
+      unoptimized
+      priority={priority}
+      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+      className="object-cover"
+    />
+  ) : (
+    <span className="text-text-muted absolute inset-0 grid place-items-center text-xs">
+      No preview
+    </span>
+  );
 
   const handleSave = () => {
     const next = !saved;
@@ -158,32 +226,56 @@ export function LibraryResultCard({
 
   return (
     <article className="group shadow-border hover:shadow-border-hover relative overflow-hidden rounded-xl bg-charcoal-850 transition-shadow">
-      {/* Media — taps through to the canonical Result page */}
-      <Link
-        href={resultHref}
-        prefetch={false}
-        className="media-frame relative block aspect-[4/5] bg-charcoal-800"
-        aria-label={`Open result made with ${item.productName}`}
-      >
-        {item.outputUrl ? (
-          <Image
-            src={item.outputUrl}
-            alt={`Result made with ${item.productName}`}
-            fill
-            unoptimized
-            priority={priority}
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="object-cover"
-          />
-        ) : (
-          <span className="text-text-muted absolute inset-0 grid place-items-center text-xs">
-            No preview
+      {/* Media — taps through to the canonical Result page; becomes a
+          toggle while selecting, and long-press enters selection on touch. */}
+      {selecting ? (
+        <button
+          type="button"
+          aria-pressed={selected}
+          aria-label={`${selected ? "Deselect" : "Select"} result made with ${item.productName}`}
+          onClick={() => onToggleSelect?.(item.id)}
+          className="media-frame relative block aspect-[4/5] w-full bg-charcoal-800"
+        >
+          {mediaInner}
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-2.5 left-2.5 z-20 grid h-7 w-7 place-items-center rounded-full border-2 backdrop-blur-sm transition-colors",
+              selected
+                ? "border-lime-400 bg-lime-400 text-ink-950"
+                : "border-cream-100/50 bg-ink-950/40 text-transparent"
+            )}
+          >
+            <CheckCircle size={16} weight="fill" />
           </span>
-        )}
-      </Link>
+          {selected && (
+            <span
+              aria-hidden
+              className="bg-lime-400/15 absolute inset-0 z-10"
+            />
+          )}
+        </button>
+      ) : (
+        <Link
+          href={resultHref}
+          prefetch={false}
+          className="media-frame relative block aspect-[4/5] bg-charcoal-800"
+          aria-label={`Open result made with ${item.productName}`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={clearPress}
+          onPointerLeave={clearPress}
+          onPointerCancel={clearPress}
+          onClickCapture={handleClickCapture}
+          onContextMenu={isNarrow ? (e) => e.preventDefault() : undefined}
+        >
+          {mediaInner}
+        </Link>
+      )}
 
-      {/* Saved marker — the only permanent overlay */}
-      {saved && (
+      {/* Saved marker — the only permanent overlay (yields to the checkbox
+          while selecting) */}
+      {saved && !selecting && (
         <span className="bg-ink-950/70 text-lime-300 pointer-events-none absolute top-2.5 left-2.5 z-20 grid h-7 w-7 place-items-center rounded-full backdrop-blur-sm">
           <BookmarkSimple size={14} weight="fill" />
         </span>
