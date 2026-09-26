@@ -85,6 +85,7 @@ describe("LibrarySegments", () => {
           {
             id: "r1",
             productName: "Manga Cut-Out",
+            productSlug: "manga-cutout",
             status: "completed",
             creditCost: 5,
             createdAt: new Date().toISOString(),
