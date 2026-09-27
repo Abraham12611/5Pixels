@@ -237,8 +237,10 @@ Full gates: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
 ## 8. Known limitations / open items
 
-- Creem **products are not created yet** — plan checkouts return "not
-  available for purchase yet" until `plans.metadata` carries `prod_*` ids.
+- Creem **test-mode products exist and are mapped** — all 11 `prod_*` ids are
+  stamped into `plans.metadata.creem_product_id_test` by migration
+  `20260929000004_creem_product_ids.sql`. Live-mode checkouts still need
+  `creem_product_id_live` ids once live products exist.
 - Creem account review not submitted — approval claims can't be made until
   it passes.
 - GrowSurf embedded blocks render empty until `growsurf.js` loads — blocked
