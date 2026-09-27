@@ -101,83 +101,70 @@ export function NotificationRow({
   );
 }
 
-/** Shared inbox body — the T2 sheet (mobile) and the desktop popover render this. */
+/**
+ * Inbox rows — Today / Earlier groups plus the empty state. Plain flow: the
+ * parent owns scrolling (the Sheet's own body on mobile, a bounded div in the
+ * desktop popover). No nested `overflow`/`min-h-0` chain — that collapsed the
+ * list to zero height inside the sheet.
+ */
 export function NotificationInboxList({
   items,
-  unread,
   onRead,
-  onMarkAll,
-  onClose,
 }: {
   items: NotificationItem[];
-  unread?: number;
   onRead: (id: string) => void;
-  onMarkAll?: () => void;
-  onClose?: () => void;
 }) {
   const { today, earlier } = groupByDay(items);
   const empty = items.length === 0;
 
+  if (empty) {
+    return (
+      <p className="text-text-secondary px-4 py-12 text-center text-sm">
+        You&apos;re all caught up.
+      </p>
+    );
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Mobile sheets put Mark all read in-body — the sheet header only holds the title */}
-      {onMarkAll && unread !== undefined && unread > 0 && (
-        <div className="flex shrink-0 justify-end px-3 pt-1 pb-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-text-secondary h-8 text-xs"
-            onClick={onMarkAll}
-          >
-            Mark all read
-          </Button>
-        </div>
+    <>
+      {today.length > 0 && (
+        <section aria-label="Today">
+          <h3 className="text-text-muted border-cream-100/10 bg-charcoal-850 sticky top-0 border-b px-4 py-1.5 text-[10px] font-semibold tracking-widest uppercase">
+            Today
+          </h3>
+          {today.map((n) => (
+            <NotificationRow key={n.id} n={n} onRead={onRead} />
+          ))}
+        </section>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {empty ? (
-          <p className="text-text-secondary px-4 py-12 text-center text-sm">
-            You&apos;re all caught up.
-          </p>
-        ) : (
-          <>
-            {today.length > 0 && (
-              <section aria-label="Today">
-                <h3 className="text-text-muted border-cream-100/10 bg-surface-base/95 sticky top-0 border-b px-4 py-1.5 text-[10px] font-semibold tracking-widest uppercase">
-                  Today
-                </h3>
-                {today.map((n) => (
-                  <NotificationRow key={n.id} n={n} onRead={onRead} />
-                ))}
-              </section>
-            )}
-            {earlier.length > 0 && (
-              <section aria-label="Earlier">
-                <h3 className="text-text-muted border-cream-100/10 bg-surface-base/95 sticky top-0 border-b px-4 py-1.5 text-[10px] font-semibold tracking-widest uppercase">
-                  Earlier
-                </h3>
-                {earlier.map((n) => (
-                  <NotificationRow key={n.id} n={n} onRead={onRead} />
-                ))}
-              </section>
-            )}
-          </>
-        )}
-      </div>
-      {/* Settings affordance lives at the foot of the inbox (14 §4.3) */}
-      <div className="border-cream-100/10 shrink-0 border-t p-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-text-secondary w-full justify-start gap-2"
-          asChild
-        >
-          <Link href="/app/account/notifications" onClick={onClose}>
-            <GearSix size={14} aria-hidden />
-            Notification settings
-          </Link>
-        </Button>
-      </div>
-    </div>
+      {earlier.length > 0 && (
+        <section aria-label="Earlier">
+          <h3 className="text-text-muted border-cream-100/10 bg-charcoal-850 sticky top-0 border-b px-4 py-1.5 text-[10px] font-semibold tracking-widest uppercase">
+            Earlier
+          </h3>
+          {earlier.map((n) => (
+            <NotificationRow key={n.id} n={n} onRead={onRead} />
+          ))}
+        </section>
+      )}
+    </>
+  );
+}
+
+/** Settings affordance pinned at the foot of the inbox (14 §4.3). */
+export function NotificationSettingsRow({ onClose }: { onClose?: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-text-secondary justify-start gap-2"
+      asChild
+    >
+      <Link href="/app/account/notifications" onClick={onClose}>
+        <GearSix size={14} aria-hidden />
+        Notification settings
+      </Link>
+    </Button>
   );
 }
 
@@ -261,22 +248,31 @@ export function NotificationDropdown({
     return (
       <>
         {trigger}
-        {/* T2 inbox — full-height content sheet on mobile (14 §4.3) */}
+        {/* T2 inbox — full-height content sheet on mobile (14 §4.3). The
+            Sheet's own body scrolls the rows; the footer stays pinned. */}
         <Sheet
           open={open}
           onOpenChange={setOpen}
           tier="content"
           title="Notifications"
           showClose
-          bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+          bodyClassName="px-0"
+          footer={
+            <div className="flex items-center justify-between gap-2">
+              <NotificationSettingsRow onClose={() => setOpen(false)} />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-text-secondary h-8 text-xs"
+                onClick={markAll}
+                disabled={unread === 0}
+              >
+                Mark all read
+              </Button>
+            </div>
+          }
         >
-          <NotificationInboxList
-            items={items}
-            unread={unread}
-            onRead={markOne}
-            onMarkAll={markAll}
-            onClose={() => setOpen(false)}
-          />
+          <NotificationInboxList items={items} onRead={markOne} />
         </Sheet>
       </>
     );
@@ -287,7 +283,12 @@ export function NotificationDropdown({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent className="w-96 p-0" align="end">
         {header}
-        <NotificationInboxList items={items} onRead={markOne} />
+        <div className="max-h-96 overflow-y-auto">
+          <NotificationInboxList items={items} onRead={markOne} />
+        </div>
+        <div className="border-cream-100/10 border-t p-2">
+          <NotificationSettingsRow />
+        </div>
       </PopoverContent>
     </Popover>
   );

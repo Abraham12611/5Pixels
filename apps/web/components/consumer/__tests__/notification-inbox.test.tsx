@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import {
   NotificationDropdown,
   NotificationInboxList,
+  NotificationSettingsRow,
   unreadBadgeLabel,
 } from "../notification-dropdown";
 import type { NotificationItem } from "@/lib/db/notifications";
@@ -79,10 +80,18 @@ describe("NotificationInboxList", () => {
   });
 
   it("links to notification settings", () => {
-    render(<NotificationInboxList items={[]} onRead={vi.fn()} />);
+    render(<NotificationSettingsRow />);
     expect(
       screen.getByRole("link", { name: /notification settings/i })
     ).toHaveAttribute("href", "/app/account/notifications");
+  });
+
+  it("shows Mark all read in the mobile sheet footer while unread remain", () => {
+    render(
+      <NotificationDropdown unreadCount={1} notifications={[item({})]} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    expect(screen.getByText("Mark all read")).toBeEnabled();
   });
 
   it("refreshes the inbox when the header passes a new notifications payload", () => {
@@ -104,24 +113,4 @@ describe("NotificationInboxList", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("exposes Mark all read only while unread items remain", () => {
-    const { rerender } = render(
-      <NotificationInboxList
-        items={[item({ id: "a" })]}
-        unread={1}
-        onRead={vi.fn()}
-        onMarkAll={vi.fn()}
-      />
-    );
-    expect(screen.getByText("Mark all read")).toBeInTheDocument();
-    rerender(
-      <NotificationInboxList
-        items={[item({ id: "a", read_at: new Date().toISOString() })]}
-        unread={0}
-        onRead={vi.fn()}
-        onMarkAll={vi.fn()}
-      />
-    );
-    expect(screen.queryByText("Mark all read")).not.toBeInTheDocument();
-  });
 });
