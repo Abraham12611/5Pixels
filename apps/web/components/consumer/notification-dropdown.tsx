@@ -192,6 +192,14 @@ export function NotificationDropdown({
   const [items, setItems] = useState(initialNotifications);
   const [unread, setUnread] = useState(initialUnread);
   const [open, setOpen] = useState(false);
+  // The app header refetches notifications on every navigation — resync when a
+  // fresh payload arrives so the inbox never freezes on a stale snapshot.
+  const [prevInitial, setPrevInitial] = useState(initialNotifications);
+  if (prevInitial !== initialNotifications) {
+    setPrevInitial(initialNotifications);
+    setItems(initialNotifications);
+    setUnread(initialUnread);
+  }
   const [, startTransition] = useTransition();
 
   const badge = unreadBadgeLabel(unread);

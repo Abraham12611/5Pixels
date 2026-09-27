@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import {
+  NotificationDropdown,
   NotificationInboxList,
   unreadBadgeLabel,
 } from "../notification-dropdown";
@@ -8,6 +9,10 @@ import type { NotificationItem } from "@/lib/db/notifications";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
+vi.mock("@/lib/ui/use-media-query", () => ({
+  useIsNarrow: () => true,
 }));
 
 vi.mock("@/lib/db/notifications", () => ({
@@ -78,6 +83,25 @@ describe("NotificationInboxList", () => {
     expect(
       screen.getByRole("link", { name: /notification settings/i })
     ).toHaveAttribute("href", "/app/account/notifications");
+  });
+
+  it("refreshes the inbox when the header passes a new notifications payload", () => {
+    const { rerender } = render(
+      <NotificationDropdown unreadCount={0} notifications={[]} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    expect(screen.getByText("You're all caught up.")).toBeInTheDocument();
+
+    rerender(
+      <NotificationDropdown
+        unreadCount={1}
+        notifications={[item({ id: "fresh" })]}
+      />
+    );
+    expect(screen.getByText("Your result is ready")).toBeInTheDocument();
+    expect(
+      screen.queryByText("You're all caught up.")
+    ).not.toBeInTheDocument();
   });
 
   it("exposes Mark all read only while unread items remain", () => {
