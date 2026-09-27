@@ -7,6 +7,7 @@ import { getActivePlan } from "@/lib/billing/entitlements";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
+import { CancelSubscription } from "@/components/consumer/cancel-subscription";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkle } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
@@ -146,9 +147,17 @@ export default async function BillingPlanPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button asChild size="sm">
-                <Link href="/pricing">Change plan</Link>
-              </Button>
+              {cancelsAt ? (
+                <form action="/api/billing/portal" method="post">
+                  <Button type="submit" variant="brand" size="sm">
+                    Resubscribe
+                  </Button>
+                </form>
+              ) : (
+                <Button asChild size="sm">
+                  <Link href="/pricing">Change plan</Link>
+                </Button>
+              )}
               {billing.dodoCustomerId && (
                 <form action="/api/billing/portal" method="post">
                   <Button type="submit" variant="secondary" size="sm">
@@ -337,22 +346,10 @@ export default async function BillingPlanPage() {
           </>
         )}
 
-        {/* Cancellation / downgrade — secondary */}
-        {isSubscriber && billing.dodoCustomerId && (
-          <div className="border-cream-100/10 rounded-[15px] border p-5">
-            <p className="text-cream-50 text-sm font-medium">
-              Cancel your subscription
-            </p>
-            <p className="text-text-secondary mt-1 text-sm leading-relaxed">
-              Cancel anytime from the billing portal. Your plan stays active
-              until {renewal ?? "the end of the current period"}, and unused
-              credits remain in your balance.
-            </p>
-            <form action="/api/billing/portal" method="post" className="mt-3">
-              <Button type="submit" variant="ghost" size="sm">
-                Manage in billing portal
-              </Button>
-            </form>
+        {/* Cancellation — quiet row + T1 confirm sheet (13 §10) */}
+        {isSubscriber && billing.dodoCustomerId && !cancelsAt && (
+          <div className="border-cream-100/10 rounded-[15px] border px-5 py-3">
+            <CancelSubscription renewalDate={renewal} />
           </div>
         )}
       </div>

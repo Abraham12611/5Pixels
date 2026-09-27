@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "@phosphor-icons/react";
+import { createPortal } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -128,7 +129,12 @@ export function Sheet({
 
   const labelledBy = ariaLabel ? undefined : title ? headingId : undefined;
 
-  return (
+  // Portal to <body>: an ancestor with backdrop-filter/transform/contain
+  // (e.g. the blurred app header) would otherwise become the containing block
+  // for this fixed overlay — trapping it to that box and removing the scrim.
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       ref={overlayRef}
       role="presentation"
@@ -229,7 +235,8 @@ export function Sheet({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

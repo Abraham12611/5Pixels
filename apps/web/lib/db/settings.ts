@@ -10,6 +10,8 @@ export interface UserSettings {
   productUpdatesOptIn: boolean;
   notifyGenerationCompleted: boolean;
   notifyBilling: boolean;
+  /** Global pause — suppresses all in-app + email notifications. */
+  notificationsPaused: boolean;
   autoDeleteOriginalsDays: number | null;
   autoDeleteOutputsDays: number | null;
 }
@@ -24,7 +26,7 @@ export async function getUserSettings(): Promise<UserSettings | null> {
   const { data, error } = await supabase
     .from("user_settings")
     .select(
-      "default_download_format, marketing_opt_in, product_updates_opt_in, notify_generation_completed, notify_billing, auto_delete_originals_days, auto_delete_outputs_days"
+      "default_download_format, marketing_opt_in, product_updates_opt_in, notify_generation_completed, notify_billing, notifications_paused, auto_delete_originals_days, auto_delete_outputs_days"
     )
     .eq("user_id", user.id)
     .single();
@@ -42,6 +44,8 @@ export async function getUserSettings(): Promise<UserSettings | null> {
     notifyGenerationCompleted:
       (data.notify_generation_completed as boolean) ?? true,
     notifyBilling: (data.notify_billing as boolean) ?? true,
+    notificationsPaused:
+      (data.notifications_paused as boolean | undefined) ?? false,
     autoDeleteOriginalsDays:
       data.auto_delete_originals_days != null
         ? Number(data.auto_delete_originals_days)
@@ -59,6 +63,7 @@ export interface UpdateUserSettingsInput {
   productUpdatesOptIn?: boolean;
   notifyGenerationCompleted?: boolean;
   notifyBilling?: boolean;
+  notificationsPaused?: boolean;
   autoDeleteOriginalsDays?: number | null;
   autoDeleteOutputsDays?: number | null;
 }
@@ -84,6 +89,7 @@ export async function updateUserSettings(
         product_updates_opt_in: input.productUpdatesOptIn,
         notify_generation_completed: input.notifyGenerationCompleted,
         notify_billing: input.notifyBilling,
+        notifications_paused: input.notificationsPaused,
         auto_delete_originals_days: input.autoDeleteOriginalsDays,
         auto_delete_outputs_days: input.autoDeleteOutputsDays,
         updated_at: new Date().toISOString(),

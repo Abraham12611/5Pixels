@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getBillingData, getSavedPaymentMethods } from "@/lib/db/billing";
+import {
+  getBillingData,
+  getSavedPaymentMethods,
+  getCreditActivity,
+} from "@/lib/db/billing";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
@@ -32,6 +36,29 @@ function formatDate(iso: string): string {
   }
 }
 
+function monthLabel(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "long",
+      year: "numeric",
+    });
+  } catch {
+    return "Earlier";
+  }
+}
+
+interface HistoryRow {
+  id: string;
+  date: string;
+  label: string;
+  /** Signed amount text — purchases/refunds render lime, spends muted. */
+  amountText: string;
+  positive: boolean;
+  statusLabel?: string;
+  statusClass?: string;
+  invoice: boolean;
+}
+
 const INVOICE_STATUS: Record<string, { label: string; className: string }> = {
   paid: { label: "Paid", className: "bg-lime-500/10 text-lime-300" },
   pending: { label: "Pending", className: "bg-warning/10 text-warning" },
@@ -52,10 +79,11 @@ export default async function BillingHistoryPage() {
     redirect("/login?next=/app/billing/history");
   }
 
-  const [billing, paymentMethods, profile] = await Promise.all([
+  const [billing, paymentMethods, profile, creditActivity] = await Promise.all([
     getBillingData(),
     getSavedPaymentMethods(),
     getMyProfile(),
+    getCreditActivity(),
   ]);
 
   if (!billing) {
@@ -68,6 +96,57 @@ export default async function BillingHistoryPage() {
     "Your account";
   const email = profile?.email ?? user.email ?? "";
 
+  // One merged timeline (13 §9): money rows (invoices) + credit-ledger rows,
+  // grouped by month — the credit side reconciles with the Runs segment.
+  const rows: HistoryRow[] = [
+    ...billing.invoices.map((invoice) => {
+      const status = INVOICE_STATUS[invoice.status] ?? {
+        label: invoice.status,
+        className: "bg-cream-100/10 text-text-secondary",
+      };
+      return {
+        id: `inv-${invoice.id}`,
+        date: invoice.created_at,
+        label: invoice.plan_name ?? "Credit purchase",
+        amountText: `${invoice.status === "refunded" ? "+" : ""}${formatCents(
+          invoice.amount_cents,
+          invoice.currency
+        )}`,
+        positive: invoice.status === "paid" || invoice.status === "refunded",
+        statusLabel: invoice.status === "paid" ? undefined : status.label,
+        statusClass: status.className,
+        invoice: true,
+      };
+    }),
+    ...creditActivity.map((entry) => ({
+      id: `cr-${entry.id}`,
+      date: entry.date,
+      label: entry.label,
+      amountText:
+        entry.kind === "released"
+          ? `+${Math.abs(entry.amount)} credits`
+          : `${entry.amount > 0 ? "+" : "−"}${Math.abs(entry.amount)} credits`,
+      positive: entry.kind === "released" || entry.amount > 0,
+      statusLabel:
+        entry.statusLabel === "Failed" || entry.statusLabel === "In progress"
+          ? entry.statusLabel
+          : undefined,
+      statusClass:
+        entry.statusLabel === "Failed"
+          ? "bg-error/10 text-error"
+          : "bg-warning/10 text-warning",
+      invoice: false,
+    })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const byMonth = new Map<string, HistoryRow[]>();
+  for (const row of rows) {
+    const key = monthLabel(row.date);
+    const bucket = byMonth.get(key);
+    if (bucket) bucket.push(row);
+    else byMonth.set(key, [row]);
+  }
+
   return (
     <SettingsShell userName={name} userEmail={email}>
       <div className="space-y-6">
@@ -78,9 +157,10 @@ export default async function BillingHistoryPage() {
           </p>
         </div>
 
-        {/* Invoices & purchases */}
+        {/* Activity — merged money + credit rows under sticky month headers */}
         <SettingCard
-          title="Invoices &amp; purchases"
+          title="Activity"
+          description="Payments and credit movements in one timeline — credit rows reconcile with the Runs segment in your Library."
           action={
             billing.dodoCustomerId ? (
               <form action="/api/billing/portal" method="post">
@@ -91,55 +171,82 @@ export default async function BillingHistoryPage() {
             ) : undefined
           }
         >
-          {billing.invoices.length === 0 ? (
+          {rows.length === 0 ? (
             <div className="flex flex-col items-center py-10 text-center">
               <span className="bg-charcoal-800 text-text-muted rounded-[15px] p-4">
                 <Receipt size={24} />
               </span>
               <p className="text-cream-50 mt-4 text-sm font-medium">
-                No invoices yet.
+                No activity yet.
               </p>
               <p className="text-text-secondary mt-1 max-w-xs text-sm">
-                Receipts for plans and credit purchases will appear here.
+                Purchases and credit movements will appear here.
               </p>
             </div>
           ) : (
-            <ul className="divide-cream-100/10 divide-y">
-              {billing.invoices.map((invoice) => {
-                const status = INVOICE_STATUS[invoice.status] ?? {
-                  label: invoice.status,
-                  className: "bg-cream-100/10 text-text-secondary",
-                };
-                return (
-                  <li
-                    key={invoice.id}
-                    className="flex items-center justify-between gap-4 py-3.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-cream-50 truncate text-sm font-medium">
-                        {invoice.plan_name ?? "Credit purchase"}
-                      </p>
-                      <p className="text-text-muted mt-0.5 text-xs">
-                        {formatDate(invoice.created_at)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <span
-                        className={cn(
-                          "rounded-full px-2.5 py-1 text-xs font-medium",
-                          status.className
-                        )}
+            <div>
+              {[...byMonth.entries()].map(([month, monthRows]) => (
+                <section key={month}>
+                  <h3 className="text-text-muted bg-charcoal-850/95 sticky top-14 z-10 -mx-6 px-6 py-2 text-[11px] font-semibold tracking-wider uppercase backdrop-blur-sm">
+                    {month}
+                  </h3>
+                  <ul className="divide-cream-100/10 divide-y">
+                    {monthRows.map((row) => (
+                      <li
+                        key={row.id}
+                        className="flex items-center justify-between gap-4 py-3.5"
                       >
-                        {status.label}
-                      </span>
-                      <span className="text-cream-50 w-20 text-right text-sm font-medium tabular-nums">
-                        {formatCents(invoice.amount_cents, invoice.currency)}
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                        <div className="min-w-0">
+                          <p className="text-cream-50 truncate text-sm font-medium">
+                            {row.label}
+                          </p>
+                          <p className="text-text-muted mt-0.5 text-xs">
+                            {formatDate(row.date)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2.5">
+                          {row.statusLabel && (
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-1 text-xs font-medium",
+                                row.statusClass
+                              )}
+                            >
+                              {row.statusLabel}
+                            </span>
+                          )}
+                          <span
+                            className={cn(
+                              "min-w-20 text-right text-sm font-medium tabular-nums",
+                              row.positive
+                                ? "text-lime-300"
+                                : "text-text-secondary"
+                            )}
+                          >
+                            {row.amountText}
+                          </span>
+                          {row.invoice && billing.dodoCustomerId && (
+                            <form
+                              action="/api/billing/portal"
+                              method="post"
+                            >
+                              <Button
+                                type="submit"
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Receipt for ${row.label}`}
+                              >
+                                Receipt
+                              </Button>
+                            </form>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
           )}
         </SettingCard>
 

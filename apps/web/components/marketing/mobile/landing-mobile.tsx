@@ -61,7 +61,8 @@ export function LandingMobile({
 }: LandingMobileProps) {
   const items = products.map(toFeedItem);
   const featured = items.slice(0, 3);
-  const feed = items.slice(0, 18);
+  // The feed caps itself at 18 per page behind "Show more looks" (5.5).
+  const feed = items;
 
   return (
     <div className="pb-24 lg:hidden">

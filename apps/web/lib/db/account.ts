@@ -133,5 +133,5 @@ export async function deleteAccount(
   // Sign the user out after their account is marked deleted.
   await supabase.auth.signOut({ scope: "global" });
 
-  redirect("/");
+  redirect("/account-deleted");
 }
