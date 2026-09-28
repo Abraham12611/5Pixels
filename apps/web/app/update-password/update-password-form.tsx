@@ -22,8 +22,9 @@ export function UpdatePasswordForm() {
           id="password"
           autoComplete="new-password"
           minLength={8}
+          enterKeyHint="next"
+          showChecklist
         />
-        <p className="text-text-muted text-xs">At least 8 characters.</p>
         {state?.errors?.password && (
           <p className="text-error text-[13px]" role="alert">
             {state.errors.password.join(" ")}
@@ -36,6 +37,7 @@ export function UpdatePasswordForm() {
           id="confirmPassword"
           name="confirmPassword"
           autoComplete="new-password"
+          enterKeyHint="go"
         />
         {state?.errors?.confirmPassword && (
           <p className="text-error text-[13px]" role="alert">

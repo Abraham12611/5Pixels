@@ -21,7 +21,7 @@ import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
 import { Paywall } from "@/components/consumer/paywall-sheet";
-import { AuthGateModal } from "@/components/consumer/auth-gate-modal";
+import { AuthModal } from "@/components/auth/auth-modal";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import {
@@ -45,6 +45,7 @@ import {
   saveStudioDraft,
 } from "@/lib/anonymous-draft";
 import { cn } from "@/lib/utils";
+import { useOnline } from "@/lib/ui/use-online";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
@@ -166,6 +167,7 @@ export function CreateGenerationForm({
   } | null>(null);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const online = useOnline();
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string>("");
   /** Rejected pick (wrong type / too large) — inline under the source zone. */
@@ -496,7 +498,23 @@ export function CreateGenerationForm({
       });
 
       if (result?.error) {
-        setError(result.error);
+        // Session-expired mid-flow → reopen the auth sheet in place; the
+        // draft is still in IndexedDB so one tap resumes after re-auth.
+        if (result.error === "Please sign in to continue.") {
+          if (file) {
+            void saveStudioDraft({
+              slug: product.slug,
+              file,
+              fileName: file.name,
+              fileType: file.type,
+              options,
+              sizeName: selectedSize.name ?? null,
+            });
+          }
+          setAuthGateOpen(true);
+        } else {
+          setError(result.error);
+        }
       }
       // On success the server action redirects. On idempotent retry it also redirects.
     } catch (err) {
@@ -520,7 +538,8 @@ export function CreateGenerationForm({
   const stepIndex = submitStepIndex(progress);
   const creditUnit = displayCost === 1 ? "credit" : "credits";
   const generateLabel = `Generate · ${displayCost} ${creditUnit}`;
-  const generateDisabled = loading || !hasSource || generationPaused;
+  const generateDisabled =
+    loading || !hasSource || generationPaused || !online;
   // Every disabled state names its blocker; while submitting, the reason
   // line doubles as honest progress.
   const disabledReason = loading
@@ -529,7 +548,9 @@ export function CreateGenerationForm({
       ? "Add a photo to generate"
       : generationPaused
         ? "Generation is paused — try again shortly"
-        : undefined;
+        : !online
+          ? "You're offline — reconnect to generate"
+          : undefined;
 
   const submitError = error ? (
     <div className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
@@ -779,22 +800,14 @@ export function CreateGenerationForm({
         presetThumbUrl={presetThumb}
         returnPath={`/app/create/${product.slug}`}
       />
-      <AuthGateModal
+      {/* Anonymous setups autosave to IndexedDB (debounced above), so the auth
+          sheet only needs the draft=1 return path — nothing to persist here. */}
+      <AuthModal
         open={authGateOpen}
         onOpenChange={setAuthGateOpen}
-        nextPath={`/app/create/${product.slug}?draft=1`}
-        onBeforeLeave={() =>
-          file
-            ? saveStudioDraft({
-                slug: product.slug,
-                file,
-                fileName: file.name,
-                fileType: file.type,
-                options,
-                sizeName: selectedSize.name ?? null,
-              })
-            : undefined
-        }
+        next={`/app/create/${product.slug}?draft=1`}
+        preset={{ name: product.name, thumbUrl: presetThumb }}
+        initialTab="signup"
       />
     </form>
   );
