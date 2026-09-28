@@ -381,6 +381,10 @@ export function CreateGenerationForm({
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
+    // The AuthModal Sheet portals to document.body but stays in this React
+    // tree, so its form submits bubble here — ignore events not from this
+    // form or the sheet's submit gets preventDefault'd and silently dies.
+    if (e.target !== e.currentTarget) return;
     e.preventDefault();
     setError("");
     setProgress("");
