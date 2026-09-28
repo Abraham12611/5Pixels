@@ -2,14 +2,15 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getBillingData } from "@/lib/db/billing";
-import { getPlansForPurchase } from "@/lib/db/plans";
-import { getActivePlan } from "@/lib/billing/entitlements";
+import { getPlansForPurchase, type PlanForPurchase } from "@/lib/db/plans";
+import { getActivePlan, hasEverPaid } from "@/lib/billing/entitlements";
+import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
+import { PlanShop, type ShopPlan } from "@/components/consumer/plan-shop";
 import { Button } from "@/components/ui/button";
-import { Check, Sparkle } from "@phosphor-icons/react/dist/ssr";
-import { cn } from "@/lib/utils";
+import { Check, Sparkle, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 
 function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(0)}`;
@@ -28,18 +29,57 @@ function formatDate(iso: string | null): string | null {
   }
 }
 
-function planBenefits(markup: number, creditsGrant: number): string[] {
+function planBenefits(
+  planType: string,
+  markup: number,
+  creditsGrant: number
+): string[] {
   const benefits = [
-    `${creditsGrant.toLocaleString()} credits every month`,
-    "Top up extra credits anytime",
+    planType === "annual"
+      ? `${creditsGrant.toLocaleString()} credits land every month`
+      : `${creditsGrant.toLocaleString()} credits each ${
+          planType === "weekly_trial" ? "week" : "month"
+        }`,
+    "Top up extra credits anytime — they never expire",
     "Failed transformations release credits back automatically",
   ];
-  if (markup <= 2.5) {
+  if (planType === "annual") {
+    benefits.push("Pay once a year at a lower monthly rate");
+  } else if (markup <= 2.5) {
     benefits.push("Lower credit cost per transformation");
   } else if (markup <= 3.5) {
     benefits.push("Better credit rates than starter plans");
   }
   return benefits.slice(0, 4);
+}
+
+function toShopPlan(plan: PlanForPurchase): ShopPlan {
+  const meta = plan.metadata ?? {};
+  return {
+    id: plan.id,
+    name: plan.name.replace(/ Annual$/, ""),
+    priceCents: plan.price_cents,
+    creditsGrant: plan.credits_grant,
+    checkoutReady: plan.checkout_ready,
+    monthlyEquivalentCents:
+      typeof meta.monthly_equivalent_cents === "number"
+        ? meta.monthly_equivalent_cents
+        : undefined,
+    discountPercent:
+      typeof meta.discount_percent === "number"
+        ? meta.discount_percent
+        : undefined,
+  };
+}
+
+function PortalForm({ label, variant }: { label: string; variant: "secondary" | "ghost" }) {
+  return (
+    <form action="/api/billing/portal" method="post">
+      <Button type="submit" variant={variant} size="sm">
+        {label}
+      </Button>
+    </form>
+  );
 }
 
 export default async function BillingPlanPage() {
@@ -52,12 +92,15 @@ export default async function BillingPlanPage() {
     redirect("/login?next=/app/billing/plan");
   }
 
-  const [billing, plans, activePlan, profile] = await Promise.all([
-    getBillingData(),
-    getPlansForPurchase(),
-    getActivePlan(),
-    getMyProfile(),
-  ]);
+  const [billing, plans, activePlan, profile, balance, everPaid] =
+    await Promise.all([
+      getBillingData(),
+      getPlansForPurchase(),
+      getActivePlan(),
+      getMyProfile(),
+      getUserCreditBalance(),
+      hasEverPaid(),
+    ]);
 
   if (!billing) {
     redirect("/login");
@@ -70,35 +113,73 @@ export default async function BillingPlanPage() {
   const email = profile?.email ?? user.email ?? "";
 
   const monthlyPlans = plans.filter((p) => p.type === "monthly");
+  const annualPlans = plans.filter((p) => p.type === "annual");
   const weeklyPlans = plans.filter((p) => p.type === "weekly_trial");
   const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
-  const isSubscriber = Boolean(
-    billing.activeSubscription && activePlan?.type === "monthly"
-  );
-  const renewal = formatDate(
-    billing.activeSubscription?.current_period_end ?? null
-  );
-  const subPlan = Array.isArray(billing.activeSubscription?.plan)
-    ? billing.activeSubscription.plan[0]
-    : billing.activeSubscription?.plan;
-  const cadence =
-    subPlan?.interval === "monthly"
-      ? "Billed monthly"
-      : billing.activeSubscription?.trial
-        ? "Weekly trial"
-        : null;
-  const cancelsAt = billing.activeSubscription?.cancel_at_period_end;
 
-  // Most credits per dollar earns the "Best value" tag.
-  const bestValuePlanId =
-    monthlyPlans.length > 0
-      ? monthlyPlans.reduce((best, p) =>
-          p.credits_grant / Math.max(1, p.price_cents) >
-          best.credits_grant / Math.max(1, best.price_cents)
-            ? p
-            : best
-        ).id
+  const subscription = billing.activeSubscription;
+  const subPlan = Array.isArray(subscription?.plan)
+    ? subscription.plan[0]
+    : subscription?.plan;
+  const hasActiveSubscription = Boolean(subscription);
+  const planType = subPlan?.type ?? null;
+  const isRecurring = planType === "monthly" || planType === "annual";
+  const isWeeklyPass = planType === "weekly_trial";
+  const isCanceling = Boolean(subscription?.cancel_at_period_end);
+  const isPastDue = subscription?.status === "past_due";
+  const renewal = formatDate(subscription?.current_period_end ?? null);
+
+  // Weekly trial framing is for first-timers only — anyone who has ever paid
+  // or held any subscription row never sees it, on any surface.
+  const showWeekly = !everPaid && weeklyPlans.length > 0;
+
+  // Lapsed: paid before, nothing active now — offer a restart of their last plan.
+  let lapsedPlan: { id: string; name: string } | null = null;
+  if (everPaid && !hasActiveSubscription) {
+    const { data: lastSub } = await supabase
+      .from("subscriptions")
+      .select("plan:plan_id(id, name)")
+      .eq("user_id", user.id)
+      .not("status", "in", "(active,past_due)")
+      .order("current_period_end", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const p = Array.isArray(lastSub?.plan) ? lastSub.plan[0] : lastSub?.plan;
+    if (p?.id && p?.name) {
+      const purchasable = plans.find(
+        (candidate) => candidate.id === p.id && candidate.checkout_ready
+      );
+      if (purchasable) lapsedPlan = { id: p.id as string, name: p.name as string };
+    }
+  }
+
+  // Monthly subscribers get the quiet "switch to annual" nudge (Plane Finder
+  // pattern) instead of a paywall — routed through the billing portal, never
+  // a second checkout that could double-bill.
+  const annualSibling =
+    activePlan?.type === "monthly"
+      ? annualPlans.find(
+          (p) => p.metadata?.sibling_monthly_slug === activePlan.slug
+        )
+      : undefined;
+  const annualDiscount =
+    typeof annualSibling?.metadata?.discount_percent === "number"
+      ? annualSibling.metadata.discount_percent
       : null;
+
+  const displayName = (subPlan?.name ?? activePlan?.name ?? "Free").replace(
+    "Weekly Trial - ",
+    "Weekly "
+  );
+
+  const cadenceLabel =
+    planType === "monthly"
+      ? "Billed monthly"
+      : planType === "annual"
+        ? "Billed annually"
+        : isWeeklyPass
+          ? "One week — doesn't renew"
+          : null;
 
   return (
     <SettingsShell userName={name} userEmail={email}>
@@ -106,89 +187,306 @@ export default async function BillingPlanPage() {
         <div>
           <h1 className="text-cream-50 text-xl font-semibold">Plan</h1>
           <p className="text-text-secondary mt-1 text-sm">
-            Your current plan and what it includes.
+            Your subscription, credits, and what happens next.
           </p>
         </div>
 
-        {/* Current plan */}
-        <SettingCard>
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        {/* Status banner — state announced before controls (Mercury pattern) */}
+        {isPastDue ? (
+          <div
+            role="status"
+            className="border-error/30 bg-error/[0.07] flex flex-wrap items-center justify-between gap-3 rounded-[15px] border p-5"
+          >
             <div>
-              <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
-                Current plan
+              <p className="text-cream-50 text-sm font-semibold">
+                Payment didn&apos;t go through
               </p>
-              <p className="font-display text-cream-50 mt-2 text-3xl leading-tight">
-                {activePlan?.name ?? "Free"}
+              <p className="text-text-secondary mt-1 text-sm">
+                Update your payment method to keep {displayName} and your
+                monthly credits.
               </p>
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                {activePlan ? (
-                  <>
-                    {cadence && (
-                      <span className="border-cream-100/10 bg-charcoal-800 text-text-secondary rounded-full border px-2.5 py-1 text-xs font-medium">
-                        {cadence}
-                      </span>
-                    )}
-                    {cancelsAt ? (
-                      <span className="bg-warning/10 text-warning rounded-full px-2.5 py-1 text-xs font-medium">
-                        Cancels {renewal}
-                      </span>
-                    ) : renewal ? (
-                      <span className="bg-lime-500/10 text-lime-300 rounded-full px-2.5 py-1 text-xs font-medium">
-                        Renews {renewal}
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="text-text-secondary text-sm">
-                    No subscription — you start with free credits.
-                  </p>
+            </div>
+            <PortalForm label="Update payment" variant="secondary" />
+          </div>
+        ) : isCanceling ? (
+          <div
+            role="status"
+            className="border-warning/30 bg-warning/[0.06] flex flex-wrap items-center justify-between gap-3 rounded-[15px] border p-5"
+          >
+            <div>
+              <p className="text-cream-50 text-sm font-semibold">
+                Your {displayName} plan ends {renewal ?? "soon"}
+              </p>
+              <p className="text-text-secondary mt-1 text-sm">
+                You keep your credits and plan until then — nothing is lost
+                today.
+              </p>
+            </div>
+            <PortalForm label="Restart plan" variant="secondary" />
+          </div>
+        ) : lapsedPlan ? (
+          <div
+            role="status"
+            className="border-lime-500/25 bg-lime-500/[0.05] flex flex-wrap items-center justify-between gap-3 rounded-[15px] border p-5"
+          >
+            <div>
+              <p className="text-cream-50 text-sm font-semibold">
+                Welcome back — your {lapsedPlan.name} plan has ended
+              </p>
+              <p className="text-text-secondary mt-1 text-sm">
+                Restart it in one step, or pick a different plan below.
+              </p>
+            </div>
+            <form action="/api/billing/checkout" method="post">
+              <input type="hidden" name="plan_id" value={lapsedPlan.id} />
+              <Button type="submit" variant="brand" size="sm">
+                Restart {lapsedPlan.name}
+              </Button>
+            </form>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          {/* Current plan */}
+          <SettingCard>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
+                  Current plan
+                </p>
+                <p className="font-display text-cream-50 mt-2 text-3xl leading-tight">
+                  {displayName}
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  {activePlan ? (
+                    <>
+                      {cadenceLabel && (
+                        <span className="border-cream-100/10 bg-charcoal-800 text-text-secondary rounded-full border px-2.5 py-1 text-xs font-medium">
+                          {cadenceLabel}
+                        </span>
+                      )}
+                      {isCanceling ? (
+                        <span className="bg-warning/10 text-warning rounded-full px-2.5 py-1 text-xs font-medium">
+                          Cancels {renewal}
+                        </span>
+                      ) : isWeeklyPass && renewal ? (
+                        <span className="bg-cream-100/10 text-cream-100 rounded-full px-2.5 py-1 text-xs font-medium">
+                          Ends {renewal}
+                        </span>
+                      ) : renewal ? (
+                        <span className="bg-lime-500/10 text-lime-300 rounded-full px-2.5 py-1 text-xs font-medium">
+                          Renews {renewal}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-text-secondary text-sm">
+                      No subscription — pick a plan below to fill up on credits.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {billing.billingCustomerId && (
+                  <PortalForm label="Manage subscription" variant="secondary" />
+                )}
+                {!hasActiveSubscription && (
+                  <Button asChild size="sm" variant="ghost">
+                    <Link href="#plans">Compare plans</Link>
+                  </Button>
                 )}
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button asChild size="sm">
-                <Link href="/pricing">Change plan</Link>
-              </Button>
-              {billing.billingCustomerId && (
-                <form action="/api/billing/portal" method="post">
-                  <Button type="submit" variant="secondary" size="sm">
-                    Manage subscription
-                  </Button>
-                </form>
+
+            {activePlan && (
+              <ul className="border-cream-100/10 mt-5 grid gap-2.5 border-t pt-5 sm:grid-cols-2">
+                {planBenefits(
+                  planType ?? "monthly",
+                  activePlan.markupMultiplier,
+                  activePlan.creditsGrant
+                ).map((benefit) => (
+                  <li key={benefit} className="flex items-start gap-2.5">
+                    <Check
+                      size={16}
+                      weight="bold"
+                      className="text-lime-400 mt-0.5 shrink-0"
+                    />
+                    <span className="text-text-secondary text-sm">
+                      {benefit}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SettingCard>
+
+          {/* Right rail: next bill + credits + annual nudge */}
+          <div className="flex flex-col gap-4">
+            <SettingCard>
+              <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
+                {isRecurring && !isCanceling ? "Next bill" : "Billing"}
+              </p>
+              {isRecurring && !isCanceling ? (
+                <>
+                  <p className="font-display text-cream-50 mt-2 text-2xl leading-tight">
+                    {formatCents(subPlan?.price_cents ?? 0)}
+                  </p>
+                  <p className="text-text-secondary mt-1.5 text-sm">
+                    {renewal
+                      ? `on ${renewal} — renews automatically`
+                      : "Renews automatically"}
+                  </p>
+                </>
+              ) : isCanceling ? (
+                <>
+                  <p className="font-display text-cream-50 mt-2 text-2xl leading-tight">
+                    $0
+                  </p>
+                  <p className="text-text-secondary mt-1.5 text-sm">
+                    No further charges — the plan ends{" "}
+                    {renewal ?? "at the end of the period"}.
+                  </p>
+                </>
+              ) : isWeeklyPass ? (
+                <>
+                  <p className="font-display text-cream-50 mt-2 text-2xl leading-tight">
+                    One-time
+                  </p>
+                  <p className="text-text-secondary mt-1.5 text-sm">
+                    Your pass ends {renewal ?? "at the end of the week"} — it
+                    never renews.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="font-display text-cream-50 mt-2 text-2xl leading-tight">
+                    —
+                  </p>
+                  <p className="text-text-secondary mt-1.5 text-sm">
+                    No upcoming bill.
+                  </p>
+                </>
               )}
-            </div>
+            </SettingCard>
+
+            <SettingCard>
+              <p className="text-text-secondary text-xs font-medium uppercase tracking-wide">
+                Credits
+              </p>
+              <p className="mt-2 flex items-baseline gap-2">
+                <span className="font-display text-cream-50 text-3xl leading-none tabular-nums">
+                  {balance.toLocaleString()}
+                </span>
+                <span className="text-text-secondary text-xs">left</span>
+              </p>
+              <Button
+                asChild
+                size="sm"
+                variant={balance <= 0 ? "brand" : "secondary"}
+                className="mt-4 w-full"
+              >
+                <Link
+                  href={hasActiveSubscription ? "#top-up" : "/pricing"}
+                >
+                  Buy credits
+                </Link>
+              </Button>
+              <p className="text-text-muted mt-2.5 text-xs">
+                Top-up credits never expire.
+              </p>
+            </SettingCard>
+
+            {annualSibling && annualDiscount !== null && (
+              <div className="border-promo/25 bg-promo/[0.06] rounded-[15px] border p-5">
+                <p className="text-cream-50 text-sm font-semibold">
+                  Switch to annual and save {annualDiscount}%
+                </p>
+                <p className="text-text-secondary mt-1 text-sm leading-relaxed">
+                  {formatCents(annualSibling.price_cents)}/year — the same
+                  monthly credits at a lower rate.
+                </p>
+                <div className="mt-3">
+                  <PortalForm label="Manage plan" variant="secondary" />
+                </div>
+              </div>
+            )}
           </div>
+        </div>
 
-          {activePlan && (
-            <ul className="border-cream-100/10 mt-5 grid gap-2.5 border-t pt-5 sm:grid-cols-2">
-              {planBenefits(
-                activePlan.markupMultiplier,
-                activePlan.creditsGrant
-              ).map((benefit) => (
-                <li key={benefit} className="flex items-start gap-2.5">
-                  <Check
-                    size={16}
-                    weight="bold"
-                    className="text-lime-400 mt-0.5 shrink-0"
-                  />
-                  <span className="text-text-secondary text-sm">{benefit}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SettingCard>
-
-        {/* Extra credits top-up — subscribers only */}
-        {isSubscriber && extraCreditPlan && (
+        {/* Start with a week — first-timers only */}
+        {showWeekly && (
           <SettingCard
-            title="Extra credits"
-            description="One-time top-up — 1 credit for every $0.01, minimum $10. Credits land instantly."
+            title="Start with a week"
+            description="One-time weekly plans — a low-commitment way to load up on credits. They never renew."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              {weeklyPlans.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="border-lime-500/30 bg-lime-500/[0.04] relative flex items-center justify-between gap-3 overflow-hidden rounded-[12px] border p-4"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="bg-lime-500/50 absolute inset-x-0 top-0 h-px"
+                  />
+                  <div>
+                    <p className="text-cream-50 flex items-center gap-1.5 text-sm font-medium">
+                      <Sparkle
+                        size={14}
+                        weight="fill"
+                        className="text-lime-400"
+                      />
+                      {plan.name.replace("Weekly Trial - ", "")} week
+                    </p>
+                    <p className="text-text-secondary mt-0.5 text-xs">
+                      {formatCents(plan.price_cents)} ·{" "}
+                      {plan.credits_grant.toLocaleString()} credits · one-time
+                    </p>
+                  </div>
+                  <form action="/api/billing/checkout" method="post">
+                    <input type="hidden" name="plan_id" value={plan.id} />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="brand"
+                      disabled={!plan.checkout_ready}
+                    >
+                      {plan.checkout_ready ? "Start" : "Soon"}
+                    </Button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          </SettingCard>
+        )}
+
+        {/* Plan shopping — only when no subscription is active (a new checkout
+            while subscribed would double-bill; changes go through the portal) */}
+        {!hasActiveSubscription && (
+          <div id="plans">
+            <SettingCard
+              title="Choose a plan"
+              description="Every plan adds credits each cycle. Pick a cadence, then a tier."
+            >
+              <PlanShop
+                monthly={monthlyPlans.map(toShopPlan)}
+                annual={annualPlans.map(toShopPlan)}
+              />
+            </SettingCard>
+          </div>
+        )}
+
+        {/* Extra credits top-up — active subscribers only (entitlement gate) */}
+        {hasActiveSubscription && extraCreditPlan && (
+          <SettingCard
+            title="Top up credits"
+            description="One-time top-up — 1 credit for every $0.01, minimum $10. They land instantly and never expire."
           >
             <form
               id="top-up"
               action="/api/billing/checkout"
               method="post"
-              className="flex flex-wrap items-end gap-3"
+              className="flex scroll-mt-24 flex-wrap items-end gap-3"
             >
               <input
                 type="hidden"
@@ -219,126 +517,36 @@ export default async function BillingPlanPage() {
           </SettingCard>
         )}
 
-        {/* Upgrade options for free / trial users */}
-        {!isSubscriber && (
-          <>
-            {weeklyPlans.length > 0 && (
-              <SettingCard
-                title="Try for a week"
-                description="Short weekly plans — a low-commitment way to load up on credits."
-              >
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {weeklyPlans.map((plan) => (
-                    <div
-                      key={plan.id}
-                      className="border-lime-500/30 bg-lime-500/[0.04] relative flex items-center justify-between gap-3 overflow-hidden rounded-[12px] border p-4"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="bg-lime-500/50 absolute inset-x-0 top-0 h-px"
-                      />
-                      <div>
-                        <p className="text-cream-50 flex items-center gap-1.5 text-sm font-medium">
-                          <Sparkle
-                            size={14}
-                            weight="fill"
-                            className="text-lime-400"
-                          />
-                          {plan.name.replace("Weekly Trial - ", "")} week
-                        </p>
-                        <p className="text-text-secondary mt-0.5 text-xs">
-                          {formatCents(plan.price_cents)} ·{" "}
-                          {plan.credits_grant.toLocaleString()} credits
-                        </p>
-                      </div>
-                      <form action="/api/billing/checkout" method="post">
-                        <input
-                          type="hidden"
-                          name="plan_id"
-                          value={plan.id}
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          variant="brand"
-                          disabled={!plan.checkout_ready}
-                        >
-                          {plan.checkout_ready ? "Start" : "Soon"}
-                        </Button>
-                      </form>
-                    </div>
-                  ))}
-                </div>
-              </SettingCard>
-            )}
+        {/* Good to know — Krea-style honest FAQ */}
+        <SettingCard title="Good to know">
+          <ul className="text-text-secondary space-y-2.5 text-sm">
+            {[
+              "Top-up credits never expire — they wait until you need them.",
+              "Plan credits land each billing cycle (or each month on annual plans).",
+              "A failed transformation releases its credits back automatically.",
+              "You can cancel anytime — your plan stays active until the period ends.",
+            ].map((line) => (
+              <li key={line} className="flex items-start gap-2.5">
+                <Check
+                  size={15}
+                  weight="bold"
+                  className="text-lime-400 mt-0.5 shrink-0"
+                />
+                {line}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/pricing#faq"
+            className="text-lime-400 hover:text-lime-300 mt-4 inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
+          >
+            More answers in the FAQ
+            <ArrowRight size={14} weight="bold" />
+          </Link>
+        </SettingCard>
 
-            <SettingCard
-              title="Monthly plans"
-              description="Every monthly plan adds credits each billing cycle. Choose on the pricing page or start checkout here."
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                {monthlyPlans.map((plan) => {
-                  const isBest = plan.id === bestValuePlanId;
-                  return (
-                    <div
-                      key={plan.id}
-                      className={cn(
-                        "relative flex flex-col gap-4 rounded-[12px] border p-5",
-                        isBest
-                          ? "border-lime-500/40 bg-lime-500/[0.05]"
-                          : "border-cream-100/10 bg-charcoal-800/60"
-                      )}
-                    >
-                      {isBest && (
-                        <span className="bg-lime-500 text-ink-950 absolute -top-px right-4 rounded-b-lg px-2.5 py-1 text-[10px] font-bold tracking-wide uppercase">
-                          Best value
-                        </span>
-                      )}
-                      <div>
-                        <p className="text-cream-50 text-sm font-medium">
-                          {plan.name}
-                        </p>
-                        <p className="mt-1.5 flex items-baseline gap-1.5">
-                          <span className="font-display text-cream-50 text-3xl leading-none">
-                            {formatCents(plan.price_cents)}
-                          </span>
-                          <span className="text-text-secondary text-xs">
-                            /month
-                          </span>
-                        </p>
-                        <p className="text-text-secondary mt-1.5 text-xs">
-                          {plan.credits_grant.toLocaleString()} credits every
-                          month
-                        </p>
-                      </div>
-                      <form action="/api/billing/checkout" method="post">
-                        <input
-                          type="hidden"
-                          name="plan_id"
-                          value={plan.id}
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          variant={isBest ? "brand" : "secondary"}
-                          className="w-full"
-                          disabled={!plan.checkout_ready}
-                        >
-                          {plan.checkout_ready
-                            ? `Choose ${plan.name}`
-                            : "Coming soon"}
-                        </Button>
-                      </form>
-                    </div>
-                  );
-                })}
-              </div>
-            </SettingCard>
-          </>
-        )}
-
-        {/* Cancellation / downgrade — secondary */}
-        {isSubscriber && billing.billingCustomerId && (
+        {/* Cancellation — recurring plans only; retention step lands later */}
+        {isRecurring && billing.billingCustomerId && (
           <div className="border-cream-100/10 rounded-[15px] border p-5">
             <p className="text-cream-50 text-sm font-medium">
               Cancel your subscription
@@ -348,11 +556,9 @@ export default async function BillingPlanPage() {
               until {renewal ?? "the end of the current period"}, and unused
               credits remain in your balance.
             </p>
-            <form action="/api/billing/portal" method="post" className="mt-3">
-              <Button type="submit" variant="ghost" size="sm">
-                Manage in billing portal
-              </Button>
-            </form>
+            <div className="mt-3">
+              <PortalForm label="Manage in billing portal" variant="ghost" />
+            </div>
           </div>
         )}
       </div>

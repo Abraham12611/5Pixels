@@ -18,6 +18,7 @@ export interface PlanForPurchase {
   can_repurchase: boolean;
   /** Product id exists for the active payment provider — safe to offer. */
   checkout_ready: boolean;
+  metadata?: Record<string, unknown> | null;
 }
 
 export async function getPlansForPurchase(): Promise<PlanForPurchase[]> {
