@@ -45,8 +45,11 @@ describe("PlanShop", () => {
     render(<PlanShop monthly={monthly} annual={annual} />);
     expect(screen.getByText("Save 50%")).toBeInTheDocument();
     expect(screen.getByText("Save 40%")).toBeInTheDocument();
-    expect(screen.getByText("$120")).toBeInTheDocument();
-    expect(screen.getByText("$10/mo — billed once a year")).toBeInTheDocument();
+    // Effective monthly price leads; the yearly total sits small beneath it
+    expect(screen.getByText("$10")).toBeInTheDocument();
+    expect(
+      screen.getByText("$120/year — billed once a year")
+    ).toBeInTheDocument();
     // Monthly prices are not shown until toggled
     expect(screen.queryByText("$30")).not.toBeInTheDocument();
   });

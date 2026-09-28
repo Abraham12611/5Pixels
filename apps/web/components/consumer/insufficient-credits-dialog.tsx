@@ -81,7 +81,7 @@ export function InsufficientCreditsDialog({
             type="button"
             variant="brand"
             className="w-full"
-            onClick={() => router.push("/app/billing")}
+            onClick={() => router.push("/app/billing/credits")}
           >
             Get credits
           </Button>

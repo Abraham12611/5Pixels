@@ -61,17 +61,24 @@ function PlanCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-cream-50 text-sm font-medium">{plan.name}</p>
-          <p className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="font-display text-cream-50 text-3xl leading-none">
-              {formatPrice(plan.priceCents)}
-            </span>
-            <span className="text-text-secondary text-xs">
-              {annual ? "/year" : "/month"}
-            </span>
-          </p>
-          {annual && plan.monthlyEquivalentCents !== undefined && (
-            <p className="text-lime-300 mt-1 text-xs font-medium">
-              {formatPrice(plan.monthlyEquivalentCents)}/mo — billed once a year
+          {annual && plan.monthlyEquivalentCents !== undefined ? (
+            <>
+              <p className="mt-1.5 flex items-baseline gap-1.5">
+                <span className="font-display text-cream-50 text-3xl leading-none">
+                  {formatPrice(plan.monthlyEquivalentCents)}
+                </span>
+                <span className="text-text-secondary text-xs">/month</span>
+              </p>
+              <p className="text-text-muted mt-1 text-xs">
+                {formatPrice(plan.priceCents)}/year — billed once a year
+              </p>
+            </>
+          ) : (
+            <p className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="font-display text-cream-50 text-3xl leading-none">
+                {formatPrice(plan.priceCents)}
+              </span>
+              <span className="text-text-secondary text-xs">/month</span>
             </p>
           )}
         </div>

@@ -9,6 +9,7 @@ import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { PlanShop, type ShopPlan } from "@/components/consumer/plan-shop";
+import { CreditTopUp } from "@/components/consumer/credit-top-up";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkle, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 
@@ -152,6 +153,17 @@ export default async function BillingPlanPage() {
       if (purchasable) lapsedPlan = { id: p.id as string, name: p.name as string };
     }
   }
+
+  // Cheapest active transformation — basis for the "≈ N transformations" line
+  // on every top-up option.
+  const { data: cheapest } = await supabase
+    .from("product_versions")
+    .select("credit_cost")
+    .eq("state", "active")
+    .order("credit_cost", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
 
   // Monthly subscribers get the quiet "switch to annual" nudge (Plane Finder
   // pattern) instead of a paywall — routed through the billing portal, never
@@ -386,7 +398,9 @@ export default async function BillingPlanPage() {
                 className="mt-4 w-full"
               >
                 <Link
-                  href={hasActiveSubscription ? "#top-up" : "/pricing"}
+                  href={
+                    hasActiveSubscription ? "#top-up" : "/app/billing/credits"
+                  }
                 >
                   Buy credits
                 </Link>
@@ -476,45 +490,21 @@ export default async function BillingPlanPage() {
           </div>
         )}
 
-        {/* Extra credits top-up — active subscribers only (entitlement gate) */}
+        {/* Extra credits top-up — active subscribers see it inline here;
+            everyone else lands on /app/billing/credits */}
         {hasActiveSubscription && extraCreditPlan && (
-          <SettingCard
-            title="Top up credits"
-            description="One-time top-up — 1 credit for every $0.01, minimum $10. They land instantly and never expire."
-          >
-            <form
-              id="top-up"
-              action="/api/billing/checkout"
-              method="post"
-              className="flex scroll-mt-24 flex-wrap items-end gap-3"
+          <div id="top-up" className="scroll-mt-24">
+            <SettingCard
+              title="Top up credits"
+              description="One-time top-up — 1 credit for every $0.01, minimum $10. They land instantly and never expire."
             >
-              <input
-                type="hidden"
-                name="plan_id"
-                value={extraCreditPlan.id}
+              <CreditTopUp
+                planId={extraCreditPlan.id}
+                checkoutReady={extraCreditPlan.checkout_ready}
+                creditsPerTransformation={creditsPerTransformation}
               />
-              <div className="min-w-40">
-                <label
-                  htmlFor="top-up-amount"
-                  className="text-text-secondary mb-1.5 block text-xs font-medium"
-                >
-                  Amount (USD)
-                </label>
-                <input
-                  id="top-up-amount"
-                  name="amount"
-                  type="number"
-                  min="10"
-                  step="1"
-                  defaultValue="10"
-                  className="border-cream-100/10 bg-charcoal-800 text-cream-50 focus:border-lime-500/50 w-full rounded-[10px] border px-3.5 py-2 text-sm focus:outline-none"
-                />
-              </div>
-              <Button type="submit" size="sm">
-                Buy credits
-              </Button>
-            </form>
-          </SettingCard>
+            </SettingCard>
+          </div>
         )}
 
         {/* Good to know — Krea-style honest FAQ */}

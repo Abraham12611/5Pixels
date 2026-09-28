@@ -25,9 +25,9 @@ export async function POST(request: Request) {
   let result;
   if (rawAmount) {
     const cents = Math.round(Number(rawAmount) * 100);
-    result = await createExtraCreditsCheckoutSession(cents, "/app/billing", attribution);
+    result = await createExtraCreditsCheckoutSession(cents, "/app/billing/credits", attribution);
   } else {
-    result = await createPlanCheckoutSession(planId, "/app/billing", attribution);
+    result = await createPlanCheckoutSession(planId, "/app/billing/plan", attribution);
   }
 
   if (result.error || !result.checkoutUrl) {

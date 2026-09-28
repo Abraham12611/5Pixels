@@ -82,9 +82,7 @@ export default async function BillingPage() {
       null
   );
   const meterMax = activePlan?.creditsGrant ?? null;
-  const buyCreditsHref = activePlan
-    ? "/app/billing/plan#top-up"
-    : "/pricing";
+  const buyCreditsHref = "/app/billing/credits";
 
   const usageMetrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },

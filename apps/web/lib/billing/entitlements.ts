@@ -239,19 +239,11 @@ export async function canPurchaseTrial(
 export async function canPurchaseExtraCredits(
   userId?: string
 ): Promise<EntitlementResult> {
-  const effectiveUserId = userId;
-  if (!effectiveUserId) {
+  // Top-ups are open to any signed-in user — the dedicated credits surface
+  // sells them to subscribers, lapsed users, and free users alike.
+  if (!userId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
-
-  const isSubscriber = await isMonthlySubscriber(effectiveUserId);
-  if (!isSubscriber) {
-    return {
-      allowed: false,
-      reason: "Extra credits are only available to active monthly subscribers.",
-    };
-  }
-
   return { allowed: true, reason: "" };
 }
 

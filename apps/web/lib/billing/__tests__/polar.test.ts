@@ -514,10 +514,15 @@ describe("checkout gates (polar)", () => {
     expect(polarCheckoutsCreate).not.toHaveBeenCalled();
   });
 
-  it("blocks extra credits for non-subscribers", async () => {
+  it("allows extra credits for signed-in non-subscribers", async () => {
     const res = await createPolarExtraCreditsCheckoutSession(2000);
-    expect(res.error).toMatch(/monthly subscribers/i);
-    expect(polarCheckoutsCreate).not.toHaveBeenCalled();
+    expect(res.error).toBeUndefined();
+    expect(res.checkoutUrl).toBe("https://sandbox.polar.test/checkout/abc");
+    const args = polarCheckoutsCreate.mock.calls[0][0];
+    expect(args.metadata).toMatchObject({
+      user_id: "user-1",
+      credits: "2000",
+    });
   });
 
   it("enforces the $10 minimum on top-ups", async () => {
