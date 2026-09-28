@@ -3,7 +3,11 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getBillingData } from "@/lib/db/billing";
 import { getPlansForPurchase, type PlanForPurchase } from "@/lib/db/plans";
-import { getActivePlan, hasEverPaid } from "@/lib/billing/entitlements";
+import {
+  canPurchaseWeeklyPass,
+  getActivePlan,
+  hasEverPaid,
+} from "@/lib/billing/entitlements";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -93,7 +97,7 @@ export default async function BillingPlanPage() {
     redirect("/login?next=/app/billing/plan");
   }
 
-  const [billing, plans, activePlan, profile, balance, everPaid] =
+  const [billing, plans, activePlan, profile, balance, everPaid, weeklyGate] =
     await Promise.all([
       getBillingData(),
       getPlansForPurchase(),
@@ -101,6 +105,7 @@ export default async function BillingPlanPage() {
       getMyProfile(),
       getUserCreditBalance(),
       hasEverPaid(),
+      canPurchaseWeeklyPass(),
     ]);
 
   if (!billing) {
@@ -130,9 +135,11 @@ export default async function BillingPlanPage() {
   const isPastDue = subscription?.status === "past_due";
   const renewal = formatDate(subscription?.current_period_end ?? null);
 
-  // Weekly trial framing is for first-timers only — anyone who has ever paid
-  // or held any subscription row never sees it, on any surface.
-  const showWeekly = !everPaid && weeklyPlans.length > 0;
+  // Weekly passes are for users with no real subscription history — first
+  // timers and past weekly buyers ("Get another week"). Anyone who's ever
+  // held a monthly/annual plan or paid a non-weekly invoice never sees them.
+  const showWeekly = weeklyGate.allowed && weeklyPlans.length > 0;
+  const weeklyReturner = everPaid && weeklyGate.allowed;
 
   // Lapsed: paid before, nothing active now — offer a restart of their last plan.
   let lapsedPlan: { id: string; name: string } | null = null;
@@ -427,11 +434,15 @@ export default async function BillingPlanPage() {
           </div>
         </div>
 
-        {/* Start with a week — first-timers only */}
+        {/* Weekly pass — first-timers and returning weekly buyers only */}
         {showWeekly && (
           <SettingCard
-            title="Start with a week"
-            description="One-time weekly plans — a low-commitment way to load up on credits. They never renew."
+            title={weeklyReturner ? "Get another week" : "Start with a week"}
+            description={
+              weeklyReturner
+                ? "Another one-time week of credits — never renews, stacks with nothing."
+                : "One-time weekly plans — a low-commitment way to load up on credits. They never renew."
+            }
           >
             <div className="grid gap-3 sm:grid-cols-2">
               {weeklyPlans.map((plan) => (
@@ -450,7 +461,7 @@ export default async function BillingPlanPage() {
                         weight="fill"
                         className="text-lime-400"
                       />
-                      {plan.name.replace("Weekly Trial - ", "")} week
+                      {plan.name.replace(/Weekly Trial\s*[—-]\s*/, "")} week
                     </p>
                     <p className="text-text-secondary mt-0.5 text-xs">
                       {formatCents(plan.price_cents)} ·{" "}

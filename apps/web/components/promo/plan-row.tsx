@@ -25,7 +25,7 @@ const BULLET_ICONS: Record<
 
 /**
  * Radio-selectable plan row — the ladder unit used in the Special Offer
- * takeover and PaywallSheet v2. One plan per row: name + cadence line left,
+ * takeover and BlockedCreditSurface. One plan per row: name + cadence line left,
  * PriceChip right, radio far-left. Selected = accent border + filled radio +
  * tinted surface. Deeper detail behind `Learn more`.
  */

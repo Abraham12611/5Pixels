@@ -10,9 +10,8 @@ import { StudioStage } from "@/components/consumer/studio-stage";
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
-import { InsufficientCreditsDialog } from "@/components/consumer/insufficient-credits-dialog";
+import { BlockedCreditSurface } from "@/components/consumer/blocked-credit-surface";
 import { AuthGateModal } from "@/components/consumer/auth-gate-modal";
-import { PaywallSheet } from "@/components/consumer/paywall-sheet";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import { validateGenerationOptions } from "@/lib/generation/validation";
@@ -34,6 +33,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { PlanForPurchase } from "@/lib/db/plans";
+import type { BlockedCreditContext } from "@/lib/billing/segments";
+import type { OfferAssignment } from "@/lib/offers/engine";
 
 interface ReusedSource {
   assetId: string;
@@ -56,6 +57,16 @@ interface CreateGenerationFormProps {
   initialSize?: OutputSizeOption | null;
   /** Purchasable plans for the credits paywall (insufficient balance). */
   plans: PlanForPurchase[];
+  /** Segment-resolved billing context — null when anonymous. */
+  blocked: BlockedCreditContext | null;
+  /** Campaign ladder for offer-eligible segments (new/free users). */
+  offer: OfferAssignment | null;
+  /** Extra-credit plan + translation basis for the in-place top-up. */
+  topUp: {
+    planId: string;
+    checkoutReady: boolean;
+    creditsPerTransformation: number;
+  } | null;
 }
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -91,6 +102,9 @@ export function CreateGenerationForm({
   initialOptions,
   initialSize,
   plans,
+  blocked,
+  offer,
+  topUp,
 }: CreateGenerationFormProps) {
   const isAnonymous = userId === null;
   const [file, setFile] = useState<File | null>(null);
@@ -119,7 +133,6 @@ export function CreateGenerationForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
-  const [isNarrow, setIsNarrow] = useState(false);
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -180,14 +193,6 @@ export function CreateGenerationForm({
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
   }, [product.public_assets]);
 
-  // Narrow viewport → paywall sheet; wide → the existing dialog.
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)");
-    const update = () => setIsNarrow(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   // Restore a staged draft after the auth round trip (?draft=1).
   useEffect(() => {
@@ -625,22 +630,23 @@ export function CreateGenerationForm({
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
-      {isNarrow ? (
-        <PaywallSheet
+      {blocked && (
+        <BlockedCreditSurface
           open={insufficientOpen}
           onOpenChange={setInsufficientOpen}
+          segment={blocked.segment}
+          offer={offer}
           plans={plans}
-          required={displayCost}
-          presetName={product.name}
-        />
-      ) : (
-        <InsufficientCreditsDialog
-          open={insufficientOpen}
-          onOpenChange={setInsufficientOpen}
           required={displayCost}
           balance={initialBalance}
           presetName={product.name}
           presetThumbUrl={presetThumb}
+          topUp={topUp}
+          resumePlan={blocked.resumePlan}
+          planEndsAt={blocked.planEndsAt}
+          activePlanName={blocked.activePlanName}
+          isReferred={blocked.isReferred}
+          referralUserId={userId ?? undefined}
         />
       )}
       <AuthGateModal

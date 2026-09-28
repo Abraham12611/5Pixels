@@ -438,7 +438,7 @@ describe("subscription lifecycle", () => {
 });
 
 describe("checkout gates (polar)", () => {
-  it("blocks a trial checkout when the user already paid", async () => {
+  it("blocks a weekly pass after a monthly plan payment", async () => {
     fake.seed("plans", [
       ...PLANS,
       {
@@ -454,11 +454,53 @@ describe("checkout gates (polar)", () => {
       },
     ]);
     fake.seed("invoices", [
-      { id: "inv-paid", user_id: "user-1", status: "paid" },
+      {
+        id: "inv-paid",
+        user_id: "user-1",
+        status: "paid",
+        plan_id: "plan-monthly",
+      },
     ]);
     const res = await createPolarPlanCheckoutSession("plan-trial");
     expect(res.error).toBeTruthy();
     expect(polarCheckoutsCreate).not.toHaveBeenCalled();
+  });
+
+  it("lets a past weekly buyer get another week (repurchase)", async () => {
+    fake.seed("plans", [
+      ...PLANS,
+      {
+        id: "plan-trial",
+        slug: "weekly-starter",
+        name: "Starter",
+        type: "weekly_trial",
+        credits_grant: 500,
+        price_cents: 500,
+        markup_multiplier: 4,
+        credit_drip_months: 1,
+        metadata: { polar_product_id: "polar_prod_trial" },
+      },
+    ]);
+    fake.seed("subscriptions", [
+      {
+        id: "sub-week",
+        user_id: "user-1",
+        status: "expired",
+        plan_id: "plan-trial",
+        current_period_end: new Date(Date.now() - 86400000).toISOString(),
+      },
+    ]);
+    fake.seed("invoices", [
+      {
+        id: "inv-week",
+        user_id: "user-1",
+        status: "paid",
+        plan_id: "plan-trial",
+      },
+    ]);
+    const res = await createPolarPlanCheckoutSession("plan-trial");
+    expect(res.error).toBeUndefined();
+    expect(res.checkoutUrl).toBe("https://sandbox.polar.test/checkout/abc");
   });
 
   it("blocks an annual trial after a weekly trial (one trial per user)", async () => {

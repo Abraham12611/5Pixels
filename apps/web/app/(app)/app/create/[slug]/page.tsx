@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { getBlockedCreditContext } from "@/lib/billing/segments";
+import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
 import { CreateGenerationForm } from "./create-form";
 import type { OutputSizeOption } from "@/types/catalog";
 
@@ -27,7 +29,7 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, generationCount, plans] = await Promise.all([
+  const [balance, generationCount, plans, cheapest] = await Promise.all([
     user ? getUserCreditBalance() : Promise.resolve(0),
     user
       ? supabase
@@ -37,9 +39,37 @@ export default async function CreatePage({
           .then((r) => r.count ?? 0)
       : Promise.resolve(0),
     getPlansForPurchase(),
+    supabase
+      .from("product_versions")
+      .select("credit_cost")
+      .eq("state", "active")
+      .order("credit_cost", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const generationPaused = process.env.GENERATION_PAUSED === "true";
+
+  // Blocked-credit routing (06 §2): who the user is decides which recovery
+  // surface the Generate gate opens — subscriber top-up, weekly repurchase,
+  // reactivation, contextual paywall, or the campaign offer ladder.
+  const blocked = user
+    ? await getBlockedCreditContext(user.id, generationCount)
+    : null;
+  const offer =
+    blocked &&
+    !blocked.offersOptedOut &&
+    (blocked.segment === "new_user" || blocked.segment === "free_history")
+      ? await getOrAssignCampaignForUser(user!.id)
+      : null;
+  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
+  const topUp = extraCreditPlan
+    ? {
+        planId: extraCreditPlan.id,
+        checkoutReady: extraCreditPlan.checkout_ready,
+        creditsPerTransformation: Number(cheapest?.data?.credit_cost ?? 5) || 5,
+      }
+    : null;
 
   // Adjust flow (?from=<generationId>): restore the source photo and the
   // options used for that run. Everything is re-validated at submit time —
@@ -118,6 +148,9 @@ export default async function CreatePage({
         initialOptions={initialOptions}
         initialSize={initialSize}
         plans={plans}
+        blocked={blocked}
+        offer={offer}
+        topUp={topUp}
       />
     </main>
   );

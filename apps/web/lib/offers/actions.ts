@@ -9,7 +9,8 @@ import {
 } from "./engine";
 
 export interface OfferEventInput {
-  campaignId: string;
+  /** Nullable — blocked-credit surfaces record segment events with no campaign. */
+  campaignId?: string;
   variant?: string;
   step?: number;
   surface: "takeover" | "paywall" | "ribbon" | "tile" | "blur_gate";

@@ -8,6 +8,7 @@ import { attributionMetadata } from "./checkout-shared";
 import {
   canPurchaseExtraCredits,
   canPurchaseTrial,
+  canPurchaseWeeklyPass,
   getActivePlan,
 } from "./entitlements";
 
@@ -49,7 +50,12 @@ export async function createPolarPlanCheckoutSession(
     return { error: "This plan is not available for purchase yet." };
   }
 
-  if (plan.type === "weekly_trial" || plan.is_trial) {
+  if (plan.type === "weekly_trial") {
+    const can = await canPurchaseWeeklyPass(user.id);
+    if (!can.allowed) {
+      return { error: can.reason };
+    }
+  } else if (plan.is_trial) {
     const can = await canPurchaseTrial(user.id);
     if (!can.allowed) {
       return { error: can.reason };

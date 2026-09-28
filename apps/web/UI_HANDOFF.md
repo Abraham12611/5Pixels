@@ -93,7 +93,7 @@ touch devices; reduced-motion forces static.
 | Discover `/app` | app skeleton (`app/loading.tsx`) | new-user orientation state | boundary | active-generation rail |
 | Preset detail | skeleton | not-found w/ 4 alternatives | boundary | Retired → `PresetNotFound` |
 | Create | inline validate → upload states | dropzone idle/drag/rejected | inline field + toast | `GENERATION_PAUSED` → banner + disabled Generate |
-| Generate console | — | — | insufficient-credits dialog | first-gen/high-cost confirm dialog |
+| Generate console | — | — | `BlockedCreditSurface` (segmented: top-up / weekly / reactivation / offer) | first-gen/high-cost confirm dialog |
 | Generation status | pixel progress + stage list | "not found" | poll error inline `role="status"` | queued/active/slow (long-wait line)/failed (+credit note)/complete→redirect |
 | Result | app skeleton | not-found → Library | boundary | save/download/save-undo |
 | Library | skeleton | first-time ghost cards / "Nothing saved" / "Nothing downloaded" / filtered-empty + clear | boundary | In-progress rail |
@@ -118,7 +118,7 @@ never toast-only.
   `LibraryResultCard` (hover actions + always-visible overflow on touch),
   `RetiredPresetCard`, `HoverPreviewMedia`, `ProductMedia`.
 - **Studio:** `StudioStage` (keyboard-accessible dropzone), `GenerationControls`,
-  `AspectRatioMenu`, `CreditConfirmDialog`, `InsufficientCreditsDialog`.
+  `AspectRatioMenu`, `CreditConfirmDialog`, `BlockedCreditSurface`.
 - **Result:** `ResultCompare` (keyboard slider + tabs), `ResultActions`,
   `ShareDialog`.
 - **Library:** `LibraryGrid` (tabs/search/filters), `FavoritesGrid`.
