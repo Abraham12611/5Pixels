@@ -14,6 +14,8 @@ import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { PlanShop, type ShopPlan } from "@/components/consumer/plan-shop";
 import { CreditTopUp } from "@/components/consumer/credit-top-up";
+import { CancelSubscriptionCard } from "@/components/consumer/cancel-subscription-card";
+import { RETENTION_CREDITS } from "@/lib/billing/retention-shared";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkle, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 
@@ -56,6 +58,23 @@ function planBenefits(
     benefits.push("Better credit rates than starter plans");
   }
   return benefits.slice(0, 4);
+}
+
+/** Cancel-dialog lose-list — only things that actually stop on cancel. */
+function planLoses(
+  planType: string,
+  markup: number,
+  creditsGrant: number
+): string[] {
+  const loses = [
+    `${creditsGrant.toLocaleString()} credits at every renewal`,
+  ];
+  if (planType === "annual") {
+    loses.push("Your discounted annual rate — monthly plans cost more");
+  } else if (markup <= 2.5) {
+    loses.push("Your lower credit cost per transformation");
+  }
+  return loses;
 }
 
 function toShopPlan(plan: PlanForPurchase): ShopPlan {
@@ -546,21 +565,20 @@ export default async function BillingPlanPage() {
           </Link>
         </SettingCard>
 
-        {/* Cancellation — recurring plans only; retention step lands later */}
-        {isRecurring && billing.billingCustomerId && (
-          <div className="border-cream-100/10 rounded-[15px] border p-5">
-            <p className="text-cream-50 text-sm font-medium">
-              Cancel your subscription
-            </p>
-            <p className="text-text-secondary mt-1 text-sm leading-relaxed">
-              Cancel anytime from the billing portal. Your plan stays active
-              until {renewal ?? "the end of the current period"}, and unused
-              credits remain in your balance.
-            </p>
-            <div className="mt-3">
-              <PortalForm label="Manage in billing portal" variant="ghost" />
-            </div>
-          </div>
+        {/* Cancellation — recurring plans only, and only while the plan
+            isn't already set to end (the banner above covers that state).
+            The card opens the retention step before the portal. */}
+        {isRecurring && !isCanceling && billing.billingCustomerId && (
+          <CancelSubscriptionCard
+            planName={displayName}
+            periodEnd={renewal}
+            loses={planLoses(
+              planType ?? "monthly",
+              activePlan?.markupMultiplier ?? 3,
+              activePlan?.creditsGrant ?? 0
+            )}
+            credits={RETENTION_CREDITS}
+          />
         )}
       </div>
     </SettingsShell>

@@ -123,7 +123,8 @@ never toast-only.
   `ShareDialog`.
 - **Library:** `LibraryGrid` (tabs/search/filters), `FavoritesGrid`.
 - **Settings:** `SettingsShell`, `SettingCard`, `SettingTile`,
-  `EditAccountDialog`, `AvatarUploader`, `SignOutOthers`, retention controls.
+  `EditAccountDialog`, `AvatarUploader`, `SignOutOthers`, retention controls,
+  `CancelSubscriptionCard` (lose-list + stay offer before the portal).
 - **Auth:** `AuthShell`, `AuthModal` (tabs + preset context + bottom sheet),
   `AuthGateButton`, `PasswordInput`.
 - **Edge:** `EdgePage` grammar → root/preset/create/generation/result/share
