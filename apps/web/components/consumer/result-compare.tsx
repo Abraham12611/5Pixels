@@ -8,8 +8,9 @@ import {
   type ReactNode,
 } from "react";
 import Image from "next/image";
-import { ArrowsLeftRight } from "@phosphor-icons/react";
+import { ArrowsLeftRight, Warning } from "@phosphor-icons/react";
 import { ImageViewer } from "@/components/consumer/mobile/image-viewer";
+import { refreshResultDisplayUrls } from "@/lib/generation/poll";
 import { cn } from "@/lib/utils";
 
 export type CompareMode = "result" | "original" | "compare";
@@ -18,6 +19,8 @@ interface ResultCompareProps {
   resultUrl: string;
   originalUrl: string | null;
   resultAlt: string;
+  /** Enables signed-URL re-mint on image-load failure (16.6). */
+  generationId?: string;
   /** Controlled view mode — the switcher lives in the action rail. */
   mode: CompareMode;
   className?: string;
@@ -60,6 +63,7 @@ export function ResultCompare({
   resultUrl,
   originalUrl,
   resultAlt,
+  generationId,
   mode,
   className,
 }: ResultCompareProps) {
@@ -67,13 +71,41 @@ export function ResultCompare({
   const [held, setHeld] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [reminted, setReminted] = useState<{
+    resultUrl: string | null;
+    sourceUrl: string | null;
+  } | null>(null);
+  const [mediaFailed, setMediaFailed] = useState(false);
+  const [reminting, setReminting] = useState(false);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const coarse = useCoarsePointer();
 
+  const effectiveResultUrl = reminted?.resultUrl ?? resultUrl;
+  const effectiveOriginalUrl = reminted ? reminted.sourceUrl : originalUrl;
+
+  /** Signed URLs expire (~10 min) — re-mint once, then surface a retry. */
+  const onMediaError = () => {
+    if (!generationId || reminted || reminting) {
+      setMediaFailed(true);
+      return;
+    }
+    setReminting(true);
+    void refreshResultDisplayUrls(generationId).then((fresh) => {
+      setReminting(false);
+      if (fresh.resultUrl) {
+        setReminted(fresh);
+        setMediaFailed(false);
+      } else {
+        setMediaFailed(true);
+      }
+    });
+  };
+
   // "Hold to see before" — the hint shows once per device (10 §4).
-  const hintEligible = coarse && Boolean(originalUrl) && mode === "result";
+  const hintEligible =
+    coarse && Boolean(effectiveOriginalUrl) && mode === "result";
   useEffect(() => {
     if (!hintEligible) return;
     let seen = false;
@@ -118,7 +150,7 @@ export function ResultCompare({
   // reveals the original while held; a tap opens the ImageViewer. A scroll
   // gesture surfaces as pointercancel, so it never opens the viewer.
   const onSinglePointerDown = () => {
-    if (!coarse || mode !== "result" || !originalUrl) return;
+    if (!coarse || mode !== "result" || !effectiveOriginalUrl) return;
     holdTimerRef.current = setTimeout(() => {
       setHeld(true);
       setHintVisible(false);
@@ -154,14 +186,15 @@ export function ResultCompare({
     }
   };
 
-  const comparing = mode === "compare" && originalUrl;
+  const comparing = mode === "compare" && effectiveOriginalUrl;
   const singleSrc =
-    held && originalUrl
-      ? originalUrl
-      : mode === "original" && originalUrl
-        ? originalUrl
-        : resultUrl;
-  const showingOriginal = singleSrc === originalUrl && Boolean(originalUrl);
+    held && effectiveOriginalUrl
+      ? effectiveOriginalUrl
+      : mode === "original" && effectiveOriginalUrl
+        ? effectiveOriginalUrl
+        : effectiveResultUrl;
+  const showingOriginal =
+    singleSrc === effectiveOriginalUrl && Boolean(effectiveOriginalUrl);
   const singleAlt = showingOriginal ? "Original photo" : resultAlt;
 
   return (
@@ -171,6 +204,30 @@ export function ResultCompare({
         className
       )}
     >
+      {mediaFailed && (
+        <div
+          role="alert"
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center"
+        >
+          <Warning size={28} weight="fill" className="text-lime-400" />
+          <p className="text-cream-50 text-sm font-semibold">
+            We couldn&apos;t load this
+          </p>
+          <p className="text-text-secondary max-w-xs text-xs">
+            The image link may have expired.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setMediaFailed(false);
+              setReminted(null);
+            }}
+            className="text-sm font-medium text-lime-400 underline underline-offset-2 transition hover:text-lime-300"
+          >
+            Try again
+          </button>
+        </div>
+      )}
       {comparing && !coarse ? (
         /* Fine pointer: draggable divider with keyboard support. */
         <div
@@ -182,7 +239,8 @@ export function ResultCompare({
           className="absolute inset-0 cursor-ew-resize touch-none select-none"
         >
           <Image
-            src={originalUrl}
+            src={effectiveOriginalUrl!}
+            onError={onMediaError}
             alt="Original photo"
             fill
             className="object-cover"
@@ -194,7 +252,8 @@ export function ResultCompare({
             style={{ clipPath: `inset(0 0 0 ${position}%)` }}
           >
             <Image
-              src={resultUrl}
+              src={effectiveResultUrl}
+              onError={onMediaError}
               alt={resultAlt}
               fill
               className="object-cover"
@@ -203,8 +262,8 @@ export function ResultCompare({
             />
           </div>
 
-          <CompareTag className="left-3 top-3">Original</CompareTag>
-          <CompareTag className="right-3 top-3">Result</CompareTag>
+          <CompareTag className="top-3 left-3">Original</CompareTag>
+          <CompareTag className="top-3 right-3">Result</CompareTag>
 
           <div
             role="slider"
@@ -214,11 +273,11 @@ export function ResultCompare({
             aria-valuemax={100}
             aria-valuenow={Math.round(position)}
             onKeyDown={onHandleKeyDown}
-            className="focus-visible:ring-lime-500/50 absolute inset-y-0 w-8 -translate-x-1/2 cursor-ew-resize outline-none focus-visible:ring-2"
+            className="absolute inset-y-0 w-8 -translate-x-1/2 cursor-ew-resize outline-none focus-visible:ring-2 focus-visible:ring-lime-500/50"
             style={{ left: `${position}%` }}
           >
-            <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-cream-50/80" />
-            <span className="shadow-elevated absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-cream-50 text-ink-950">
+            <span className="bg-cream-50/80 absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2" />
+            <span className="shadow-elevated bg-cream-50 text-ink-950 absolute top-1/2 left-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full">
               <ArrowsLeftRight size={14} weight="bold" />
             </span>
           </div>
@@ -230,7 +289,8 @@ export function ResultCompare({
           <div className="absolute inset-y-0 left-0 w-1/2 overflow-hidden">
             <div className="absolute inset-y-0 left-0 w-[200%]">
               <Image
-                src={originalUrl}
+                src={effectiveOriginalUrl!}
+                onError={onMediaError}
                 alt="Original photo"
                 fill
                 className="object-cover"
@@ -242,7 +302,8 @@ export function ResultCompare({
           <div className="absolute inset-y-0 right-0 w-1/2 overflow-hidden">
             <div className="absolute inset-y-0 right-0 w-[200%]">
               <Image
-                src={resultUrl}
+                src={effectiveResultUrl}
+                onError={onMediaError}
                 alt={resultAlt}
                 fill
                 className="object-cover"
@@ -253,10 +314,10 @@ export function ResultCompare({
           </div>
           <div
             aria-hidden="true"
-            className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-cream-50/80"
+            className="bg-cream-50/80 absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2"
           />
-          <CompareTag className="left-3 top-3">Original</CompareTag>
-          <CompareTag className="right-3 top-3">Result</CompareTag>
+          <CompareTag className="top-3 left-3">Original</CompareTag>
+          <CompareTag className="top-3 right-3">Result</CompareTag>
         </div>
       ) : (
         /* Single view: result or original. On coarse pointers a hold swaps
@@ -277,6 +338,7 @@ export function ResultCompare({
             fill
             className="scale-125 object-cover opacity-40 blur-2xl saturate-150"
             unoptimized
+            onError={onMediaError}
           />
           <div className="bg-ink-950/40 absolute inset-0" />
           <Image
@@ -286,8 +348,11 @@ export function ResultCompare({
             className="object-contain motion-safe:transition-opacity motion-safe:duration-100"
             unoptimized
             priority
+            onError={onMediaError}
           />
-          {showingOriginal && <CompareTag className="left-3 top-3">Original</CompareTag>}
+          {showingOriginal && (
+            <CompareTag className="top-3 left-3">Original</CompareTag>
+          )}
           {hintVisible && hintEligible && (
             <p
               role="status"
@@ -320,7 +385,7 @@ function CompareTag({
   return (
     <span
       className={cn(
-        "shadow-elevated absolute rounded-md bg-ink-950/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-cream-100 backdrop-blur",
+        "shadow-elevated bg-ink-950/70 text-cream-100 absolute rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase backdrop-blur",
         className
       )}
     >

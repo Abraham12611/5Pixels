@@ -540,3 +540,35 @@ export async function getResultDownloadUrls(
   }
   return urls;
 }
+
+/**
+ * Re-mint the *display* URLs for a completed generation — used when the
+ * compare-stage images fail to load (signed URLs expire after ~10 min).
+ * User-scoped via fetchSafeGeneration; no Content-Disposition (inline view).
+ */
+export async function refreshResultDisplayUrls(
+  generationId: string
+): Promise<{ resultUrl: string | null; sourceUrl: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { resultUrl: null, sourceUrl: null };
+
+  const generation = await fetchSafeGeneration(generationId);
+  if (!generation) return { resultUrl: null, sourceUrl: null };
+
+  const sign = async (bucket: string | null, key: string | null) =>
+    bucket && key
+      ? await getSignedAssetUrl(bucket, key, 600).catch(() => null)
+      : null;
+
+  const first = generation.outputs[0];
+  return {
+    resultUrl: await sign(
+      first?.bucket ?? generation.outputBucket,
+      first?.storageKey ?? generation.outputStorageKey
+    ),
+    sourceUrl: await sign(generation.sourceBucket, generation.sourceStorageKey),
+  };
+}
