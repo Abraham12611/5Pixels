@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Compass, House, Image, Lightning, User } from "@phosphor-icons/react";
 import { Toaster } from "@/components/ui/sonner";
+import { CreateSheet } from "@/components/consumer/create-sheet";
 import { cn } from "@/lib/utils";
 
 const CENTER_LABEL = "Create";
@@ -61,6 +62,7 @@ export function MobileNavShell({ children }: { children: ReactNode }) {
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const [createOpen, setCreateOpen] = useState(false);
 
   // Docked-action-bar routes own the thumb zone — no tab bar (04 §6).
   if (DOCKED_BAR_PREFIXES.some((p) => pathname.startsWith(p))) {
@@ -83,10 +85,12 @@ export function MobileBottomNav() {
           />
         ))}
 
-        {/* Center create action */}
-        <Link
-          href="/explore"
+        {/* Center create action — opens the chooser sheet (04 §3, 20 Q2) */}
+        <button
+          type="button"
           aria-label={CENTER_LABEL}
+          aria-haspopup="dialog"
+          onClick={() => setCreateOpen(true)}
           className="relative -mt-6 flex flex-col items-center gap-1"
         >
           <span className="bg-lime-400 text-ink-950 hover:bg-lime-300 active:scale-95 flex h-13 w-13 items-center justify-center rounded-full shadow-[0_6px_24px_-6px_rgba(130,234,58,0.5)] transition">
@@ -95,7 +99,7 @@ export function MobileBottomNav() {
           <span className="text-text-secondary text-[10px] font-medium">
             {CENTER_LABEL}
           </span>
-        </Link>
+        </button>
 
         {RIGHT_ITEMS.map((item) => (
           <NavItem
@@ -107,6 +111,7 @@ export function MobileBottomNav() {
           />
         ))}
       </div>
+      <CreateSheet open={createOpen} onOpenChange={setCreateOpen} />
     </nav>
   );
 }
