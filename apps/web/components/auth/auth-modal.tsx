@@ -345,8 +345,15 @@ function ModalSignupForm({
         {pending ? "Creating account…" : "Create account"}
       </Button>
       <p className="text-text-muted text-center text-xs leading-relaxed">
-        By creating an account you agree to 5Pixels&apos; terms and privacy
-        practices.
+        By creating an account you agree to 5Pixels&apos;{" "}
+        <Link href="/terms" className="text-lime-400 hover:underline">
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="text-lime-400 hover:underline">
+          Privacy Policy
+        </Link>
+        .
       </p>
       <GoogleButton disabled={pending} />
       <p className="text-text-secondary text-center text-sm">

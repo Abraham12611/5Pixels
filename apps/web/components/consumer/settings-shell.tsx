@@ -16,6 +16,7 @@ import {
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { signOut } from "@/app/actions/auth";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface SettingsNavItem {
@@ -177,14 +178,23 @@ export function SettingsShell({
                 <p className="text-cream-50 text-sm font-medium">Need help?</p>
               </div>
               <p className="text-text-secondary mt-1.5 text-xs leading-relaxed">
-                Answers about credits, plans, and billing live in the FAQ.
+                Answers about credits, plans, and billing live in the FAQ — or
+                email us anytime.
               </p>
-              <Link
-                href="/pricing#faq"
-                className="text-lime-400 hover:text-lime-300 mt-2 inline-block text-xs font-medium transition-colors"
-              >
-                Browse FAQ
-              </Link>
+              <div className="mt-2 flex flex-col gap-1.5">
+                <Link
+                  href="/pricing#faq"
+                  className="text-lime-400 hover:text-lime-300 text-xs font-medium transition-colors"
+                >
+                  Browse FAQ
+                </Link>
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}`}
+                  className="text-lime-400 hover:text-lime-300 text-xs font-medium transition-colors"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
+              </div>
             </div>
 
             <form action={signOut} className="px-1">

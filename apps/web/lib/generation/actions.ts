@@ -11,6 +11,7 @@ import {
   type ProviderStrategy,
 } from "@/lib/ai/provider-routing";
 import { compilePrompt, referencePromptClause } from "@/lib/ai/prompt";
+import { extractUserText, screenUserText } from "@/lib/moderation/creem";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getSignedReferenceAssets } from "./reference-assets";
@@ -100,6 +101,30 @@ export async function createAndSubmitGeneration(
   } = await supabase.auth.getUser();
   if (!user) {
     return { error: "Please sign in to continue." };
+  }
+
+  // Creem content-policy screen (required for AI image products): every
+  // user-supplied text that could reach the model is moderated before
+  // credits are reserved or the provider is called. deny/flag → blocked;
+  // an unreachable moderator fails closed.
+  const userText = extractUserText(input.options).join("\n");
+  if (userText) {
+    const screening = await screenUserText(
+      userText,
+      `user_${user.id}:product_${input.productId}`
+    );
+    if (screening.kind === "blocked") {
+      return {
+        error:
+          "That text can't be used — it violates our content policy. Please revise it and try again.",
+      };
+    }
+    if (screening.kind === "unavailable") {
+      return {
+        error:
+          "We couldn't verify your input right now. Please try again in a moment.",
+      };
+    }
   }
 
   // "Match photo" sizes resolve from the uploaded source image (clamped to

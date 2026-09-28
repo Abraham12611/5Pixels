@@ -1,4 +1,3 @@
-import { PromoCountdownBar } from "./promo-countdown-bar";
 import { MarketingHeader } from "./marketing-header";
 import { HeroLanding } from "./hero-landing";
 import { LookGallery } from "./look-gallery";
@@ -28,7 +27,6 @@ export function LandingPage({
 }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <PromoCountdownBar />
       <MarketingHeader
         isAuthenticated={isAuthenticated}
         searchPresets={searchPresets}

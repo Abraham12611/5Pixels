@@ -12,6 +12,7 @@ import { SettingCard } from "@/components/consumer/setting-card";
 import { EditAccountButton } from "@/components/consumer/edit-account-dialog";
 import { signOut } from "@/app/actions/auth";
 import { SITE_VERSION } from "@/lib/site-version";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 import {
   User,
   LockSimple,
@@ -21,6 +22,7 @@ import {
   Receipt,
   Bell,
   Question,
+  EnvelopeSimple,
   SignOut,
   Trash,
   CaretRight,
@@ -171,6 +173,12 @@ export default async function AccountPage() {
                 href: "/pricing#faq",
                 icon: Question,
                 label: "Help & FAQ",
+                value: "",
+              },
+              {
+                href: `mailto:${SUPPORT_EMAIL}`,
+                icon: EnvelopeSimple,
+                label: "Contact support",
                 value: "",
               },
             ],

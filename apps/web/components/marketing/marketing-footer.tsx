@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { LogoMark } from "@/components/logo-mark";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 
 interface MarketingFooterProps {
   isAuthenticated: boolean;
@@ -15,22 +16,15 @@ const footerLinks = {
     { label: "Categories", href: "/categories" },
   ],
   Resources: [
-    { label: "How it works", href: "#how-it-works" },
-    { label: "Pricing", href: "#pricing" },
-    { label: "Help center", href: "#" },
-    { label: "Prompt guide", href: "#" },
+    { label: "How it works", href: "/#how-it-works" },
+    { label: "Pricing", href: "/pricing" },
+    { label: "FAQ", href: "/pricing#faq" },
+    { label: "Contact support", href: `mailto:${SUPPORT_EMAIL}` },
   ],
-  Company: [
-    { label: "About", href: "#" },
-    { label: "Trust", href: "#" },
-    { label: "Privacy", href: "#" },
-    { label: "Terms", href: "#" },
-  ],
-  Community: [
-    { label: "X / Twitter", href: "#" },
-    { label: "YouTube", href: "#" },
-    { label: "LinkedIn", href: "#" },
-    { label: "TikTok", href: "#" },
+  Legal: [
+    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Terms of Service", href: "/terms" },
+    { label: "Acceptable Use", href: "/acceptable-use" },
   ],
 };
 
@@ -39,7 +33,7 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
     <footer className="bg-lime-500 text-ink-950">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:py-20">
         <div className="grid gap-12 lg:grid-cols-6">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             <LogoMark tone="ink" className="mb-3 h-10 w-10" />
             <p className="text-ink-950 mb-3 text-2xl font-bold tracking-tight">
               AI-NATIVE CREATIVE SUITE
@@ -68,7 +62,7 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-4">
+          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:col-span-3">
             {Object.entries(footerLinks).map(([column, links]) => (
               <div key={column}>
                 <h4 className="text-ink-950 mb-4 text-sm font-semibold uppercase tracking-wider">
@@ -95,17 +89,12 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
           <p className="text-ink-900/70 text-xs">
             5Pixels — AI photo presets.
           </p>
-          <div className="flex gap-5 text-xs font-medium text-ink-900/80">
-            {["X / Twitter", "YouTube", "LinkedIn", "TikTok"].map((social) => (
-              <Link
-                key={social}
-                href="#"
-                className="hover:text-ink-950"
-              >
-                {social}
-              </Link>
-            ))}
-          </div>
+          <a
+            href={`mailto:${SUPPORT_EMAIL}`}
+            className="text-ink-900/80 hover:text-ink-950 text-xs font-medium transition"
+          >
+            {SUPPORT_EMAIL}
+          </a>
         </div>
       </div>
     </footer>

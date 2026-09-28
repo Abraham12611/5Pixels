@@ -1,4 +1,5 @@
 import { CaretDown } from "@phosphor-icons/react/dist/ssr";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 
 const FAQ_ITEMS = [
   {
@@ -28,6 +29,10 @@ const FAQ_ITEMS = [
   {
     q: "Can I use my results commercially?",
     a: "Yes — the results you generate are yours to keep and use.",
+  },
+  {
+    q: "How do I contact support?",
+    a: `Email us at ${SUPPORT_EMAIL} — we aim to respond within 3 business days.`,
   },
 ];
 
