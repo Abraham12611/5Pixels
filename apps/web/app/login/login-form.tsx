@@ -68,6 +68,20 @@ export function LoginForm({
   return (
     <form action={submitAction} className="mt-6 space-y-4">
       <input type="hidden" name="next" value={next ?? "/app"} />
+      <Button
+        type="submit"
+        formAction={googleAction}
+        variant="secondary"
+        disabled={pending || googlePending}
+        className="w-full"
+      >
+        {googlePending ? "Connecting…" : "Continue with Google"}
+      </Button>
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="bg-cream-100/10 h-px flex-1" />
+        <span className="text-text-muted text-xs">or</span>
+        <span className="bg-cream-100/10 h-px flex-1" />
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
@@ -77,6 +91,8 @@ export function LoginForm({
           placeholder="you@example.com"
           required
           autoComplete="email"
+          inputMode="email"
+          enterKeyHint="next"
         />
         {state?.errors?.email && (
           <p className="text-error text-[13px]" role="alert">
@@ -94,7 +110,11 @@ export function LoginForm({
             Forgot password?
           </Link>
         </div>
-        <PasswordInput id="password" autoComplete="current-password" />
+        <PasswordInput
+          id="password"
+          autoComplete="current-password"
+          enterKeyHint="go"
+        />
         {state?.errors?.password && (
           <p className="text-error text-[13px]" role="alert">
             {state.errors.password.join(" ")}
@@ -134,20 +154,6 @@ export function LoginForm({
         className="w-full"
       >
         {pending ? "Logging in…" : "Log in"}
-      </Button>
-      <div className="flex items-center gap-3" aria-hidden="true">
-        <span className="bg-cream-100/10 h-px flex-1" />
-        <span className="text-text-muted text-xs">or</span>
-        <span className="bg-cream-100/10 h-px flex-1" />
-      </div>
-      <Button
-        type="submit"
-        formAction={googleAction}
-        variant="secondary"
-        disabled={pending || googlePending}
-        className="w-full"
-      >
-        {googlePending ? "Connecting…" : "Continue with Google"}
       </Button>
     </form>
   );

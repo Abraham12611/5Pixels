@@ -56,7 +56,8 @@ export default async function VerifyEmailPage({
       />
       {!linkExpired && (
         <p className="text-text-muted mt-4 text-center text-xs">
-          You can keep this page open while you check your inbox.
+          Tap the link in your email, then come back here — we&apos;ll return
+          you to {next.startsWith("/app/create") ? "your look" : "where you left off"}.
         </p>
       )}
     </AuthShell>

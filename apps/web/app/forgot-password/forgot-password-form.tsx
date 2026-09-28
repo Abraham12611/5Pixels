@@ -83,6 +83,8 @@ export function ForgotPasswordForm({ linkExpired }: { linkExpired: boolean }) {
           placeholder="you@example.com"
           required
           autoComplete="email"
+          inputMode="email"
+          enterKeyHint="go"
         />
         {state?.errors?.email && (
           <p className="text-error text-[13px]" role="alert">
