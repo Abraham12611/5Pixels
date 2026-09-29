@@ -557,7 +557,7 @@ function ReferralStep({
 }) {
   const referralUrl =
     typeof window !== "undefined" && referralUserId
-      ? `${window.location.origin}/signup?ref=${referralUserId}`
+      ? `${window.location.origin}/r/${referralUserId}`
       : null;
 
   return (

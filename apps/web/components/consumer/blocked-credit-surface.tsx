@@ -709,7 +709,7 @@ export function BlockedCreditSurface({
             <ReferralCard
               referralUrl={
                 referralUserId
-                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/signup?ref=${referralUserId}`
+                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/r/${referralUserId}`
                   : null
               }
               refereeReward="their first result on us"
