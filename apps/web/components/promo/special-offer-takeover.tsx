@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { OfferBadge } from "./offer-badge";
 import { PlanRow, type PlanRowBullet } from "./plan-row";
 import { ReferralCard } from "./referral-card";
@@ -20,11 +25,13 @@ import type {
 import type { PlanForPurchase } from "@/lib/db/plans";
 
 /**
- * S7 — full-screen special-offer takeover (07 §4). Renders the assigned
- * campaign's ladder in place: decline advances the step inside the same
- * surface (cross-fade), never stacked modals. Accept posts to the normal
- * checkout endpoint with promo attribution; every transition is a validated
- * promo event. Client never writes `converted` — the webhook does (09 §2).
+ * S7 — special-offer card (07 §4, restyled to the New Yorker pattern in
+ * 06 §3.3): a centered ~500px card over a dimmed backdrop instead of the
+ * old fullscreen takeover. Same ladder mechanics — decline advances the
+ * step inside the same card (cross-fade), never stacked modals. Accept
+ * posts to the normal checkout endpoint with promo attribution; every
+ * transition is a validated promo event. Client never writes `converted`
+ * — the webhook does (09 §2).
  */
 export function SpecialOfferTakeover({
   assignment,
@@ -162,9 +169,15 @@ export function SpecialOfferTakeover({
   const extraCredit = plans.find((p) => p.type === "extra_credit") ?? null;
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-y-auto bg-ink-950">
-      {/* Header bar */}
-      <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-950/90 px-5 py-4 backdrop-blur">
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) dismiss();
+      }}
+      className="max-h-[85dvh] w-full max-w-[500px] overflow-y-auto p-0"
+    >
+      {/* Card header — badge + close */}
+      <div className="flex items-center justify-between px-6 pt-5">
         <OfferBadge tone="promo">
           {isAdminPreview ? "Admin preview" : "Special offer"}
         </OfferBadge>
@@ -172,65 +185,60 @@ export function SpecialOfferTakeover({
           type="button"
           onClick={dismiss}
           aria-label="Close offer"
-          className="text-text-secondary hover:text-cream-50 flex h-9 w-9 items-center justify-center rounded-full bg-charcoal-800 transition-colors"
+          className="text-text-secondary hover:text-cream-50 flex h-8 w-8 items-center justify-center rounded-full bg-charcoal-800 transition-colors"
         >
-          <X size={16} weight="bold" />
+          <X size={15} weight="bold" />
         </button>
       </div>
 
       {/* Admin preview switcher — jump between any campaign+variant flow. */}
       {adminVariants && adminVariants.length > 0 && (
-        <div className="border-b border-cream-100/10 bg-charcoal-900 px-5 py-2.5">
-          <div className="mx-auto flex w-full max-w-lg items-center gap-3">
-            <label
-              htmlFor="offer-preview-variant"
-              className="text-text-muted shrink-0 text-[11px] font-semibold uppercase tracking-wide"
-            >
-              Previewing
-            </label>
-            <select
-              id="offer-preview-variant"
-              className="bg-charcoal-800 text-cream-50 border-cream-100/10 min-w-0 flex-1 rounded-md border px-2 py-1.5 text-xs"
-              value={`${assignment.campaignSlug}:${variant}`}
-              onChange={(e) => {
-                router.push(
-                  `/app?offer_preview=${encodeURIComponent(e.target.value)}`
-                );
-              }}
-            >
-              {adminVariants.map((option) => (
-                <option
-                  key={`${option.campaignSlug}:${option.variant}`}
-                  value={`${option.campaignSlug}:${option.variant}`}
-                >
-                  {option.campaignName} — {option.variant}
-                  {option.campaignStatus !== "live"
-                    ? ` (${option.campaignStatus})`
-                    : ""}
-                </option>
-              ))}
-            </select>
-            <Link
-              href="/app"
-              className="text-text-muted hover:text-cream-50 shrink-0 text-[11px] transition-colors"
-            >
-              Exit preview
-            </Link>
-          </div>
+        <div className="mx-6 mt-4 flex items-center gap-2.5 rounded-lg bg-charcoal-900 px-3 py-2">
+          <label
+            htmlFor="offer-preview-variant"
+            className="text-text-muted shrink-0 text-[11px] font-semibold uppercase tracking-wide"
+          >
+            Previewing
+          </label>
+          <select
+            id="offer-preview-variant"
+            className="bg-charcoal-800 text-cream-50 border-cream-100/10 min-w-0 flex-1 rounded-md border px-2 py-1.5 text-xs"
+            value={`${assignment.campaignSlug}:${variant}`}
+            onChange={(e) => {
+              router.push(
+                `/app?offer_preview=${encodeURIComponent(e.target.value)}`
+              );
+            }}
+          >
+            {adminVariants.map((option) => (
+              <option
+                key={`${option.campaignSlug}:${option.variant}`}
+                value={`${option.campaignSlug}:${option.variant}`}
+              >
+                {option.campaignName} — {option.variant}
+                {option.campaignStatus !== "live"
+                  ? ` (${option.campaignStatus})`
+                  : ""}
+              </option>
+            ))}
+          </select>
+          <Link
+            href="/app"
+            className="text-text-muted hover:text-cream-50 shrink-0 text-[11px] transition-colors"
+          >
+            Exit
+          </Link>
         </div>
       )}
 
-      <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-lg flex-col px-5 pb-28 pt-6">
+      <div className="px-6 pb-5 pt-4">
         {pendingProductName && (
           <p className="text-lime-400 mb-4 text-center text-sm font-medium">
             Your {pendingProductName} result is saved and waiting
           </p>
         )}
 
-        <div
-          key={step.position}
-          className="animate-fade-in flex flex-1 flex-col"
-        >
+        <div key={step.position} className="animate-fade-in">
           {step.kind === "weekly_pair" && (
             <WeeklyPairStep
               plans={weekly}
@@ -274,21 +282,21 @@ export function SpecialOfferTakeover({
           )}
 
           {step.kind === "exit" && (
-            <div className="flex flex-1 flex-col items-center justify-center text-center">
-              <h2 className="font-display text-cream-50 text-3xl font-bold">
+            <div className="py-4 text-center">
+              <DialogTitle className="font-display text-2xl font-bold">
                 {pendingProductName
                   ? `Your ${pendingProductName} will be waiting`
                   : "No pressure"}
-              </h2>
-              <p className="text-text-secondary mt-3 max-w-sm text-sm">
+              </DialogTitle>
+              <DialogDescription className="mt-2 text-sm">
                 {pendingProductName
                   ? "Your photo and settings are saved — pick a plan whenever you're ready to see it."
                   : "Browse freely — plans are here whenever you want to create."}
-              </p>
+              </DialogDescription>
               <Button
                 variant="secondary"
                 size="lg"
-                className="mt-6"
+                className="mt-5"
                 onClick={dismiss}
               >
                 Back to the app
@@ -299,7 +307,7 @@ export function SpecialOfferTakeover({
 
         {/* Decline cascade — hidden on the exit step */}
         {step.kind !== "exit" && (
-          <div className="mt-8 text-center">
+          <div className="mt-5 text-center">
             <button
               type="button"
               onClick={decline}
@@ -309,35 +317,37 @@ export function SpecialOfferTakeover({
             </button>
           </div>
         )}
-
-        {/* Checkout POST + opt-out footer */}
-        <form
-          ref={checkoutFormRef}
-          action="/api/billing/checkout"
-          method="post"
-          className="hidden"
-        >
-          <input
-            type="hidden"
-            name="plan_id"
-            ref={planInputRef}
-            defaultValue=""
-          />
-          <input type="hidden" name="campaign_id" value={campaignId} />
-          <input type="hidden" name="campaign_variant" value={variant} />
-          <input type="hidden" name="campaign_step" value={step.position} />
-        </form>
-        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-cream-100/10 bg-ink-950/90 px-5 py-3 text-center backdrop-blur">
-          <button
-            type="button"
-            onClick={optOut}
-            className="text-text-muted hover:text-text-secondary text-[11px] transition-colors"
-          >
-            Don&rsquo;t show offers again
-          </button>
-        </div>
       </div>
-    </div>
+
+      {/* Opt-out footer — quiet text row inside the card */}
+      <div className="border-t border-cream-100/10 px-6 py-3 text-center">
+        <button
+          type="button"
+          onClick={optOut}
+          className="text-text-muted hover:text-text-secondary text-[11px] transition-colors"
+        >
+          Don&rsquo;t show offers again
+        </button>
+      </div>
+
+      {/* Checkout POST — hidden; acceptPlan() fills + submits */}
+      <form
+        ref={checkoutFormRef}
+        action="/api/billing/checkout"
+        method="post"
+        className="hidden"
+      >
+        <input
+          type="hidden"
+          name="plan_id"
+          ref={planInputRef}
+          defaultValue=""
+        />
+        <input type="hidden" name="campaign_id" value={campaignId} />
+        <input type="hidden" name="campaign_variant" value={variant} />
+        <input type="hidden" name="campaign_step" value={step.position} />
+      </form>
+    </Dialog>
   );
 }
 
@@ -355,8 +365,8 @@ function WeeklyPairStep({
   onAccept: (planId: string) => void;
 }) {
   return (
-    <div className="flex flex-1 flex-col">
-      <h2 className="font-display text-cream-50 text-center text-3xl font-bold leading-tight">
+    <div className="flex flex-col">
+      <h2 className="font-display text-cream-50 text-center text-2xl font-bold leading-tight">
         {headline}
       </h2>
       <p className="text-text-secondary mt-2 text-center text-sm">
@@ -463,8 +473,8 @@ function PlansStep({
     : [];
 
   return (
-    <div className="flex flex-1 flex-col">
-      <h2 className="font-display text-cream-50 text-center text-3xl font-bold leading-tight">
+    <div className="flex flex-col">
+      <h2 className="font-display text-cream-50 text-center text-2xl font-bold leading-tight">
         {headline}
       </h2>
       {deadlineDisplay !== "none" && endsAt && (
@@ -551,8 +561,8 @@ function ReferralStep({
       : null;
 
   return (
-    <div className="flex flex-1 flex-col justify-center">
-      <h2 className="font-display text-cream-50 text-center text-3xl font-bold leading-tight">
+    <div className="flex flex-col">
+      <h2 className="font-display text-cream-50 text-center text-2xl font-bold leading-tight">
         Or get credits on us
       </h2>
       <p className="text-text-secondary mt-2 text-center text-sm">
@@ -579,8 +589,8 @@ function TopUpStep({
   onAccept: (id: string) => void;
 }) {
   return (
-    <div className="flex flex-1 flex-col justify-center">
-      <h2 className="font-display text-cream-50 text-center text-3xl font-bold leading-tight">
+    <div className="flex flex-col">
+      <h2 className="font-display text-cream-50 text-center text-2xl font-bold leading-tight">
         Just this once
       </h2>
       <button
