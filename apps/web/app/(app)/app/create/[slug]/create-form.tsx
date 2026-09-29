@@ -20,7 +20,10 @@ import {
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
-import { Paywall } from "@/components/consumer/paywall-sheet";
+import dynamic from "next/dynamic";
+const Paywall = dynamic(() =>
+  import("@/components/consumer/paywall-sheet").then((m) => m.Paywall)
+);
 import { AuthModal } from "@/components/auth/auth-modal";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";

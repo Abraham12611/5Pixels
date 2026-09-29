@@ -9,7 +9,10 @@ import {
 } from "react";
 import Image from "next/image";
 import { ArrowsLeftRight, Warning } from "@phosphor-icons/react";
-import { ImageViewer } from "@/components/consumer/mobile/image-viewer";
+import dynamic from "next/dynamic";
+const ImageViewer = dynamic(() =>
+  import("@/components/consumer/mobile/image-viewer").then((m) => m.ImageViewer)
+);
 import { refreshResultDisplayUrls } from "@/lib/generation/poll";
 import { cn } from "@/lib/utils";
 

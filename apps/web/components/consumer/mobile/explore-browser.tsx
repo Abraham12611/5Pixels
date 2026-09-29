@@ -8,7 +8,10 @@ import {
   SortAscending,
   X,
 } from "@phosphor-icons/react";
-import { FilterModal } from "@/components/consumer/mobile/filter-modal";
+import dynamic from "next/dynamic";
+const FilterModal = dynamic(() =>
+  import("@/components/consumer/mobile/filter-modal").then((m) => m.FilterModal)
+);
 import { ProductCard } from "@/components/consumer/product-card";
 import { Button } from "@/components/ui/button";
 import { FilterChip } from "@/components/ui/filter-chip";

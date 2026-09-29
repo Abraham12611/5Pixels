@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useMediaQuery } from "@/lib/ui/use-media-query";
 import { cn } from "@/lib/utils";
 import { useLandingQuickView } from "./landing-quick-view";
+import { AutoplayVideo } from "@/components/consumer/autoplay-video";
 import type { LandingFeedItem } from "./landing-feed-types";
 
 /**
@@ -58,14 +59,11 @@ export function MobileHero({ items }: { items: LandingFeedItem[] }) {
               className="absolute inset-0"
             >
               {item.previewVideoUrl && index === active && !reducedMotion ? (
-                <video
+                <AutoplayVideo
                   src={item.previewVideoUrl}
                   poster={item.thumbUrl ?? undefined}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="absolute inset-0 h-full w-full object-cover"
+                  className="absolute inset-0 h-full w-full"
+                  videoClassName="absolute inset-0 h-full w-full object-cover"
                 />
               ) : item.thumbUrl ? (
                 <Image

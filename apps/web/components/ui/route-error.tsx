@@ -33,24 +33,29 @@ export function RouteError({
   }, [error]);
 
   return (
-    <main
-      role="alert"
-      className="flex flex-1 flex-col items-center justify-center px-5 py-20 text-center"
-    >
-      <Warning className="text-error h-12 w-12" aria-hidden />
-      <h2 className="text-cream-50 mt-4 text-2xl font-bold">{copy.title}</h2>
-      <p className="text-text-secondary mt-2 max-w-md">{body ?? copy.body}</p>
-      <div className="mt-6 flex w-full max-w-xs flex-col gap-2">
-        <Button onClick={() => reset()} variant="brand" className="w-full">
-          {copy.primary}
-        </Button>
-        {(escapeHref ?? "secondary" in copy) && (
-          <Button asChild variant="ghost" className="w-full">
-            <Link href={escapeHref ?? ("secondary" in copy ? copy.secondary.href : "/app")}>
-              {escapeLabel ?? ("secondary" in copy ? copy.secondary.label : "Go home")}
-            </Link>
+    <main className="flex flex-1 flex-col items-center justify-center px-5 py-20 text-center">
+      <div role="alert" className="flex flex-col items-center">
+        <Warning className="text-error h-12 w-12" aria-hidden />
+        <h2 className="text-cream-50 mt-4 text-2xl font-bold">{copy.title}</h2>
+        <p className="text-text-secondary mt-2 max-w-md">{body ?? copy.body}</p>
+        <div className="mt-6 flex w-full max-w-xs flex-col gap-2">
+          <Button onClick={() => reset()} variant="brand" className="w-full">
+            {copy.primary}
           </Button>
-        )}
+          {(escapeHref ?? "secondary" in copy) && (
+            <Button asChild variant="ghost" className="w-full">
+              <Link
+                href={
+                  escapeHref ??
+                  ("secondary" in copy ? copy.secondary.href : "/app")
+                }
+              >
+                {escapeLabel ??
+                  ("secondary" in copy ? copy.secondary.label : "Go home")}
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
     </main>
   );

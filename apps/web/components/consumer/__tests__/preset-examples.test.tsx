@@ -16,14 +16,16 @@ describe("PresetExamples", () => {
     ).toHaveLength(3);
   });
 
-  it("opens the shared ImageViewer when a thumb is tapped", () => {
+  it("opens the shared ImageViewer when a thumb is tapped", async () => {
     render(<PresetExamples urls={urls} name="Cyber Punk" />);
     fireEvent.click(
       screen.getByRole("button", { name: "View Cyber Punk example 2" })
     );
-    const viewer = screen.getByRole("dialog", {
-      name: "Cyber Punk example 2 of 3",
-    });
+    const viewer = await screen.findByRole(
+      "dialog",
+      { name: "Cyber Punk example 2 of 3" },
+      { timeout: 10000 }
+    );
     expect(viewer).toBeInTheDocument();
     expect(viewer.querySelector("img")).toHaveAttribute(
       "src",

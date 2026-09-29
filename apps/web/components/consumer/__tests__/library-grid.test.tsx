@@ -65,13 +65,15 @@ describe("LibraryGrid", () => {
     expect(screen.queryByText("0 selected")).not.toBeInTheDocument();
   });
 
-  it("Filters opens the T3 modal and applies a preset facet", () => {
+  it("Filters opens the T3 modal and applies a preset facet", async () => {
     render(<LibraryGrid items={makeItems(15)} />);
     fireEvent.click(
       screen.getByRole("button", { name: /Filters/ })
     );
-    // Staged modal sections
-    expect(screen.getByText("Source")).toBeInTheDocument();
+    // Staged modal sections (modal is code-split — resolves on next tick)
+    expect(
+      await screen.findByText("Source", {}, { timeout: 5000 })
+    ).toBeInTheDocument();
     expect(screen.getByText("Preset")).toBeInTheDocument();
     // Choose the "Preset 0" facet → apply → only that card remains
     fireEvent.click(screen.getByRole("radio", { name: /Preset 0/ }));
