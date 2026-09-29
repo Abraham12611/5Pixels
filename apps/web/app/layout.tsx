@@ -45,7 +45,12 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-ink-950 text-text-primary">
         {children}
-        {GROWSURF_CAMPAIGN_ID ? (
+        {/* GrowSurf stays dormant but the universal script only makes sense
+            on the production origin — on preview/ephemeral hosts it just
+            throws "campaign not authorized" 403s into the console. */}
+        {GROWSURF_CAMPAIGN_ID &&
+        (process.env.VERCEL_ENV === "production" ||
+          process.env.VERCEL_ENV === undefined) ? (
           <Script
             id="growsurf-universal"
             strategy="beforeInteractive"
