@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, TextT } from "@phosphor-icons/react";
 import { ProductMedia } from "@/components/consumer/product-media";
+import { AutoplayVideo } from "@/components/consumer/autoplay-video";
 import { isVideoMimeType, publicAssetUrl } from "@/lib/catalog/media";
 import { useMediaQuery } from "@/lib/ui/use-media-query";
 import type { PublicProductAsset } from "@/types/catalog";
@@ -34,18 +35,15 @@ export function PresetDetailHero({
   return (
     <div className="relative aspect-[4/5] w-full overflow-hidden">
       {asset && isVideoMimeType(asset.mime_type) && !reducedMotion ? (
-        <video
+        <AutoplayVideo
           src={publicAssetUrl(asset.bucket, asset.storage_key)}
           poster={
             stillAsset
               ? publicAssetUrl(stillAsset.bucket, stillAsset.storage_key)
               : undefined
           }
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="absolute inset-0 h-full w-full object-cover"
+          ariaLabel={`${name} preview`}
+          videoClassName="absolute inset-0 h-full w-full object-cover"
         />
       ) : (
         <ProductMedia

@@ -127,6 +127,7 @@ function NavItem({ href, label, icon: Icon, active }: NavItemProps) {
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className="flex flex-col items-center gap-1 rounded-lg py-1"
     >
       <Icon

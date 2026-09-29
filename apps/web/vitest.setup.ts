@@ -1,4 +1,9 @@
 import "@testing-library/jest-dom";
+import { expect } from "vitest";
+import { toHaveNoViolations } from "vitest-axe/dist/matchers.js";
+
+// vitest-axe@0.1.0's extend-expect entry is an empty stub — register directly.
+expect.extend({ toHaveNoViolations });
 
 // jsdom has no matchMedia — components gating on pointer/width/reduced-motion
 // queries need a stub.

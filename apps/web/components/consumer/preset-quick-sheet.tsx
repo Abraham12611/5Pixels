@@ -6,8 +6,12 @@ import { ArrowRight, Lightning } from "@phosphor-icons/react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { FavoriteButton } from "@/components/consumer/favorite-button";
-import { ImageViewer } from "@/components/consumer/mobile/image-viewer";
+import dynamic from "next/dynamic";
+const ImageViewer = dynamic(() =>
+  import("@/components/consumer/mobile/image-viewer").then((m) => m.ImageViewer)
+);
 import { useMediaQuery } from "@/lib/ui/use-media-query";
+import { AutoplayVideo } from "@/components/consumer/autoplay-video";
 import { cn } from "@/lib/utils";
 import type { QuickSheetPreset } from "@/lib/catalog/quick-sheet";
 
@@ -87,15 +91,11 @@ function QuickSheetBody({
       {/* 4:5 media — video loops muted under the still poster */}
       <div className="bg-charcoal-800 relative aspect-[4/5] w-full overflow-hidden">
         {item.previewVideoUrl && !reducedMotion ? (
-          <video
+          <AutoplayVideo
             src={item.previewVideoUrl}
             poster={item.previewUrl ?? undefined}
-            autoPlay
-            muted
-            loop
-            playsInline
-            aria-label={`${item.name} preview`}
-            className="h-full w-full object-cover"
+            ariaLabel={`${item.name} preview`}
+            videoClassName="h-full w-full object-cover"
           />
         ) : item.previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- public Storage URL, sheet needs instant paint

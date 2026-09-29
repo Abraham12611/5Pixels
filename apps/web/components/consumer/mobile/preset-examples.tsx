@@ -2,7 +2,10 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { ImageViewer } from "@/components/consumer/mobile/image-viewer";
+import dynamic from "next/dynamic";
+const ImageViewer = dynamic(() =>
+  import("@/components/consumer/mobile/image-viewer").then((m) => m.ImageViewer)
+);
 
 /**
  * Mobile examples grid (25_MOBILE_WEB_POLISH/07 §3): square thumbs of the
