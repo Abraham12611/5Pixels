@@ -314,6 +314,193 @@ export async function insertGrowSurfMilestoneReward(input: {
   return Boolean(data);
 }
 
+/**
+ * Referrer signup bonus (07 §6.6): fixed credits when a referred friend
+ * completes signup — paid in addition to the 30% first-payment share.
+ * Once per referee via the partial unique index + ledger idempotency.
+ */
+export const REFERRER_SIGNUP_BONUS = 50;
+
+export async function grantReferrerSignupBonus(
+  referrerId: string,
+  refereeUserId: string
+): Promise<void> {
+  const service = createServiceClient();
+  const { data: reward, error } = await service
+    .from("referral_rewards")
+    .insert({
+      source_ref: `signup_bonus:${refereeUserId}`,
+      referrer_user_id: referrerId,
+      referee_user_id: refereeUserId,
+      kind: "referrer_signup_bonus",
+      credits: REFERRER_SIGNUP_BONUS,
+      status: "pending",
+    })
+    .select("id")
+    .maybeSingle();
+  if (error || !reward) return; // already granted
+
+  const ledgerId = await insertLedgerAllocation({
+    userId: referrerId,
+    credits: REFERRER_SIGNUP_BONUS,
+    idempotencyKey: `referral:signup_bonus:${refereeUserId}`,
+    metadata: {
+      reason: "referral_signup_bonus",
+      referee_user_id: refereeUserId,
+    },
+  });
+  if (!ledgerId) {
+    await service
+      .from("referral_rewards")
+      .delete()
+      .eq("id", reward.id)
+      .eq("status", "pending");
+    return;
+  }
+
+  await service
+    .from("referral_rewards")
+    .update({
+      status: "granted",
+      ledger_entry_id: ledgerId,
+      granted_at: new Date().toISOString(),
+    })
+    .eq("id", reward.id)
+    .eq("status", "pending");
+}
+
+/**
+ * Shared attribution (07 §2B): both claim paths — the spx_ref cookie and
+ * manual code entry during onboarding — land here. Guards: not self,
+ * referrer exists and is active, and the referee has no prior
+ * attribution (first claim wins, one ever).
+ */
+export async function attributeReferral(
+  userId: string,
+  referrerId: string
+): Promise<boolean> {
+  if (referrerId === userId) return false;
+
+  const service = createServiceClient();
+  const [{ data: referrer }, { data: existing }] = await Promise.all([
+    service
+      .from("profiles")
+      .select("id, status")
+      .eq("id", referrerId)
+      .maybeSingle(),
+    service
+      .from("referral_participants")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+  if (!referrer || referrer.status !== "active" || existing?.user_id) {
+    return false;
+  }
+
+  const { error } = await service.from("referral_participants").insert({
+    user_id: userId,
+    referred_by: referrerId,
+  });
+  if (error) {
+    console.error("[attributeReferral] participant insert failed", error.message);
+    return false;
+  }
+
+  await service
+    .from("profiles")
+    .update({ free_unlock_source: "referral" })
+    .eq("id", userId)
+    .is("free_unlock_source", null);
+
+  await grantReferrerSignupBonus(referrerId, userId).catch((e) => {
+    console.error("[attributeReferral] signup bonus failed", e);
+  });
+
+  return true;
+}
+
+/** The signed-in user's human share code — null when signed out. */
+export async function getMyReferralCode(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const service = createServiceClient();
+  const { data } = await service
+    .from("profiles")
+    .select("referral_code")
+    .eq("id", user.id)
+    .maybeSingle();
+  return (data?.referral_code as string | null) ?? null;
+}
+
+export interface ReferralHistoryRow {
+  userId: string;
+  name: string;
+  joinedAt: string;
+  /** credits granted to the referrer for this referee, across kinds */
+  creditsEarned: number;
+  hasPaid: boolean;
+}
+
+/** The signed-in user's referral list for /app/referrals — newest first. */
+export async function getMyReferrals(): Promise<ReferralHistoryRow[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const service = createServiceClient();
+  const { data: participants } = await service
+    .from("referral_participants")
+    .select("user_id, created_at")
+    .eq("referred_by", user.id)
+    .order("created_at", { ascending: false });
+  if (!participants?.length) return [];
+
+  const refereeIds = participants.map((p) => p.user_id as string);
+  const [{ data: profiles }, { data: rewards }] = await Promise.all([
+    service
+      .from("profiles")
+      .select("id, display_name, username, email")
+      .in("id", refereeIds),
+    service
+      .from("referral_rewards")
+      .select("referee_user_id, credits, status, kind")
+      .eq("referrer_user_id", user.id)
+      .in("referee_user_id", refereeIds),
+  ]);
+
+  const nameById = new Map(
+    (profiles ?? []).map((p) => [
+      p.id as string,
+      (p.display_name as string | null) ??
+        (p.username as string | null) ??
+        ((p.email as string | null)?.split("@")[0] ?? "A friend"),
+    ])
+  );
+  const byReferee = new Map<string, { credits: number; paid: boolean }>();
+  for (const r of rewards ?? []) {
+    const id = r.referee_user_id as string;
+    const cur = byReferee.get(id) ?? { credits: 0, paid: false };
+    if (r.status === "granted") cur.credits += Number(r.credits ?? 0);
+    if (r.kind === "referrer_payment_share") cur.paid = true;
+    byReferee.set(id, cur);
+  }
+
+  return participants.map((p) => ({
+    userId: p.user_id as string,
+    name: nameById.get(p.user_id as string) ?? "A friend",
+    joinedAt: p.created_at as string,
+    creditsEarned: byReferee.get(p.user_id as string)?.credits ?? 0,
+    hasPaid: byReferee.get(p.user_id as string)?.paid ?? false,
+  }));
+}
+
 export interface ReferralStats {
   referredCount: number;
   paidReferrals: number;

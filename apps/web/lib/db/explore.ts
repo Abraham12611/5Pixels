@@ -99,6 +99,51 @@ export async function getPublicAssetUrl(
 }
 
 /**
+ * Category slugs the user picked during onboarding (08 §2B) — wired live:
+ * the default Explore view surfaces these categories first.
+ */
+export async function getUserInterestSlugs(): Promise<string[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("onboarding_answers")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (error) {
+    console.error("[getUserInterestSlugs] profile query failed", error.message);
+    return [];
+  }
+  const interests = (data?.onboarding_answers as Record<string, unknown> | null)
+    ?.interests;
+  return Array.isArray(interests)
+    ? interests.filter((i): i is string => typeof i === "string")
+    : [];
+}
+
+/**
+ * Stable partition: products in picked categories first, canonical order
+ * preserved within both halves. Pure so it's directly testable.
+ */
+export function applyInterestBoost<T extends { category_slug: string | null }>(
+  products: T[],
+  interests: string[]
+): T[] {
+  if (interests.length === 0) return products;
+  const wanted = new Set(interests);
+  const hits: T[] = [];
+  const rest: T[] = [];
+  for (const p of products) {
+    (p.category_slug && wanted.has(p.category_slug) ? hits : rest).push(p);
+  }
+  return [...hits, ...rest];
+}
+
+/**
  * Return the product IDs favorited by the currently authenticated user.
  * Returns an empty set when anonymous or on error.
  */

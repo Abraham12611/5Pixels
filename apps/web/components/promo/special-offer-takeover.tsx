@@ -38,7 +38,7 @@ export function SpecialOfferTakeover({
   plans,
   context = "signup_completed_no_credits",
   pendingProductName,
-  referralUserId,
+  referralCode,
   adminVariants,
   onClose,
 }: {
@@ -47,7 +47,7 @@ export function SpecialOfferTakeover({
   context?: string;
   /** Set when a saved teaser exists — copy leans on the pending result. */
   pendingProductName?: string;
-  referralUserId?: string;
+  referralCode?: string;
   /** Admin preview switcher — every campaign+variant the admin can load. */
   adminVariants?: AdminPreviewOption[];
   onClose: () => void;
@@ -259,7 +259,7 @@ export function SpecialOfferTakeover({
           )}
 
           {step.kind === "referral" && (
-            <ReferralStep referralUserId={referralUserId} />
+            <ReferralStep referralCode={referralCode} />
           )}
 
           {step.kind === "topup" && extraCredit && (
@@ -551,13 +551,13 @@ function PlansStep({
 }
 
 function ReferralStep({
-  referralUserId,
+  referralCode,
 }: {
-  referralUserId?: string;
+  referralCode?: string;
 }) {
   const referralUrl =
-    typeof window !== "undefined" && referralUserId
-      ? `${window.location.origin}/r/${referralUserId}`
+    typeof window !== "undefined" && referralCode
+      ? `${window.location.origin}/r/${referralCode}`
       : null;
 
   return (
@@ -571,6 +571,7 @@ function ReferralStep({
       <ReferralCard
         className="mt-6"
         referralUrl={referralUrl}
+        referralCode={referralCode}
         refereeReward="their first result on us"
         referrerReward="30% of their plan's credits when they subscribe"
       />

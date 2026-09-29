@@ -8,7 +8,7 @@ import {
   ReferralClaimLink,
   ReferralWelcomeTracker,
 } from "@/components/auth/referral-welcome";
-import { UUID_RE } from "@/lib/referrals/session";
+import { resolveReferrerId } from "@/lib/referrals/session";
 import { Check, Gift } from "@phosphor-icons/react/dist/ssr";
 
 export const metadata = {
@@ -29,13 +29,15 @@ export default async function ReferralWelcomePage({
   params: Promise<{ code: string }>;
 }) {
   const { code } = await params;
-  if (!UUID_RE.test(code)) redirect("/");
+  // Human codes (K7M-2QX) and legacy UUID links both resolve here.
+  const referrerId = await resolveReferrerId(code);
+  if (!referrerId) redirect("/");
 
   const service = createServiceClient();
   const { data: referrer } = await service
     .from("profiles")
     .select("id, display_name, username")
-    .eq("id", code)
+    .eq("id", referrerId)
     .maybeSingle();
   if (!referrer) redirect("/");
 
@@ -64,8 +66,8 @@ export default async function ReferralWelcomePage({
       }
     >
       {/* Attribution cookie drops on landing — survives a browse-first path. */}
-      <ReferralCapture referrerId={code} />
-      <ReferralWelcomeTracker referrerId={code} />
+      <ReferralCapture referrerId={referrer.id} />
+      <ReferralWelcomeTracker referrerId={referrer.id} />
 
       <div className="border-lime-500/30 bg-lime-500/[0.05] mt-5 flex items-start gap-3 rounded-[12px] border p-4">
         <span className="bg-lime-500/10 text-lime-400 flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
@@ -92,7 +94,7 @@ export default async function ReferralWelcomePage({
         </div>
       </div>
 
-      <ReferralClaimLink referrerId={code} />
+      <ReferralClaimLink referrerId={referrer.id} />
       <Link
         href="/explore"
         className="text-text-muted hover:text-cream-100 mt-3 block text-center text-xs transition-colors"

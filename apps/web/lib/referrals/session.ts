@@ -1,5 +1,10 @@
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/service";
+import {
+  isReferralCode,
+  normalizeReferralCode,
+} from "@/lib/referrals/codes";
+import { attributeReferral } from "./rewards";
 
 /**
  * First-party referral attribution (03 §3): `?ref=<user_id>` on signup
@@ -16,16 +21,40 @@ export const REF_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Validates the referrer exists and drops the attribution cookie. */
-export async function setReferralCookie(referrerId: string): Promise<void> {
-  if (!UUID_RE.test(referrerId)) return;
+/**
+ * Resolves a referrer identity — UUID (`?ref=<uuid>` legacy links) or a
+ * human code (`K7M-2QX` / `k7m2qx`) — to a profiles.id. Null when the
+ * input is neither a well-formed candidate nor an existing profile.
+ */
+export async function resolveReferrerId(input: string): Promise<string | null> {
   const service = createServiceClient();
-  const { data: referrer } = await service
-    .from("profiles")
-    .select("id")
-    .eq("id", referrerId)
-    .maybeSingle();
-  if (!referrer) return;
+  if (UUID_RE.test(input)) {
+    const { data } = await service
+      .from("profiles")
+      .select("id")
+      .eq("id", input)
+      .maybeSingle();
+    return (data?.id as string | undefined) ?? null;
+  }
+  if (isReferralCode(input)) {
+    const { data } = await service
+      .from("profiles")
+      .select("id")
+      .eq("referral_code", normalizeReferralCode(input))
+      .maybeSingle();
+    return (data?.id as string | undefined) ?? null;
+  }
+  return null;
+}
+
+/**
+ * Validates the referrer exists and drops the attribution cookie. Accepts
+ * a profile UUID or a human referral code — the cookie always stores the
+ * resolved UUID so claimReferralForUser needs no code awareness.
+ */
+export async function setReferralCookie(refOrCode: string): Promise<void> {
+  const referrerId = await resolveReferrerId(refOrCode);
+  if (!referrerId) return;
 
   const store = await cookies();
   store.set(REF_COOKIE, referrerId, {
@@ -55,37 +84,5 @@ export async function claimReferralForUser(userId: string): Promise<void> {
   }
   if (referrerId === userId) return;
 
-  const service = createServiceClient();
-
-  const [{ data: referrer }, { data: existing }] = await Promise.all([
-    service
-      .from("profiles")
-      .select("id")
-      .eq("id", referrerId)
-      .maybeSingle(),
-    service
-      .from("referral_participants")
-      .select("user_id")
-      .eq("user_id", userId)
-      .maybeSingle(),
-  ]);
-  if (!referrer || existing?.user_id) return;
-
-  const { error } = await service.from("referral_participants").insert({
-    user_id: userId,
-    referred_by: referrerId,
-  });
-  if (error) {
-    console.error(
-      "[claimReferralForUser] participant insert failed",
-      error.message
-    );
-    return;
-  }
-
-  await service
-    .from("profiles")
-    .update({ free_unlock_source: "referral" })
-    .eq("id", userId)
-    .is("free_unlock_source", null);
+  await attributeReferral(userId, referrerId);
 }

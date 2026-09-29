@@ -60,5 +60,24 @@ export async function GET(request: Request) {
   }
 
   const redirectTo = isRelativePath(next) ? next : "/app";
+
+  // New signups enter onboarding before the app (08 §5); existing users
+  // were backfilled and pass straight through. The requested `next`
+  // rides along so deep links survive the detour.
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("onboarding_completed_at")
+      .eq("id", user.id)
+      .single();
+    if (profile && !profile.onboarding_completed_at) {
+      const onboardingUrl = new URL("/onboarding", request.url);
+      if (redirectTo !== "/app") {
+        onboardingUrl.searchParams.set("next", redirectTo);
+      }
+      return NextResponse.redirect(onboardingUrl);
+    }
+  }
+
   return NextResponse.redirect(new URL(redirectTo, request.url));
 }

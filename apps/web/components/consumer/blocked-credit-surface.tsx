@@ -68,7 +68,7 @@ export function BlockedCreditSurface({
   planEndsAt,
   activePlanName,
   isReferred = false,
-  referralUserId,
+  referralCode,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -84,7 +84,7 @@ export function BlockedCreditSurface({
   planEndsAt?: string | null;
   activePlanName?: string;
   isReferred?: boolean;
-  referralUserId?: string;
+  referralCode?: string;
 }) {
   const isNarrow = useIsNarrow();
   const offerEligible =
@@ -708,10 +708,11 @@ export function BlockedCreditSurface({
             </div>
             <ReferralCard
               referralUrl={
-                referralUserId
-                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/r/${referralUserId}`
+                referralCode
+                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/r/${referralCode}`
                   : null
               }
+              referralCode={referralCode}
               refereeReward="their first result on us"
               referrerReward="30% of their plan's credits when they subscribe"
             />

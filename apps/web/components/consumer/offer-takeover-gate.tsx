@@ -17,13 +17,13 @@ export function OfferTakeoverGate({
   assignment,
   plans,
   pendingProductName,
-  referralUserId,
+  referralCode,
   adminVariants,
 }: {
   assignment: OfferAssignment;
   plans: PlanForPurchase[];
   pendingProductName?: string;
-  referralUserId?: string;
+  referralCode?: string;
   adminVariants?: AdminPreviewOption[];
 }) {
   const [open, setOpen] = useState(true);
@@ -33,7 +33,7 @@ export function OfferTakeoverGate({
       assignment={assignment}
       plans={plans}
       pendingProductName={pendingProductName}
-      referralUserId={referralUserId}
+      referralCode={referralCode}
       adminVariants={adminVariants}
       onClose={() => setOpen(false)}
     />

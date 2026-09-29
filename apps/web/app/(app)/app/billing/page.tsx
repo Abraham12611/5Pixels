@@ -4,7 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getBillingData, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getActivePlan } from "@/lib/billing/entitlements";
-import { getReferralStats } from "@/lib/referrals/rewards";
+import {
+  getMyReferralCode,
+  getReferralStats,
+} from "@/lib/referrals/rewards";
 import { getSiteUrl } from "@/lib/auth/url";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -42,7 +45,7 @@ export default async function BillingPage() {
     redirect("/login?next=/app/billing");
   }
 
-  const [billing, balance, activePlan, summary, profile, referralStats] =
+  const [billing, balance, activePlan, summary, profile, referralStats, referralCode] =
     await Promise.all([
       getBillingData(),
       getUserCreditBalance(),
@@ -50,6 +53,7 @@ export default async function BillingPage() {
       getCreditPeriodSummary(),
       getMyProfile(),
       getReferralStats(),
+      getMyReferralCode(),
     ]);
 
   if (!billing) {
@@ -273,7 +277,8 @@ export default async function BillingPage() {
 
         {/* Referral program (03 §6 — persistent billing card) */}
         <ReferralCard
-          referralUrl={`${getSiteUrl()}/signup?ref=${user.id}`}
+          referralUrl={referralCode ? `${getSiteUrl()}/r/${referralCode}` : null}
+          referralCode={referralCode}
           refereeReward="their first transformation, free"
           referrerReward="30% of their plan's credits when they first pay"
           pendingCount={referralStats?.referredCount ?? 0}

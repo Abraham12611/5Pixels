@@ -1,8 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import {
+  applyInterestBoost,
   getActiveCategories,
   getPublicProducts,
   getUserFavoriteProductIds,
+  getUserInterestSlugs,
 } from "@/lib/db/explore";
 import {
   parseCatalogSearchParams,
@@ -35,7 +37,25 @@ export default async function ExplorePage({
   const { data: userData } = await supabase.auth.getUser();
   const isAuthenticated = Boolean(userData.user);
 
-  const [{ data: products, totalCount = 0, error }, categories, favoriteIds] =
+  // Interest boost (08 §2B): on the default featured view, products from
+  // categories picked during onboarding surface first. Explicit filters,
+  // sorts, and deep pages keep canonical ordering.
+  const personalize =
+    isAuthenticated &&
+    filters.sort === "featured" &&
+    !filters.category &&
+    !filters.type &&
+    !filters.search;
+
+  const interests = personalize ? await getUserInterestSlugs() : [];
+  const PERSONAL_WINDOW_PAGES = 4;
+  const useBoost = personalize && interests.length > 0 &&
+    filters.page <= PERSONAL_WINDOW_PAGES;
+  const fetchWindow = useBoost
+    ? filters.pageSize * PERSONAL_WINDOW_PAGES
+    : filters.pageSize;
+
+  const [{ data: rawProducts, totalCount = 0, error }, categories, favoriteIds] =
     await Promise.all([
       getPublicProducts(
         filters.type ?? undefined,
@@ -43,12 +63,19 @@ export default async function ExplorePage({
         undefined,
         filters.search ?? undefined,
         filters.sort,
-        filters.page,
-        filters.pageSize
+        useBoost ? 1 : filters.page,
+        fetchWindow
       ),
       getActiveCategories(),
       isAuthenticated ? getUserFavoriteProductIds() : Promise.resolve([]),
     ]);
+
+  const products = useBoost
+    ? applyInterestBoost(rawProducts, interests).slice(
+        (filters.page - 1) * filters.pageSize,
+        filters.page * filters.pageSize
+      )
+    : rawProducts;
 
   const favoriteIdSet = new Set(favoriteIds);
   const totalPages = Math.max(1, Math.ceil(totalCount / filters.pageSize));

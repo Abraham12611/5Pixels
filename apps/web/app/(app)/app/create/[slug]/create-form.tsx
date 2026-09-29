@@ -67,6 +67,8 @@ interface CreateGenerationFormProps {
     checkoutReady: boolean;
     creditsPerTransformation: number;
   } | null;
+  /** The signed-in user's human referral code — drives /r/<code> share links. */
+  referralCode?: string;
 }
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -94,6 +96,7 @@ function submitStepIndex(progress: string): number {
 
 export function CreateGenerationForm({
   userId,
+  referralCode,
   product,
   initialBalance,
   hasPriorGenerations,
@@ -646,7 +649,7 @@ export function CreateGenerationForm({
           planEndsAt={blocked.planEndsAt}
           activePlanName={blocked.activePlanName}
           isReferred={blocked.isReferred}
-          referralUserId={userId ?? undefined}
+          referralCode={referralCode}
         />
       )}
       <AuthGateModal

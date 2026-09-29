@@ -15,6 +15,7 @@ import { getPendingGenerationForUser } from "@/lib/teaser/pending";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getTakeoverStateForUser } from "@/lib/offers/engine";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { getMyReferralCode } from "@/lib/referrals/rewards";
 import { PendingGenerationCard } from "@/components/consumer/pending-generation-card";
 import { OfferTakeoverGate } from "@/components/consumer/offer-takeover-gate";
 import { ProductCard } from "@/components/consumer/product-card";
@@ -120,7 +121,7 @@ export default async function DiscoverPage({
   const offerPreview =
     typeof params?.offer_preview === "string" ? params.offer_preview : undefined;
 
-  const [generationsResult, trendingResult, newestResult, categories, favoriteIds, pending, balance, takeover, purchasePlans] =
+  const [generationsResult, trendingResult, newestResult, categories, favoriteIds, pending, balance, takeover, purchasePlans, referralCode] =
     await Promise.all([
       supabase.rpc("get_user_generations"),
       getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, RAIL_SIZE),
@@ -131,6 +132,7 @@ export default async function DiscoverPage({
       getUserCreditBalance(),
       getTakeoverStateForUser(offerPreview),
       getPlansForPurchase(),
+      getMyReferralCode(),
     ]);
 
   const generations = ((generationsResult.data ?? []) as Record<
@@ -189,7 +191,7 @@ export default async function DiscoverPage({
           assignment={takeover.assignment}
           plans={purchasePlans}
           pendingProductName={pending?.productName}
-          referralUserId={user.id}
+          referralCode={referralCode ?? undefined}
           adminVariants={takeover.adminVariants}
         />
       )}

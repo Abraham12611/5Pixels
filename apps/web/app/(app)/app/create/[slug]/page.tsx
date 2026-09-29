@@ -8,6 +8,7 @@ import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
+import { getMyReferralCode } from "@/lib/referrals/rewards";
 import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
 import { CreateGenerationForm } from "./create-form";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -29,7 +30,7 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, generationCount, plans, cheapest] = await Promise.all([
+  const [balance, generationCount, plans, cheapest, referralCode] = await Promise.all([
     user ? getUserCreditBalance() : Promise.resolve(0),
     user
       ? supabase
@@ -46,6 +47,7 @@ export default async function CreatePage({
       .order("credit_cost", { ascending: true })
       .limit(1)
       .maybeSingle(),
+    user ? getMyReferralCode() : Promise.resolve(null),
   ]);
 
   const generationPaused = process.env.GENERATION_PAUSED === "true";
@@ -140,6 +142,7 @@ export default async function CreatePage({
       )}
       <CreateGenerationForm
         userId={user?.id ?? null}
+        referralCode={referralCode ?? undefined}
         product={product}
         initialBalance={balance}
         hasPriorGenerations={generationCount > 0}
