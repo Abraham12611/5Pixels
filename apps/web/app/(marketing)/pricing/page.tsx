@@ -34,7 +34,14 @@ export default async function PricingPage() {
         <p className="text-text-secondary mx-auto mt-4 max-w-xl text-base">
           Plans give you monthly credits to spend on transformations — every
           preset shows its exact cost before you generate. Annual plans cost
-          less per month; weekly passes get you started for a few dollars.
+          less per month;{" "}
+          <Link
+            href="/pricing/weekly"
+            className="text-lime-400 hover:text-lime-300 underline-offset-2 transition-colors hover:underline"
+          >
+            weekly passes
+          </Link>{" "}
+          get you started for a few dollars.
         </p>
       </section>
 

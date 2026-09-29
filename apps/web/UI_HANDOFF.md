@@ -127,6 +127,10 @@ never toast-only.
   `CancelSubscriptionCard` (lose-list + stay offer before the portal).
 - **Auth:** `AuthShell`, `AuthModal` (tabs + preset context + bottom sheet),
   `AuthGateButton`, `PasswordInput`.
+- **Pricing/offers:** `PricingCards`, `CreditTopUp` (custom amount + packs),
+  `PlanShop` (cadence toggle + plan grid), `SpecialOfferTakeover` (centered
+  card, ladder in place), `/pricing/weekly` weekly-pass deep-link page,
+  `ReferralWelcome` on `/r/[code]`.
 - **Edge:** `EdgePage` grammar → root/preset/create/generation/result/share
   not-found, `global-error`, `maintenance`, checkout-cancel.
 - **Primitives:** `Button`, `Dialog` (+ `useDialogA11y`), `Input`, `Label`,
@@ -167,9 +171,9 @@ Favorites, Billing, Pricing, auth modal, share dialog, 404.
 
 - **Support channel:** help card currently links to `/pricing#faq`. A real
   support/contact surface needs a backend decision.
-- **Top-ups for free users:** "Buy credits" routes free users to `/pricing`
-  (top-up products are subscriber-only in Dodo). If free-plan top-ups become
-  available, repoint to a purchase dialog.
+- **Top-ups for free users:** resolved — `canPurchaseExtraCredits` now allows
+  any signed-in user; all entry points route to `/app/billing/credits` which
+  hosts `CreditTopUp` (custom amount + packs).
 - **Report/moderation:** no reporting backend exists — no report UI shipped.
 - **Plan-gated presets:** no plan gating in the catalog — no upgrade modal
   shipped. If gating is added, revisit P56.
