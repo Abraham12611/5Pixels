@@ -13,12 +13,13 @@ export function TeaserLauncher(props: {
   presetName: string;
   heroUrl: string | null;
   creditCost: number;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <Button className="shrink-0" onClick={() => setOpen(true)}>
+      <Button className={props.className ?? "shrink-0"} onClick={() => setOpen(true)}>
         Try this look
       </Button>
       {open && (

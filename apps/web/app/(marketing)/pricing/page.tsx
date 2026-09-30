@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { getMedianPresetCost } from "@/lib/db/explore";
 import { getActivePlan } from "@/lib/billing/entitlements";
 import { PlanFinder } from "@/components/marketing/plan-finder";
 import { PricingCards } from "@/components/marketing/pricing-cards";
@@ -16,9 +17,10 @@ export default async function PricingPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [plans, activePlan] = await Promise.all([
+  const [plans, activePlan, medianCredits] = await Promise.all([
     getPlansForPurchase(),
     getActivePlan(),
+    getMedianPresetCost(),
   ]);
 
   const monthlyPlans = plans.filter((p) => p.type === "monthly");
@@ -51,6 +53,7 @@ export default async function PricingPage() {
           plans={plans}
           isAuthenticated={Boolean(user)}
           activePlanId={activePlan?.planId ?? null}
+          medianCredits={medianCredits}
         />
       </section>
 

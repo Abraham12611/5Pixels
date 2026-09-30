@@ -60,6 +60,7 @@ export async function toggleFavorite(
         if (insertError.code === "23505") {
           revalidatePath("/explore");
           revalidatePath("/app/favorites");
+          revalidatePath("/app/library");
           revalidatePath(`/presets/[slug]`, "page");
           return { success: true, favorited: true };
         }
@@ -77,6 +78,7 @@ export async function toggleFavorite(
 
     revalidatePath("/explore");
     revalidatePath("/app/favorites");
+    revalidatePath("/app/library");
     revalidatePath(`/presets/[slug]`, "page");
 
     return { success: true, favorited };

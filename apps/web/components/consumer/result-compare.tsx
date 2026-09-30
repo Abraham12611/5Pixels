@@ -1,8 +1,19 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Image from "next/image";
-import { ArrowsLeftRight } from "@phosphor-icons/react";
+import { ArrowsLeftRight, Warning } from "@phosphor-icons/react";
+import dynamic from "next/dynamic";
+const ImageViewer = dynamic(() =>
+  import("@/components/consumer/mobile/image-viewer").then((m) => m.ImageViewer)
+);
+import { refreshResultDisplayUrls } from "@/lib/generation/poll";
 import { cn } from "@/lib/utils";
 
 export type CompareMode = "result" | "original" | "compare";
@@ -11,37 +22,122 @@ interface ResultCompareProps {
   resultUrl: string;
   originalUrl: string | null;
   resultAlt: string;
+  /** Enables signed-URL re-mint on image-load failure (16.6). */
+  generationId?: string;
   /** Controlled view mode — the switcher lives in the action rail. */
   mode: CompareMode;
   className?: string;
 }
 
+const HOLD_HINT_KEY = "sp_hold_hint_seen";
+const HOLD_DELAY_MS = 220;
+
+function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const update = () => setCoarse(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return coarse;
+}
+
+function markHintSeen() {
+  try {
+    window.localStorage.setItem(HOLD_HINT_KEY, "1");
+  } catch {
+    // Private mode — the hint simply shows again next visit.
+  }
+}
+
 /**
  * Full-bleed result stage. The media fills the stage — single views use
  * `object-contain` over a blurred copy of the same image so every aspect
- * ratio looks cinematic without cropping; Compare runs edge-to-edge with a
- * draggable divider. The view mode is controlled by ResultViewSwitch in the
- * action rail.
+ * ratio looks cinematic without cropping.
+ *
+ * Compare mechanics differ by pointer (10 §4): fine pointers get the
+ * draggable divider; coarse pointers get a static 50/50 split (no `touch-none`
+ * on a full-width element), a press-and-hold "see before" shortcut and a tap
+ * that opens the T3 ImageViewer.
  */
 export function ResultCompare({
   resultUrl,
   originalUrl,
   resultAlt,
+  generationId,
   mode,
   className,
 }: ResultCompareProps) {
   const [position, setPosition] = useState(50);
+  const [held, setHeld] = useState(false);
+  const [hintVisible, setHintVisible] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [reminted, setReminted] = useState<{
+    resultUrl: string | null;
+    sourceUrl: string | null;
+  } | null>(null);
+  const [mediaFailed, setMediaFailed] = useState(false);
+  const [reminting, setReminting] = useState(false);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coarse = useCoarsePointer();
 
-  const updatePosition = useCallback((clientX: number) => {
-    const rect = frameRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
-    const pct = ((clientX - rect.left) / rect.width) * 100;
-    setPosition(Math.min(98, Math.max(2, pct)));
-  }, []);
+  const effectiveResultUrl = reminted?.resultUrl ?? resultUrl;
+  const effectiveOriginalUrl = reminted ? reminted.sourceUrl : originalUrl;
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  /** Signed URLs expire (~10 min) — re-mint once, then surface a retry. */
+  const onMediaError = () => {
+    if (!generationId || reminted || reminting) {
+      setMediaFailed(true);
+      return;
+    }
+    setReminting(true);
+    void refreshResultDisplayUrls(generationId).then((fresh) => {
+      setReminting(false);
+      if (fresh.resultUrl) {
+        setReminted(fresh);
+        setMediaFailed(false);
+      } else {
+        setMediaFailed(true);
+      }
+    });
+  };
+
+  // "Hold to see before" — the hint shows once per device (10 §4).
+  const hintEligible =
+    coarse && Boolean(effectiveOriginalUrl) && mode === "result";
+  useEffect(() => {
+    if (!hintEligible) return;
+    let seen = false;
+    try {
+      seen = window.localStorage.getItem(HOLD_HINT_KEY) === "1";
+    } catch {
+      seen = false;
+    }
+    if (seen) return;
+    const show = setTimeout(() => setHintVisible(true), 0);
+    const dismiss = setTimeout(() => {
+      setHintVisible(false);
+      markHintSeen();
+    }, 4500);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(dismiss);
+    };
+  }, [hintEligible]);
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  // Drag handlers — compare mode on fine pointers only.
+  const onDragPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     draggingRef.current = true;
     e.currentTarget.setPointerCapture(e.pointerId);
     updatePosition(e.clientX);
@@ -49,9 +145,39 @@ export function ResultCompare({
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (draggingRef.current) updatePosition(e.clientX);
   };
-  const onPointerUp = () => {
+  const onDragPointerEnd = () => {
     draggingRef.current = false;
   };
+
+  // Coarse-pointer gestures on the single view (10 §4): press-and-hold
+  // reveals the original while held; a tap opens the ImageViewer. A scroll
+  // gesture surfaces as pointercancel, so it never opens the viewer.
+  const onSinglePointerDown = () => {
+    if (!coarse || mode !== "result" || !effectiveOriginalUrl) return;
+    holdTimerRef.current = setTimeout(() => {
+      setHeld(true);
+      setHintVisible(false);
+      markHintSeen();
+    }, HOLD_DELAY_MS);
+  };
+  const onSinglePointerUp = () => {
+    if (!coarse) return;
+    const wasHeld = held;
+    clearHoldTimer();
+    setHeld(false);
+    if (!wasHeld) setViewerOpen(true);
+  };
+  const onSinglePointerCancel = () => {
+    clearHoldTimer();
+    setHeld(false);
+  };
+
+  const updatePosition = useCallback((clientX: number) => {
+    const rect = frameRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return;
+    const pct = ((clientX - rect.left) / rect.width) * 100;
+    setPosition(Math.min(98, Math.max(2, pct)));
+  }, []);
 
   const onHandleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowLeft") {
@@ -63,9 +189,16 @@ export function ResultCompare({
     }
   };
 
-  const comparing = mode === "compare" && originalUrl;
-  const shownUrl = mode === "original" && originalUrl ? originalUrl : resultUrl;
-  const shownAlt = mode === "original" ? "Original photo" : resultAlt;
+  const comparing = mode === "compare" && effectiveOriginalUrl;
+  const singleSrc =
+    held && effectiveOriginalUrl
+      ? effectiveOriginalUrl
+      : mode === "original" && effectiveOriginalUrl
+        ? effectiveOriginalUrl
+        : effectiveResultUrl;
+  const showingOriginal =
+    singleSrc === effectiveOriginalUrl && Boolean(effectiveOriginalUrl);
+  const singleAlt = showingOriginal ? "Original photo" : resultAlt;
 
   return (
     <div
@@ -74,17 +207,43 @@ export function ResultCompare({
         className
       )}
     >
-      {comparing ? (
+      {mediaFailed && (
+        <div
+          role="alert"
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center"
+        >
+          <Warning size={28} weight="fill" className="text-lime-400" />
+          <p className="text-cream-50 text-sm font-semibold">
+            We couldn&apos;t load this
+          </p>
+          <p className="text-text-secondary max-w-xs text-xs">
+            The image link may have expired.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setMediaFailed(false);
+              setReminted(null);
+            }}
+            className="text-sm font-medium text-lime-400 underline underline-offset-2 transition hover:text-lime-300"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {comparing && !coarse ? (
+        /* Fine pointer: draggable divider with keyboard support. */
         <div
           ref={frameRef}
-          onPointerDown={onPointerDown}
+          onPointerDown={onDragPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerUp={onDragPointerEnd}
+          onPointerCancel={onDragPointerEnd}
           className="absolute inset-0 cursor-ew-resize touch-none select-none"
         >
           <Image
-            src={originalUrl}
+            src={effectiveOriginalUrl!}
+            onError={onMediaError}
             alt="Original photo"
             fill
             className="object-cover"
@@ -96,7 +255,8 @@ export function ResultCompare({
             style={{ clipPath: `inset(0 0 0 ${position}%)` }}
           >
             <Image
-              src={resultUrl}
+              src={effectiveResultUrl}
+              onError={onMediaError}
               alt={resultAlt}
               fill
               className="object-cover"
@@ -105,12 +265,8 @@ export function ResultCompare({
             />
           </div>
 
-          <span className="shadow-elevated absolute left-3 top-3 rounded-md bg-ink-950/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-cream-100 backdrop-blur">
-            Original
-          </span>
-          <span className="shadow-elevated absolute right-3 top-3 rounded-md bg-ink-950/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-cream-100 backdrop-blur">
-            Result
-          </span>
+          <CompareTag className="top-3 left-3">Original</CompareTag>
+          <CompareTag className="top-3 right-3">Result</CompareTag>
 
           <div
             role="slider"
@@ -120,38 +276,123 @@ export function ResultCompare({
             aria-valuemax={100}
             aria-valuenow={Math.round(position)}
             onKeyDown={onHandleKeyDown}
-            className="focus-visible:ring-lime-500/50 absolute inset-y-0 w-8 -translate-x-1/2 cursor-ew-resize outline-none focus-visible:ring-2"
+            className="absolute inset-y-0 w-8 -translate-x-1/2 cursor-ew-resize outline-none focus-visible:ring-2 focus-visible:ring-lime-500/50"
             style={{ left: `${position}%` }}
           >
-            <span className="absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-cream-50/80" />
-            <span className="shadow-elevated absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-cream-50 text-ink-950">
+            <span className="bg-cream-50/80 absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2" />
+            <span className="shadow-elevated bg-cream-50 text-ink-950 absolute top-1/2 left-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full">
               <ArrowsLeftRight size={14} weight="bold" />
             </span>
           </div>
         </div>
+      ) : comparing ? (
+        /* Coarse pointer: static 50/50 split — no dragging, the page keeps
+           its scroll gesture (10 §4). */
+        <div className="absolute inset-0">
+          <div className="absolute inset-y-0 left-0 w-1/2 overflow-hidden">
+            <div className="absolute inset-y-0 left-0 w-[200%]">
+              <Image
+                src={effectiveOriginalUrl!}
+                onError={onMediaError}
+                alt="Original photo"
+                fill
+                className="object-cover"
+                unoptimized
+                priority
+              />
+            </div>
+          </div>
+          <div className="absolute inset-y-0 right-0 w-1/2 overflow-hidden">
+            <div className="absolute inset-y-0 right-0 w-[200%]">
+              <Image
+                src={effectiveResultUrl}
+                onError={onMediaError}
+                alt={resultAlt}
+                fill
+                className="object-cover"
+                unoptimized
+                priority
+              />
+            </div>
+          </div>
+          <div
+            aria-hidden="true"
+            className="bg-cream-50/80 absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2"
+          />
+          <CompareTag className="top-3 left-3">Original</CompareTag>
+          <CompareTag className="top-3 right-3">Result</CompareTag>
+        </div>
       ) : (
-        <>
+        /* Single view: result or original. On coarse pointers a hold swaps
+           to the original while held; a tap opens the ImageViewer. */
+        <div
+          className="absolute inset-0"
+          onPointerDown={onSinglePointerDown}
+          onPointerUp={onSinglePointerUp}
+          onPointerCancel={onSinglePointerCancel}
+          onPointerLeave={onSinglePointerCancel}
+        >
           {/* Blurred backdrop fills the letterbox so any aspect ratio reads
               as a full-bleed stage without cropping the result. */}
           <Image
-            src={shownUrl}
+            src={singleSrc}
             alt=""
             aria-hidden
             fill
             className="scale-125 object-cover opacity-40 blur-2xl saturate-150"
             unoptimized
+            onError={onMediaError}
           />
           <div className="bg-ink-950/40 absolute inset-0" />
           <Image
-            src={shownUrl}
-            alt={shownAlt}
+            src={singleSrc}
+            alt={singleAlt}
             fill
-            className="object-contain"
+            className="object-contain motion-safe:transition-opacity motion-safe:duration-100"
             unoptimized
             priority
+            onError={onMediaError}
           />
-        </>
+          {showingOriginal && (
+            <CompareTag className="top-3 left-3">Original</CompareTag>
+          )}
+          {hintVisible && hintEligible && (
+            <p
+              role="status"
+              className="bg-ink-950/80 text-cream-100 absolute bottom-14 left-1/2 -translate-x-1/2 rounded-full px-3.5 py-1.5 text-xs whitespace-nowrap backdrop-blur"
+            >
+              Hold to see before
+            </p>
+          )}
+        </div>
       )}
+
+      <ImageViewer
+        open={viewerOpen}
+        onOpenChange={setViewerOpen}
+        src={singleSrc}
+        alt={singleAlt}
+        caption={showingOriginal ? "Original photo" : resultAlt}
+      />
     </div>
+  );
+}
+
+function CompareTag({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "shadow-elevated bg-ink-950/70 text-cream-100 absolute rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase backdrop-blur",
+        className
+      )}
+    >
+      {children}
+    </span>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogoMark } from "@/components/logo-mark";
+import { InAppBrowserNotice } from "@/components/auth/in-app-browser-notice";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,7 +25,7 @@ export function AuthShell({
   maxWidth?: string;
 }) {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-5 py-10 sm:py-14">
+    <main className="flex flex-1 flex-col items-center justify-start px-5 pt-[15svh] pb-10 sm:justify-center sm:py-14">
       <Link
         href="/"
         aria-label="5Pixels home"
@@ -49,6 +50,7 @@ export function AuthShell({
             {contextNote}
           </p>
         )}
+        <InAppBrowserNotice />
         {children}
         {footer}
       </div>

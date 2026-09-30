@@ -1,4 +1,5 @@
 import type { ProductType } from "@/types/catalog";
+import type { QuickSheetPreset } from "@/lib/catalog/quick-sheet";
 
 export type PresetBadge = "trending" | "new";
 
@@ -12,6 +13,8 @@ export interface SearchPreset {
   creditCost: number;
   thumbUrl: string | null;
   badge: PresetBadge | null;
+  /** Sheet-ready model — mobile taps open the quick sheet instead of navigating. */
+  quickView?: QuickSheetPreset;
 }
 
 export interface SearchCategory {

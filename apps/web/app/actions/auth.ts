@@ -159,11 +159,22 @@ export async function signIn(
 
   if (error) {
     const raw = error.message.toLowerCase();
-    const message = raw.includes("invalid login credentials")
-      ? "Email or password is incorrect. Try again."
-      : raw.includes("email not confirmed")
-        ? "Confirm your email first — we sent a verification link."
-        : error.message;
+    const rateLimited =
+      error.status === 429 ||
+      raw.includes("rate limit") ||
+      /after \d+ seconds?/.test(raw);
+    const waitSecs = Number(raw.match(/after (\d+) seconds?/)?.[1]);
+    const message = rateLimited
+      ? `Too many attempts — try again in ${
+          Number.isFinite(waitSecs) && waitSecs > 0
+            ? `${Math.ceil(waitSecs / 60)} minute${Math.ceil(waitSecs / 60) === 1 ? "" : "s"}`
+            : "a few minutes"
+        }`
+      : raw.includes("invalid login credentials")
+        ? "Email or password is incorrect. Try again."
+        : raw.includes("email not confirmed")
+          ? "Confirm your email first — we sent a verification link."
+          : error.message;
     return { success: false, message };
   }
 

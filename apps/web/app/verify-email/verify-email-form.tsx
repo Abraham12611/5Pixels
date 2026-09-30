@@ -11,7 +11,7 @@ import {
 } from "@/app/actions/auth";
 
 const initialState: AuthFormState = undefined;
-const RESEND_COOLDOWN = 30;
+const RESEND_COOLDOWN = 60;
 
 export function VerifyEmailForm({
   email,
@@ -44,6 +44,11 @@ export function VerifyEmailForm({
 
   return (
     <div className="mt-6 space-y-4">
+      {email && !linkExpired && (
+        <Button asChild variant="brand" className="w-full">
+          <a href="mailto:">Open mail app</a>
+        </Button>
+      )}
       <form
         action={submitAction}
         onSubmit={() => setCooldown(RESEND_COOLDOWN)}
@@ -96,7 +101,14 @@ export function VerifyEmailForm({
         </Button>
       </form>
       <Button asChild variant="ghost" className="w-full">
-        <Link href="/login">Back to log in</Link>
+        <Link href={`/signup?next=${encodeURIComponent(next)}`}>
+          Wrong address? Change it
+        </Link>
+      </Button>
+      <Button asChild variant="ghost" className="w-full">
+        <Link href={`/login?next=${encodeURIComponent(next)}`}>
+          Back to log in
+        </Link>
       </Button>
     </div>
   );

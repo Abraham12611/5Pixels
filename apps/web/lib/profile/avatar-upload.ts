@@ -51,14 +51,20 @@ export async function prepareAvatarUpload(
   const service = createServiceClient();
   const { data, error } = await service.storage
     .from(AVATAR_BUCKET)
-    .createSignedUploadUrl(path);
+    .createSignedUploadUrl(path, { upsert: true });
 
   if (error || !data?.signedUrl) {
     console.error("[prepareAvatarUpload] signed URL failed", error?.message);
     throw new Error("Unable to start avatar upload");
   }
 
-  return { signedUrl: data.signedUrl, path };
+  // Always hand back an absolute URL — some client versions return a path.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const signedUrl = data.signedUrl.startsWith("http")
+    ? data.signedUrl
+    : new URL(data.signedUrl, supabaseUrl).toString();
+
+  return { signedUrl, path };
 }
 
 export interface FinalizedAvatarAsset {

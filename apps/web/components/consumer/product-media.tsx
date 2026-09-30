@@ -2,6 +2,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import type { PublicProductAsset } from "@/types/catalog";
 import { isImageMimeType, isVideoMimeType } from "@/lib/catalog/media";
+import { AutoplayVideo } from "@/components/consumer/autoplay-video";
 
 interface ProductMediaProps {
   asset: PublicProductAsset | null;
@@ -42,15 +43,10 @@ export function ProductMedia({
 
   if (isVideoMimeType(asset.mime_type)) {
     return (
-      <video
+      <AutoplayVideo
         src={publicUrl}
-        autoPlay
-        loop
-        muted
-        playsInline
-        preload="metadata"
-        className={cn("media-frame h-full w-full object-cover", className)}
-        aria-label={alt}
+        ariaLabel={alt}
+        className={className}
       />
     );
   }

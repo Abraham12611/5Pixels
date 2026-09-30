@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { List, X, MagnifyingGlass } from "@phosphor-icons/react";
+import { List, X } from "@phosphor-icons/react";
 import {
   Compass,
   Faders,
@@ -21,11 +21,16 @@ import {
   NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
 import { Button } from "@/components/ui/button";
+import { GlobalSearch } from "@/components/consumer/global-search";
 import { LogoMark } from "@/components/logo-mark";
+import type { SearchCategory, SearchPreset } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
 interface MarketingHeaderProps {
   isAuthenticated: boolean;
+  /** Palette data — anonymous surfaces pass presets/categories, no library. */
+  searchPresets?: SearchPreset[];
+  searchCategories?: SearchCategory[];
 }
 
 const MEGA_SECTIONS = [
@@ -87,7 +92,11 @@ const navLinks = [
   { label: "Pricing", href: "#pricing" },
 ];
 
-export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
+export function MarketingHeader({
+  isAuthenticated,
+  searchPresets = [],
+  searchCategories = [],
+}: MarketingHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -193,13 +202,14 @@ export function MarketingHeader({ isAuthenticated }: MarketingHeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link
-            href="/explore"
-            className="text-text-secondary hover:text-cream-50 hidden rounded-lg p-2 transition sm:block"
-            aria-label="Search"
-          >
-            <MagnifyingGlass className="h-5 w-5" />
-          </Link>
+          <GlobalSearch
+            iconOnly
+            presets={searchPresets}
+            categories={searchCategories}
+            library={[]}
+            favoriteIds={[]}
+            isAuthenticated={isAuthenticated}
+          />
 
           {isAuthenticated ? (
             <>

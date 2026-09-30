@@ -1,4 +1,6 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { mapCatalogRow } from "@/lib/catalog/catalog-rows";
 import type {
   FavoriteProduct,
   PublicProductSummary,
@@ -28,7 +30,9 @@ export type CatalogSort =
  * version number, credit cost, and public asset references. Private recipe
  * columns are never returned.
  */
-export async function getPublicProducts(
+// React `cache` dedupes identical calls within a request — layouts and pages
+// often fetch the same catalog slices (categories, featured) in one render.
+export const getPublicProducts = cache(async function getPublicProducts(
   type?: "filter" | "poster",
   categorySlug?: string,
   productIds?: string[],
@@ -53,12 +57,14 @@ export async function getPublicProducts(
     return { data: [], error: GENERIC_ERROR };
   }
 
-  const typedData = (data ?? []) as (PublicProductSummary & { total_count?: number })[];
+  const typedData = (data ?? []) as (PublicProductSummary & {
+    total_count?: number;
+  })[];
   const totalCount = typedData.length > 0 ? (typedData[0].total_count ?? 0) : 0;
-  const products = typedData.map(({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_id, version_number, credit_cost, output_sizes, metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets, created_at, likeness_level }) => ({ id, slug, name, type, short_description, long_description, category_id, category_slug, category_name, featured_rank, version_id: version_id ?? null, version_number, credit_cost: Number(credit_cost), output_sizes: Array.isArray(output_sizes) ? output_sizes : [], metadata, hero_asset_id, poster_asset_id, preview_gif_asset_id, preview_video_asset_id, public_assets, created_at: created_at ?? null, likeness_level: likeness_level ?? null }));
+  const products = typedData.map(mapCatalogRow);
 
-  return { data: products as PublicProductSummary[], totalCount };
-}
+  return { data: products, totalCount };
+});
 
 export async function getPublicProductBySlug(
   slug: string
@@ -147,7 +153,7 @@ export function applyInterestBoost<T extends { category_slug: string | null }>(
  * Return the product IDs favorited by the currently authenticated user.
  * Returns an empty set when anonymous or on error.
  */
-export async function getActiveCategories(): Promise<
+export const getActiveCategories = cache(async function getActiveCategories(): Promise<
   { slug: string; name: string }[]
 > {
   const supabase = await createClient();
@@ -163,7 +169,7 @@ export async function getActiveCategories(): Promise<
   }
 
   return (data ?? []) as { slug: string; name: string }[];
-}
+});
 
 /**
  * Favorited products for the signed-in user, including presets that have
@@ -201,6 +207,32 @@ export async function getUserFavoriteProducts(): Promise<
     ),
   };
 }
+
+/**
+ * Median credit cost across the active catalogue — used for "enough for N
+ * more transformations" and cost-per-image copy on billing/pricing surfaces.
+ * Falls back to 5 when the catalogue is empty.
+ */
+export const getMedianPresetCost = cache(async function getMedianPresetCost() {
+  const { data } = await getPublicProducts(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    "featured",
+    1,
+    50
+  );
+  const costs = (data ?? [])
+    .map((p) => p.credit_cost)
+    .filter((c): c is number => typeof c === "number" && c > 0)
+    .sort((a, b) => a - b);
+  if (costs.length === 0) return 5;
+  const mid = Math.floor(costs.length / 2);
+  return costs.length % 2 === 0
+    ? Math.round((costs[mid - 1]! + costs[mid]!) / 2)
+    : costs[mid]!;
+});
 
 export async function getUserFavoriteProductIds(): Promise<string[]> {
   const supabase = await createClient();

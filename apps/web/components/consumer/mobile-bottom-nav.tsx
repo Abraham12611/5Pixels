@@ -1,11 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { Compass, Heart, House, Image, Lightning } from "@phosphor-icons/react";
+import { Compass, House, Image, Lightning, User } from "@phosphor-icons/react";
+import { Toaster } from "@/components/ui/sonner";
+import { CreateSheet } from "@/components/consumer/create-sheet";
 import { cn } from "@/lib/utils";
 
 const CENTER_LABEL = "Create";
+
+/**
+ * Routes that own the thumb zone with a docked action bar (25_MOBILE_WEB_POLISH
+ * `04 §6`): the tab bar must not stack under it, and the page keeps no
+ * tab-bar clearance. Add a prefix here when a surface gains a docked bar.
+ */
+const DOCKED_BAR_PREFIXES = ["/app/create/", "/app/results/", "/presets/"];
 
 const LEFT_ITEMS = [
   { href: "/app", label: "Discover", icon: House },
@@ -14,7 +24,7 @@ const LEFT_ITEMS = [
 
 const RIGHT_ITEMS = [
   { href: "/app/library", label: "Library", icon: Image },
-  { href: "/app/favorites", label: "Favorites", icon: Heart },
+  { href: "/app/account", label: "Account", icon: User },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -23,8 +33,41 @@ function isActive(pathname: string, href: string): boolean {
   return pathname.startsWith(base);
 }
 
+/**
+ * Owns the mobile fixed-chrome contract for the (app) group: pages get tab-bar
+ * clearance (`pb-24`) unless the route has a docked action bar, in which case
+ * the tab bar is not rendered at all. Surfaces add their own docked-bar
+ * clearance via `MobilePageBottomSpacer`.
+ */
+export function MobileNavShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const docked = DOCKED_BAR_PREFIXES.some((p) => pathname.startsWith(p));
+
+  return (
+    <>
+      <div
+        className={cn("flex flex-1 flex-col", docked ? "pb-0" : "pb-24", "md:pb-0")}
+      >
+        {children}
+      </div>
+      {docked ? null : <MobileBottomNav />}
+      {/* Toasts anchor above whichever fixed element owns the thumb zone. */}
+      <Toaster
+        position="bottom-center"
+        mobileOffset={{ bottom: docked ? "10rem" : "5.5rem" }}
+      />
+    </>
+  );
+}
+
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // Docked-action-bar routes own the thumb zone — no tab bar (04 §6).
+  if (DOCKED_BAR_PREFIXES.some((p) => pathname.startsWith(p))) {
+    return null;
+  }
 
   return (
     <nav
@@ -42,10 +85,12 @@ export function MobileBottomNav() {
           />
         ))}
 
-        {/* Center create action */}
-        <Link
-          href="/explore"
+        {/* Center create action — opens the chooser sheet (04 §3, 20 Q2) */}
+        <button
+          type="button"
           aria-label={CENTER_LABEL}
+          aria-haspopup="dialog"
+          onClick={() => setCreateOpen(true)}
           className="relative -mt-6 flex flex-col items-center gap-1"
         >
           <span className="bg-lime-400 text-ink-950 hover:bg-lime-300 active:scale-95 flex h-13 w-13 items-center justify-center rounded-full shadow-[0_6px_24px_-6px_rgba(130,234,58,0.5)] transition">
@@ -54,7 +99,7 @@ export function MobileBottomNav() {
           <span className="text-text-secondary text-[10px] font-medium">
             {CENTER_LABEL}
           </span>
-        </Link>
+        </button>
 
         {RIGHT_ITEMS.map((item) => (
           <NavItem
@@ -66,6 +111,7 @@ export function MobileBottomNav() {
           />
         ))}
       </div>
+      <CreateSheet open={createOpen} onOpenChange={setCreateOpen} />
     </nav>
   );
 }
@@ -81,6 +127,7 @@ function NavItem({ href, label, icon: Icon, active }: NavItemProps) {
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className="flex flex-col items-center gap-1 rounded-lg py-1"
     >
       <Icon

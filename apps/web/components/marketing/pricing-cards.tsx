@@ -41,10 +41,13 @@ export function PricingCards({
   plans,
   isAuthenticated,
   activePlanId,
+  medianCredits,
 }: {
   plans: PlanForPurchase[];
   isAuthenticated: boolean;
   activePlanId: string | null;
+  /** Median preset credit cost — basis for the "≈ N transformations" line. */
+  medianCredits?: number;
 }) {
   const [cadence, setCadence] = useState<Cadence>("annual");
 
@@ -182,6 +185,9 @@ export function PricingCards({
                 {isAnnual
                   ? `${formatPrice(plan.price_cents)} billed yearly`
                   : `${plan.credits_grant.toLocaleString()} credits / month`}
+                {medianCredits
+                  ? ` · ≈ ${Math.max(1, Math.floor(plan.credits_grant / medianCredits)).toLocaleString()} transformations`
+                  : ""}
               </p>
               {isAnnual && anchor && (
                 <SaveLine

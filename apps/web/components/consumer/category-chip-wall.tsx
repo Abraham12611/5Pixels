@@ -2,7 +2,7 @@
 
 import { useCallback, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { FilterChip } from "@/components/ui/filter-chip";
 import { Fire, Sparkle, SquaresFour } from "@phosphor-icons/react";
 
 interface CategoryChipWallProps {
@@ -63,62 +63,40 @@ export function CategoryChipWall({
       <div className="flex flex-wrap gap-2">
         {SORT_CHIPS.map((chip) => {
           const Icon = chip.icon;
-          const isActive = activeSort === chip.value;
           return (
-            <button
+            <FilterChip
               key={chip.value}
-              type="button"
+              label={chip.label}
+              icon={<Icon size={14} weight="fill" />}
+              active={activeSort === chip.value}
               onClick={() => handleSortClick(chip.value)}
               disabled={isPending}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-50",
-                isActive
-                  ? "bg-lime-500 text-ink-950 hover:bg-lime-400"
-                  : "border-cream-100/10 bg-charcoal-800 text-cream-50 hover:border-lime-500/30 hover:text-lime-400 border"
-              )}
-            >
-              <Icon size={14} weight="fill" />
-              {chip.label}
-            </button>
+              semantics="toggle"
+            />
           );
         })}
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
+        <FilterChip
+          label="All"
+          icon={<SquaresFour size={14} weight="fill" />}
+          active={activeCategory === null}
           onClick={() => handleCategoryClick(null)}
           disabled={isPending}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-50",
-            activeCategory === null
-              ? "bg-lime-500 text-ink-950 hover:bg-lime-400"
-              : "border-cream-100/10 bg-charcoal-800 text-cream-50 hover:border-lime-500/30 hover:text-lime-400 border"
-          )}
-        >
-          <SquaresFour size={14} weight="fill" />
-          All
-        </button>
+          semantics="toggle"
+        />
 
-        {categories.map((category) => {
-          const isActive = activeCategory === category.slug;
-          return (
-            <button
-              key={category.slug}
-              type="button"
-              onClick={() => handleCategoryClick(category.slug)}
-              disabled={isPending}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-50",
-                isActive
-                  ? "bg-lime-500 text-ink-950 hover:bg-lime-400"
-                  : "border-cream-100/10 bg-charcoal-800 text-cream-50 hover:border-lime-500/30 hover:text-lime-400 border"
-              )}
-            >
-              {category.name}
-            </button>
-          );
-        })}
+        {categories.map((category) => (
+          <FilterChip
+            key={category.slug}
+            label={category.name}
+            active={activeCategory === category.slug}
+            onClick={() => handleCategoryClick(category.slug)}
+            disabled={isPending}
+            semantics="toggle"
+          />
+        ))}
       </div>
     </div>
   );

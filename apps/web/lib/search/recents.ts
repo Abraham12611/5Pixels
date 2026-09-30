@@ -49,3 +49,13 @@ export function recordRecentPreset(entry: RecentPreset): RecentPreset[] {
   }
   return next;
 }
+
+/** Remove all recorded recents (the palette's idle-state "Clear" action). */
+export function clearRecentPresets(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(RECENT_PRESETS_KEY);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
+}

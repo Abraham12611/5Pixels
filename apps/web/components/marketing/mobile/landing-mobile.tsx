@@ -3,13 +3,14 @@ import Image from "next/image";
 import {
   Camera,
   FrameCorners,
-  MagnifyingGlass,
   UploadSimple,
   User,
   MagicWand,
 } from "@phosphor-icons/react/dist/ssr";
 import { MobileHero } from "./mobile-hero";
+import { SearchEntryButton } from "./search-entry-button";
 import { MobileFeed } from "./mobile-feed";
+import { LandingQuickViewHost } from "./landing-quick-view";
 import { PresetPreview } from "../preset-preview";
 import { CategoryFaq } from "../category-faq";
 import { MobileBottomNav } from "@/components/consumer/mobile-bottom-nav";
@@ -17,6 +18,7 @@ import { toFeedItem } from "./landing-feed-types";
 import type { PublicProductSummary } from "@/types/catalog";
 
 interface LandingMobileProps {
+  isAuthenticated: boolean;
   products: PublicProductSummary[];
   categories: { slug: string; name: string }[];
 }
@@ -48,39 +50,41 @@ const STEPS = [
 
 /**
  * Mobile landing composition (below lg) — the leader-style tappable feed:
- * hero card → search → chips+feed → intent tiles → preview → how it works →
- * collections → FAQ → lime close. Desktop renders the editorial sections.
+ * hero carousel → search → sticky chips + trending rail + feed → intent
+ * tiles → preview → how it works → collections → FAQ → lime close.
+ * Desktop renders the editorial sections.
  */
-export function LandingMobile({ products, categories }: LandingMobileProps) {
+export function LandingMobile({
+  isAuthenticated,
+  products,
+  categories,
+}: LandingMobileProps) {
   const items = products.map(toFeedItem);
   const featured = items.slice(0, 3);
-  const feed = items.slice(0, 18);
+  // The feed caps itself at 18 per page behind "Show more looks" (5.5).
+  const feed = items;
 
   return (
     <div className="pb-24 lg:hidden">
-      {/* Hero */}
-      <div className="pt-4">
-        <MobileHero items={featured} />
-      </div>
+      <LandingQuickViewHost isAuthenticated={isAuthenticated}>
+        {/* Hero */}
+        <div className="pt-4">
+          <MobileHero items={featured} />
+        </div>
 
-      {/* Search */}
-      <div className="mt-5 px-4">
-        <Link
-          href="/explore"
-          className="border-cream-100/10 bg-charcoal-850 text-text-muted flex items-center gap-3 rounded-full border px-4 py-3 text-sm"
-        >
-          <MagnifyingGlass size={18} />
-          Search looks
-        </Link>
-      </div>
+        {/* Search */}
+        <div className="mt-5 px-5">
+          <SearchEntryButton />
+        </div>
 
-      {/* Chips + feed */}
-      <div className="mt-5 px-4">
-        <MobileFeed items={feed} categories={categories} />
-      </div>
+        {/* Chips + trending rail + feed — sections own their 20px gutters */}
+        <div className="mt-5">
+          <MobileFeed items={feed} categories={categories} />
+        </div>
+      </LandingQuickViewHost>
 
       {/* What are you making? */}
-      <section aria-label="Start from a goal" className="mt-10 px-4">
+      <section aria-label="Start from a goal" className="mt-10 px-5">
         <h2 className="text-lime-400 text-xs font-bold uppercase tracking-[0.18em]">
           What are you making?
         </h2>
@@ -114,7 +118,7 @@ export function LandingMobile({ products, categories }: LandingMobileProps) {
       </div>
 
       {/* How it works */}
-      <section aria-label="How it works" className="mt-2 px-4">
+      <section aria-label="How it works" className="mt-2 px-5">
         <h2 className="font-display text-cream-50 max-w-xs text-3xl leading-tight">
           One photo. Extraordinary directions.
         </h2>
@@ -141,7 +145,7 @@ export function LandingMobile({ products, categories }: LandingMobileProps) {
       </section>
 
       {/* Browse collections */}
-      <section aria-label="Browse collections" className="mt-10 px-4">
+      <section aria-label="Browse collections" className="mt-10 px-5">
         <h2 className="text-lime-400 text-xs font-bold uppercase tracking-[0.18em]">
           Browse collections
         </h2>
@@ -170,7 +174,7 @@ export function LandingMobile({ products, categories }: LandingMobileProps) {
       </div>
 
       {/* Lime close */}
-      <section aria-label="Get started" className="mx-4 mt-4 rounded-2xl bg-lime-400 px-6 py-10 text-center">
+      <section aria-label="Get started" className="mx-5 mt-4 rounded-2xl bg-lime-400 px-6 py-10 text-center">
         <span aria-hidden className="mb-4 inline-flex gap-1.5">
           {Array.from({ length: 5 }).map((_, i) => (
             <span key={i} className="bg-ink-950 h-2 w-2 rounded-[2px]" />

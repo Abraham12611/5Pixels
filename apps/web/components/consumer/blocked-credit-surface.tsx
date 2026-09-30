@@ -3,14 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, LockSimple, X } from "@phosphor-icons/react";
+import { Check, LockSimple } from "@phosphor-icons/react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-  useDialogA11y,
 } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
+import { useMediaQuery } from "@/lib/ui/use-media-query";
 import { Button } from "@/components/ui/button";
 import { PlanRow } from "@/components/promo/plan-row";
 import { SaveLine } from "@/components/promo/save-line";
@@ -32,18 +33,7 @@ interface TopUpInfo {
 
 type View = "main" | "topup" | "offer";
 
-function useIsNarrow(): boolean {
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mq = window.matchMedia("(max-width: 1023px)");
-    const update = () => setNarrow(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-  return narrow;
-}
+
 
 /**
  * Blocked-credit surface (06 §3.4) — one component for desktop dialog and
@@ -86,7 +76,9 @@ export function BlockedCreditSurface({
   isReferred?: boolean;
   referralCode?: string;
 }) {
-  const isNarrow = useIsNarrow();
+  // Sheet tier below lg — this surface's content is denser than the shared
+  // sm breakpoint's sheets, so it keeps its own (wider) query.
+  const isNarrow = useMediaQuery("(max-width: 1023px)");
   const offerEligible =
     offer !== null && (segment === "new_user" || segment === "free_history");
   const steps = offer?.steps.slice(0, 3) ?? [];
@@ -841,7 +833,19 @@ export function BlockedCreditSurface({
   );
 
   if (isNarrow) {
-    return <SheetShell onClose={close}>{body}</SheetShell>;
+    return (
+      <Sheet
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) close();
+        }}
+        tier="content"
+        title="5Pixels"
+        ariaLabel="Add credits to generate"
+      >
+        {body}
+      </Sheet>
+    );
   }
 
   return (
@@ -854,51 +858,5 @@ export function BlockedCreditSurface({
         {body}
       </DialogContent>
     </Dialog>
-  );
-}
-
-/** Bottom-sheet chrome for narrow viewports — same content as the dialog. */
-function SheetShell({
-  children,
-  onClose,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  useDialogA11y(true, panelRef);
-
-  return (
-    <div
-      ref={overlayRef}
-      role="presentation"
-      className="bg-ink-950/80 animate-overlay-in fixed inset-0 z-50 flex items-end justify-center"
-      onClick={(e) => {
-        if (e.target === overlayRef.current) onClose();
-      }}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add credits to generate"
-        tabIndex={-1}
-        className="bg-ink-950 animate-sheet-in max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4 outline-none"
-      >
-        <div className="sticky top-0 z-10 -mx-5 -mt-4 flex items-center justify-between bg-ink-950/95 px-5 pb-2 pt-4 backdrop-blur">
-          <span className="text-cream-50 text-sm font-bold">5Pixels</span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="text-text-secondary hover:text-cream-50 flex h-9 w-9 items-center justify-center rounded-full bg-charcoal-800 transition-colors"
-          >
-            <X size={16} weight="bold" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
   );
 }

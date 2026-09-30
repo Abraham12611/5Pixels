@@ -89,8 +89,9 @@ describe("Sheet", () => {
   });
 
   it("closes on scrim tap but not on panel tap", () => {
-    const { container } = render(<TestSheet initiallyOpen />);
-    const scrim = container.querySelector('[role="presentation"]');
+    render(<TestSheet initiallyOpen />);
+    // The sheet portals to <body> — query there, not the render container.
+    const scrim = document.body.querySelector('[role="presentation"]');
     expect(scrim).not.toBeNull();
 
     fireEvent.click(screen.getByRole("dialog"));
