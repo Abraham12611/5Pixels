@@ -120,10 +120,14 @@ export async function syncParticipantToGrowSurf(userId: string): Promise<void> {
  */
 export async function awardOrHoldReferrerShare(input: {
   buyerUserId: string;
-  plan: { id: string; credits_grant: number };
+  plan: { id: string; credits_grant: number; type?: string };
   orderId: string;
 }): Promise<void> {
   const { buyerUserId, plan, orderId } = input;
+
+  // The referral cycle is keyed on plan upgrades only — a top-up
+  // (extra_credit) neither pays the share nor burns the once-ever slot.
+  if (plan.type === "extra_credit") return;
 
   if (!isGrowSurfConfigured()) {
     await grantReferrerPaymentShare(buyerUserId, plan, orderId);

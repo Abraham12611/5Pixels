@@ -6,6 +6,7 @@ import {
   getMyReferrals,
   getReferralStats,
   REFERRER_SIGNUP_BONUS,
+  REFEREE_SIGNUP_BONUS,
 } from "@/lib/referrals/rewards";
 import { getSiteUrl } from "@/lib/auth/url";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -51,16 +52,17 @@ export default async function ReferralsPage() {
             Give a transformation, get credits
           </h1>
           <p className="text-text-secondary mt-1 text-sm">
-            Share your code — friends get their first transformation free, and
-            you earn {REFERRER_SIGNUP_BONUS} credits when they join plus 30% of
-            their first plan&rsquo;s credits.
+            Share your code — friends get {REFEREE_SIGNUP_BONUS} credits and
+            their first transformation free, and you earn{" "}
+            {REFERRER_SIGNUP_BONUS} credits when they join plus 30% of their
+            first plan&rsquo;s credits.
           </p>
         </div>
 
         <ReferralCard
           referralUrl={referralUrl}
           referralCode={code}
-          refereeReward="their first transformation, free"
+          refereeReward={`${REFEREE_SIGNUP_BONUS} credits + their first transformation, free`}
           referrerReward={`${REFERRER_SIGNUP_BONUS} credits when they join + 30% of their first plan's credits`}
           pendingCount={0}
         />

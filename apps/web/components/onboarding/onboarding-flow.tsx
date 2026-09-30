@@ -530,8 +530,8 @@ export function OnboardingFlow({
                 </h2>
                 <p className="text-text-secondary mx-auto mt-2 max-w-xs text-sm leading-relaxed">
                   {codeState === "applied"
-                    ? "Your first transformation is free — pick any look and it's on them."
-                    : "Claim your gift — your first transformation is on them."}
+                    ? "25 credits and a free first transformation — pick any look and it's on them."
+                    : "Claim your gift — 25 credits and your first transformation, on them."}
                 </p>
                 {codeState !== "applied" && (
                   <>

@@ -17,7 +17,12 @@ const REFERRER_SHARE = 0.3;
 interface PlanCredits {
   id: string;
   credits_grant: number;
+  /** weekly_trial | monthly | annual | extra_credit — share excludes top-ups. */
+  type?: string;
 }
+
+/** Only plan purchases count toward the referral cycle — never top-ups. */
+const SHARE_PLAN_TYPES = new Set(["weekly_trial", "monthly", "annual"]);
 
 async function insertLedgerAllocation(input: {
   userId: string;
@@ -224,6 +229,10 @@ export async function grantReferrerPaymentShare(
   plan: PlanCredits,
   orderId: string
 ): Promise<void> {
+  // Top-ups (extra_credit) are not a "plan upgrade" — a referred user who
+  // only ever tops up never starts the referrer's payment-share cycle.
+  if (plan.type && !SHARE_PLAN_TYPES.has(plan.type)) return;
+
   const referrerId = await findReferrer(buyerUserId);
   if (!referrerId) return;
 
@@ -370,6 +379,61 @@ export async function grantReferrerSignupBonus(
 }
 
 /**
+ * Referee signup bonus (07 §6.6): the referred friend gets a fixed credit
+ * grant at claim, alongside the free-transformation unlock. Once per
+ * referee via the partial unique index + ledger idempotency.
+ */
+export const REFEREE_SIGNUP_BONUS = 25;
+
+export async function grantRefereeSignupBonus(
+  refereeUserId: string,
+  referrerId: string
+): Promise<void> {
+  const service = createServiceClient();
+  const { data: reward, error } = await service
+    .from("referral_rewards")
+    .insert({
+      source_ref: `referee_signup_bonus:${refereeUserId}`,
+      referrer_user_id: referrerId,
+      referee_user_id: refereeUserId,
+      kind: "referee_signup_bonus",
+      credits: REFEREE_SIGNUP_BONUS,
+      status: "pending",
+    })
+    .select("id")
+    .maybeSingle();
+  if (error || !reward) return; // already granted
+
+  const ledgerId = await insertLedgerAllocation({
+    userId: refereeUserId,
+    credits: REFEREE_SIGNUP_BONUS,
+    idempotencyKey: `referral:referee_signup_bonus:${refereeUserId}`,
+    metadata: {
+      reason: "referral_referee_signup_bonus",
+      referrer_user_id: referrerId,
+    },
+  });
+  if (!ledgerId) {
+    await service
+      .from("referral_rewards")
+      .delete()
+      .eq("id", reward.id)
+      .eq("status", "pending");
+    return;
+  }
+
+  await service
+    .from("referral_rewards")
+    .update({
+      status: "granted",
+      ledger_entry_id: ledgerId,
+      granted_at: new Date().toISOString(),
+    })
+    .eq("id", reward.id)
+    .eq("status", "pending");
+}
+
+/**
  * Shared attribution (07 §2B): both claim paths — the spx_ref cookie and
  * manual code entry during onboarding — land here. Guards: not self,
  * referrer exists and is active, and the referee has no prior
@@ -415,6 +479,9 @@ export async function attributeReferral(
 
   await grantReferrerSignupBonus(referrerId, userId).catch((e) => {
     console.error("[attributeReferral] signup bonus failed", e);
+  });
+  await grantRefereeSignupBonus(userId, referrerId).catch((e) => {
+    console.error("[attributeReferral] referee bonus failed", e);
   });
 
   return true;

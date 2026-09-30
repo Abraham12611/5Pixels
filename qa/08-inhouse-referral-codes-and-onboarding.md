@@ -76,10 +76,15 @@ Existing users are backfilled and never see it.
 
 ## Notes
 
-- The referrer signup bonus is 50 credits per confirmed signup
-  (placeholder pending product confirmation) plus the existing 30%
-  first-payment credit share — both idempotent via ledger key +
-  unique reward constraints.
+- Confirmed reward structure: the referrer gets **50 credits** per
+  confirmed signup plus **30% of the referee's first plan credits**
+  (weekly, monthly, or annual — once ever; later renewals/upgrades
+  pay nothing and the cycle closes). The referee gets **25 credits**
+  plus the existing first-transformation-free unlock. All grants are
+  idempotent via ledger key + unique reward indexes; top-ups
+  (`extra_credit`) never trigger or consume the payment-share slot.
+- The 30% share now also fires on the Dodo fulfillment path (previously
+  only Creem and Polar wired it).
 - GrowSurf remains dormant: `syncParticipantToGrowSurf` still runs in the
   callback but `/app/referrals` renders zero third-party UI.
 - `promo_events` records `impression` per step view, `accept`/`decline`
