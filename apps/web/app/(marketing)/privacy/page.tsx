@@ -15,13 +15,12 @@ export default function PrivacyPage() {
       lastUpdated="October 2, 2026"
       intro={
         <p>
-          5Pixels is an AI-powered photo transformation service operated by{" "}
-          <strong>{"{{LEGAL_ENTITY}}"}</strong> (&ldquo;5Pixels,&rdquo;
-          &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;), which is the
-          data controller for the processing described here. You choose a preset
-          look, upload a photo, and we generate a transformed result using
-          third-party AI models. This Privacy Policy explains what information
-          we collect, how we use it, and the choices you have.
+          5Pixels (&ldquo;5Pixels,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or
+          &ldquo;our&rdquo;) is an AI-powered photo transformation service and is
+          the data controller for the processing described here. You choose a
+          preset look, upload a photo, and we generate a transformed result
+          using third-party AI models. This Privacy Policy explains what
+          information we collect, how we use it, and the choices you have.
         </p>
       }
       sections={[
@@ -180,7 +179,10 @@ export default function PrivacyPage() {
                 We do not name our model providers publicly as part of the
                 product experience, but all processing happens server-side.
                 Your photos are not sold and are not shared for unrelated
-                purposes.
+                purposes. We do not use your uploads or results to train AI
+                models, and our primary generation provider is contractually
+                prohibited from using customer content to create, train, or
+                develop its models or services.
               </p>
             </>
           ),
@@ -330,8 +332,7 @@ export default function PrivacyPage() {
           body: (
             <p>
               Questions or privacy requests:{" "}
-              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or by
-              mail to {"{{LEGAL_ENTITY}}"}, {"{{REGISTERED_ADDRESS}}"}. We
+              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. We
               respond within the time required by applicable law.
             </p>
           ),

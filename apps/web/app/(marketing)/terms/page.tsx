@@ -18,12 +18,11 @@ export default function TermsPage() {
         <>
           <p>
             These Terms of Service (&ldquo;Terms&rdquo;) govern your access to
-            and use of 5Pixels, a service that transforms your photos using
-            curated AI presets. 5Pixels is operated by{" "}
-            <strong>{"{{LEGAL_ENTITY}}"}</strong> (&ldquo;5Pixels,&rdquo;
-            &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;). By
-            creating an account or using the service, you agree to these Terms,
-            our <Link href="/privacy">Privacy Policy</Link>,{" "}
+            and use of 5Pixels (&ldquo;5Pixels,&rdquo; &ldquo;we,&rdquo;
+            &ldquo;us,&rdquo; or &ldquo;our&rdquo;), a service that transforms
+            your photos using curated AI presets. By creating an account or
+            using the service, you agree to these Terms, our{" "}
+            <Link href="/privacy">Privacy Policy</Link>,{" "}
             <Link href="/acceptable-use">Acceptable Use Policy</Link>, and{" "}
             <Link href="/cookies">Cookie Notice</Link>, each of which is
             incorporated by reference.
@@ -391,11 +390,11 @@ export default function TermsPage() {
           body: (
             <p>
               To the extent permitted by law, you agree to indemnify and hold
-              harmless {"{{LEGAL_ENTITY}}"} and its officers, employees, and
-              agents from claims, damages, and expenses (including reasonable
-              legal fees) arising from content you upload without the necessary
-              rights or consent, your misuse of generated results, or your
-              violation of these Terms.
+              harmless 5Pixels and its operators, employees, and agents from
+              claims, damages, and expenses (including reasonable legal fees)
+              arising from content you upload without the necessary rights or
+              consent, your misuse of generated results, or your violation of
+              these Terms.
             </p>
           ),
         },
@@ -449,12 +448,11 @@ export default function TermsPage() {
           title: "Governing law and disputes",
           body: (
             <p>
-              These Terms are governed by the laws of{" "}
-              <strong>{"{{GOVERNING_LAW_JURISDICTION}}"}</strong>, without
-              regard to conflict-of-law rules, and disputes will be resolved in{" "}
-              <strong>{"{{DISPUTE_FORUM}}"}</strong>, except where mandatory
-              consumer law gives you the right to bring a claim in the courts of
-              your place of residence.
+              These Terms are governed by the laws of the Federal Republic of
+              Nigeria, without regard to conflict-of-law rules, and disputes
+              will be resolved in the courts of Nigeria, except where mandatory
+              consumer law gives you the right to bring a claim in the courts
+              of your place of residence.
             </p>
           ),
         },
@@ -492,8 +490,7 @@ export default function TermsPage() {
           body: (
             <p>
               Questions about these Terms:{" "}
-              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or by
-              mail to {"{{LEGAL_ENTITY}}"}, {"{{REGISTERED_ADDRESS}}"}.
+              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
             </p>
           ),
         },
