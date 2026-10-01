@@ -93,7 +93,7 @@ touch devices; reduced-motion forces static.
 | Discover `/app` | app skeleton (`app/loading.tsx`) | new-user orientation state | boundary | active-generation rail |
 | Preset detail | skeleton | not-found w/ 4 alternatives | boundary | Retired → `PresetNotFound` |
 | Create | inline validate → upload states | dropzone idle/drag/rejected | inline field + toast | `GENERATION_PAUSED` → banner + disabled Generate |
-| Generate console | — | — | insufficient-credits dialog | first-gen/high-cost confirm dialog |
+| Generate console | — | — | `BlockedCreditSurface` (segmented: top-up / weekly / reactivation / offer) | first-gen/high-cost confirm dialog |
 | Generation status | pixel progress + stage list | "not found" | poll error inline `role="status"` | queued/active/slow (long-wait line)/failed (+credit note)/complete→redirect |
 | Result | app skeleton | not-found → Library | boundary | save/download/save-undo |
 | Library | skeleton | first-time ghost cards / "Nothing saved" / "Nothing downloaded" / filtered-empty + clear | boundary | In-progress rail |
@@ -118,14 +118,19 @@ never toast-only.
   `LibraryResultCard` (hover actions + always-visible overflow on touch),
   `RetiredPresetCard`, `HoverPreviewMedia`, `ProductMedia`.
 - **Studio:** `StudioStage` (keyboard-accessible dropzone), `GenerationControls`,
-  `AspectRatioMenu`, `CreditConfirmDialog`, `InsufficientCreditsDialog`.
+  `AspectRatioMenu`, `CreditConfirmDialog`, `BlockedCreditSurface`.
 - **Result:** `ResultCompare` (keyboard slider + tabs), `ResultActions`,
   `ShareDialog`.
 - **Library:** `LibraryGrid` (tabs/search/filters), `FavoritesGrid`.
 - **Settings:** `SettingsShell`, `SettingCard`, `SettingTile`,
-  `EditAccountDialog`, `AvatarUploader`, `SignOutOthers`, retention controls.
+  `EditAccountDialog`, `AvatarUploader`, `SignOutOthers`, retention controls,
+  `CancelSubscriptionCard` (lose-list + stay offer before the portal).
 - **Auth:** `AuthShell`, `AuthModal` (tabs + preset context + bottom sheet),
   `AuthGateButton`, `PasswordInput`.
+- **Pricing/offers:** `PricingCards`, `CreditTopUp` (custom amount + packs),
+  `PlanShop` (cadence toggle + plan grid), `SpecialOfferTakeover` (centered
+  card, ladder in place), `/pricing/weekly` weekly-pass deep-link page,
+  `ReferralWelcome` on `/r/[code]`.
 - **Edge:** `EdgePage` grammar → root/preset/create/generation/result/share
   not-found, `global-error`, `maintenance`, checkout-cancel.
 - **Primitives:** `Button`, `Dialog` (+ `useDialogA11y`), `Input`, `Label`,
@@ -166,9 +171,9 @@ Favorites, Billing, Pricing, auth modal, share dialog, 404.
 
 - **Support channel:** help card currently links to `/pricing#faq`. A real
   support/contact surface needs a backend decision.
-- **Top-ups for free users:** "Buy credits" routes free users to `/pricing`
-  (top-up products are subscriber-only in Dodo). If free-plan top-ups become
-  available, repoint to a purchase dialog.
+- **Top-ups for free users:** resolved — `canPurchaseExtraCredits` now allows
+  any signed-in user; all entry points route to `/app/billing/credits` which
+  hosts `CreditTopUp` (custom amount + packs).
 - **Report/moderation:** no reporting backend exists — no report UI shipped.
 - **Plan-gated presets:** no plan gating in the catalog — no upgrade modal
   shipped. If gating is added, revisit P56.

@@ -53,7 +53,7 @@ export async function saveStudioDraft(
 }
 
 export async function loadStudioDraft(
-  slug: string
+  slug?: string
 ): Promise<StudioDraft | null> {
   try {
     const db = await openDb();
@@ -66,7 +66,7 @@ export async function loadStudioDraft(
     });
     db.close();
 
-    if (!draft || draft.slug !== slug) return null;
+    if (!draft || (slug !== undefined && draft.slug !== slug)) return null;
     if (Date.now() - draft.savedAt > MAX_AGE_MS) {
       void clearStudioDraft();
       return null;

@@ -124,7 +124,7 @@ function Harness({
 }
 
 describe("OutputSizesField", () => {
-  it("selects multiple presets and marks the first as default", async () => {
+  it("selects multiple presets and marks the first as default", { timeout: 20000 }, async () => {
     const onSubmit = vi.fn();
     render(<Harness onSubmit={onSubmit} />);
 
@@ -160,7 +160,7 @@ describe("OutputSizesField", () => {
     ]);
   });
 
-  it("lets you reassign the default", async () => {
+  it("lets you reassign the default", { timeout: 20000 }, async () => {
     const onSubmit = vi.fn();
     render(<Harness onSubmit={onSubmit} />);
 

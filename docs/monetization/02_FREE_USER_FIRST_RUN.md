@@ -23,6 +23,8 @@ The cost constraint is fully satisfied without the second part. That's why the l
 
 ## 2. Flow (Phase 1)
 
+> Extended in `08 §1`: the same teaser also fires for **anonymous** visitors — the blur gate becomes the signup wall, and the `pending_generations` row is held against an anon session until claimed at signup. Mechanics, mitigations, and zero-COGS constraint are identical; only the auth timing and copy change.
+
 ```
 Free user picks preset → uploads photo → presses Generate
    │

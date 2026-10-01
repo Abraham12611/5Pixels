@@ -9,7 +9,8 @@ import {
 import { ProductMedia } from "@/components/consumer/product-media";
 import { ProductVideoPlayer } from "@/components/consumer/product-video-player";
 import { FavoriteButton } from "@/components/consumer/favorite-button";
-import { AuthGateButton } from "@/components/auth/auth-gate";
+import { TeaserFlow } from "@/components/consumer/teaser-flow";
+import { TeaserLauncher } from "@/components/consumer/teaser-launcher";
 import { ControlPreview } from "@/components/consumer/control-preview";
 import { ExampleGallery } from "@/components/consumer/example-gallery";
 import { RelatedPresets } from "@/components/consumer/related-presets";
@@ -153,13 +154,12 @@ export default async function PresetDetailPage({
       </Link>
     </Button>
   ) : (
-    <AuthGateButton
-      next={ctaHref}
-      preset={{ name: product.name, thumbUrl: presetThumbUrl }}
-      label="Use this look"
+    <TeaserLauncher
+      productVersionId={product.version_id}
+      presetName={product.name}
+      heroUrl={presetThumbUrl}
+      creditCost={product.credit_cost}
       className="w-full"
-      ariaLabel={`Use ${product.name}`}
-      costLabel={product.credit_cost > 0 ? costLabel : null}
     />
   );
 
@@ -386,26 +386,12 @@ export default async function PresetDetailPage({
                     </Link>
                   </Button>
                 ) : (
-                  <>
-                    <AuthGateButton
-                      next={ctaHref}
-                      preset={{ name: product.name, thumbUrl: presetThumbUrl }}
-                      className="w-full sm:w-auto"
-                      ariaLabel={`Try ${product.name}`}
-                      costLabel={
-                        product.credit_cost > 0 ? costLabel : null
-                      }
-                    />
-                    <p className="text-text-muted text-sm">
-                      Already have an account?{" "}
-                      <Link
-                        href={`/login?next=${encodeURIComponent(ctaHref)}`}
-                        className="text-lime-400 hover:underline"
-                      >
-                        Log in
-                      </Link>
-                    </p>
-                  </>
+                  <TeaserFlow
+                    productVersionId={product.version_id}
+                    presetName={product.name}
+                    heroUrl={presetThumbUrl}
+                    creditCost={product.credit_cost}
+                  />
                 )}
               </div>
 

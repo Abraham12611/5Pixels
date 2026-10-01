@@ -24,7 +24,12 @@ import { Sheet } from "@/components/ui/sheet";
 import { SheetActionRow } from "@/components/ui/sheet";
 import { FivePixelMark } from "@/components/consumer/five-pixel";
 import { LibraryResultCard } from "@/components/consumer/library-result-card";
-import { LibraryFilterModal } from "@/components/consumer/library-filter-modal";
+import dynamic from "next/dynamic";
+const LibraryFilterModal = dynamic(() =>
+  import("@/components/consumer/library-filter-modal").then(
+    (m) => m.LibraryFilterModal
+  )
+);
 import {
   applyLibraryFilters,
   countActiveLibraryFilters,

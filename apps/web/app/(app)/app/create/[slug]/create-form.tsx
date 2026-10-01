@@ -20,8 +20,8 @@ import {
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
-import { Paywall } from "@/components/consumer/paywall-sheet";
-import { AuthGateModal } from "@/components/consumer/auth-gate-modal";
+import { BlockedCreditSurface } from "@/components/consumer/blocked-credit-surface";
+import { AuthModal } from "@/components/auth/auth-modal";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
 import {
@@ -45,8 +45,11 @@ import {
   saveStudioDraft,
 } from "@/lib/anonymous-draft";
 import { cn } from "@/lib/utils";
+import { useOnline } from "@/lib/ui/use-online";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { PlanForPurchase } from "@/lib/db/plans";
+import type { BlockedCreditContext } from "@/lib/billing/segments";
+import type { OfferAssignment } from "@/lib/offers/engine";
 
 interface ReusedSource {
   assetId: string;
@@ -69,6 +72,18 @@ interface CreateGenerationFormProps {
   initialSize?: OutputSizeOption | null;
   /** Purchasable plans for the credits paywall (insufficient balance). */
   plans: PlanForPurchase[];
+  /** Segment-resolved billing context — null when anonymous. */
+  blocked: BlockedCreditContext | null;
+  /** Campaign ladder for offer-eligible segments (new/free users). */
+  offer: OfferAssignment | null;
+  /** Extra-credit plan + translation basis for the in-place top-up. */
+  topUp: {
+    planId: string;
+    checkoutReady: boolean;
+    creditsPerTransformation: number;
+  } | null;
+  /** The signed-in user's human referral code — drives /r/<code> share links. */
+  referralCode?: string;
 }
 
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
@@ -132,6 +147,7 @@ function submitStepIndex(progress: string): number {
 
 export function CreateGenerationForm({
   userId,
+  referralCode,
   product,
   initialBalance,
   hasPriorGenerations,
@@ -140,6 +156,9 @@ export function CreateGenerationForm({
   initialOptions,
   initialSize,
   plans,
+  blocked,
+  offer,
+  topUp,
 }: CreateGenerationFormProps) {
   const isAnonymous = userId === null;
   const [file, setFile] = useState<File | null>(null);
@@ -166,6 +185,7 @@ export function CreateGenerationForm({
   } | null>(null);
   const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const online = useOnline();
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string>("");
   /** Rejected pick (wrong type / too large) — inline under the source zone. */
@@ -178,7 +198,6 @@ export function CreateGenerationForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
-
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -251,8 +270,6 @@ export function CreateGenerationForm({
     if (!asset) return null;
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
   }, [product.public_assets]);
-
-
 
   // Restore a staged draft after the auth round trip (?draft=1).
   useEffect(() => {
@@ -379,6 +396,10 @@ export function CreateGenerationForm({
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
+    // The AuthModal Sheet portals to document.body but stays in this React
+    // tree, so its form submits bubble here — ignore events not from this
+    // form or the sheet's submit gets preventDefault'd and silently dies.
+    if (e.target !== e.currentTarget) return;
     e.preventDefault();
     setError("");
     setProgress("");
@@ -496,7 +517,23 @@ export function CreateGenerationForm({
       });
 
       if (result?.error) {
-        setError(result.error);
+        // Session-expired mid-flow → reopen the auth sheet in place; the
+        // draft is still in IndexedDB so one tap resumes after re-auth.
+        if (result.error === "Please sign in to continue.") {
+          if (file) {
+            void saveStudioDraft({
+              slug: product.slug,
+              file,
+              fileName: file.name,
+              fileType: file.type,
+              options,
+              sizeName: selectedSize.name ?? null,
+            });
+          }
+          setAuthGateOpen(true);
+        } else {
+          setError(result.error);
+        }
       }
       // On success the server action redirects. On idempotent retry it also redirects.
     } catch (err) {
@@ -520,7 +557,8 @@ export function CreateGenerationForm({
   const stepIndex = submitStepIndex(progress);
   const creditUnit = displayCost === 1 ? "credit" : "credits";
   const generateLabel = `Generate · ${displayCost} ${creditUnit}`;
-  const generateDisabled = loading || !hasSource || generationPaused;
+  const generateDisabled =
+    loading || !hasSource || generationPaused || !online;
   // Every disabled state names its blocker; while submitting, the reason
   // line doubles as honest progress.
   const disabledReason = loading
@@ -529,7 +567,9 @@ export function CreateGenerationForm({
       ? "Add a photo to generate"
       : generationPaused
         ? "Generation is paused — try again shortly"
-        : undefined;
+        : !online
+          ? "You're offline — reconnect to generate"
+          : undefined;
 
   const submitError = error ? (
     <div className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
@@ -769,32 +809,33 @@ export function CreateGenerationForm({
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
-      <Paywall
-        open={insufficientOpen}
-        onOpenChange={setInsufficientOpen}
-        plans={plans}
-        required={displayCost}
-        balance={initialBalance}
-        presetName={product.name}
-        presetThumbUrl={presetThumb}
-        returnPath={`/app/create/${product.slug}`}
-      />
-      <AuthGateModal
+      {blocked && (
+        <BlockedCreditSurface
+          open={insufficientOpen}
+          onOpenChange={setInsufficientOpen}
+          segment={blocked.segment}
+          offer={offer}
+          plans={plans}
+          required={displayCost}
+          balance={initialBalance}
+          presetName={product.name}
+          presetThumbUrl={presetThumb}
+          topUp={topUp}
+          resumePlan={blocked.resumePlan}
+          planEndsAt={blocked.planEndsAt}
+          activePlanName={blocked.activePlanName}
+          isReferred={blocked.isReferred}
+          referralCode={referralCode}
+        />
+      )}
+      {/* Anonymous setups autosave to IndexedDB (debounced above), so the auth
+          sheet only needs the draft=1 return path — nothing to persist here. */}
+      <AuthModal
         open={authGateOpen}
         onOpenChange={setAuthGateOpen}
-        nextPath={`/app/create/${product.slug}?draft=1`}
-        onBeforeLeave={() =>
-          file
-            ? saveStudioDraft({
-                slug: product.slug,
-                file,
-                fileName: file.name,
-                fileType: file.type,
-                options,
-                sizeName: selectedSize.name ?? null,
-              })
-            : undefined
-        }
+        next={`/app/create/${product.slug}?draft=1`}
+        preset={{ name: product.name, thumbUrl: presetThumb }}
+        initialTab="signup"
       />
     </form>
   );

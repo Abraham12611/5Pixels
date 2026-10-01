@@ -92,7 +92,7 @@ describe("PresetQuickSheet", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("opens an example in the nested image viewer", () => {
+  it("opens an example in the nested image viewer", async () => {
     renderSheet();
     fireEvent.click(
       screen.getByRole("button", {
@@ -100,7 +100,11 @@ describe("PresetQuickSheet", () => {
       })
     );
     expect(
-      screen.getByRole("dialog", { name: "Midnight Premiere example 2" })
+      await screen.findByRole(
+        "dialog",
+        { name: "Midnight Premiere example 2" },
+        { timeout: 5000 }
+      )
     ).toBeInTheDocument();
     expect(screen.getByText("Example 2 of 3")).toBeInTheDocument();
   });

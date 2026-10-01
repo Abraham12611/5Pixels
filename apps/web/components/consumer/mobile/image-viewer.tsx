@@ -5,7 +5,7 @@ import {
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
   X,
-} from "@phosphor-icons/react";
+} from "@phosphor-icons/react/dist/ssr";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useDialogA11y } from "@/components/ui/dialog";
 import { LAYER_CLASS } from "@/lib/ui/layers";

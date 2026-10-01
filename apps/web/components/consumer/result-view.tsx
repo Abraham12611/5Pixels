@@ -63,6 +63,7 @@ export function ResultView({
           resultUrl={resultUrl}
           originalUrl={originalUrl}
           resultAlt={resultAlt}
+          generationId={generationId}
           mode={mode}
           className={cn("h-full w-full lg:rounded-2xl", stageClassName)}
         />
