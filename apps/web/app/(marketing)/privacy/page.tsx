@@ -56,7 +56,9 @@ export default function PrivacyPage() {
                 <strong>Billing information.</strong> Purchases are processed by
                 Creem, our merchant of record and payment processor. We receive
                 transaction details (plan purchased, amount, status) but we do
-                not collect or store your full payment card number.
+                not collect or store your full payment card number. If you begin
+                a purchase and don&rsquo;t finish, Creem may email you a reminder
+                to complete your checkout.
               </p>
               <p>
                 <strong>Usage data.</strong> We record credit balance changes,
