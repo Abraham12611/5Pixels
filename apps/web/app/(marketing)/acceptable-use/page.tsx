@@ -62,13 +62,29 @@ export default function AcceptableUsePage() {
                 <li>
                   <strong>Deceptive or fraudulent content.</strong> Fake IDs,
                   passports, certificates, screenshots, financial documents,
-                  fabricated endorsements, or content intended to defraud or
-                  mislead.
+                  fabricated endorsements, phishing or credential-theft imagery,
+                  social-engineering materials, or content intended to defraud
+                  or mislead.
+                </li>
+                <li>
+                  <strong>Sensitive personal data and doxxing.</strong> Using
+                  text inputs or imagery to expose private addresses,
+                  identification numbers, financial credentials, or other
+                  sensitive personal information.
+                </li>
+                <li>
+                  <strong>Biometric identification.</strong> Using the service
+                  to identify an unknown person in a photo or to infer highly
+                  sensitive traits from someone&rsquo;s face.
                 </li>
                 <li>
                   <strong>Harassment and hate.</strong> Content that demeans,
                   harasses, threatens, or incites violence or discrimination
                   against individuals or groups.
+                </li>
+                <li>
+                  <strong>Extremist content.</strong> Content that praises,
+                  recruits for, or facilitates terrorism or violent extremism.
                 </li>
                 <li>
                   <strong>Illegal content.</strong> Content that violates any
@@ -81,8 +97,9 @@ export default function AcceptableUsePage() {
                   copyrighted characters.
                 </li>
                 <li>
-                  <strong>Graphic violence.</strong> Gore, gratuitous violence,
-                  or content glorifying self-harm.
+                  <strong>Graphic violence and self-harm.</strong> Gore,
+                  gratuitous violence, or content that glorifies, encourages,
+                  or instructs serious self-harm.
                 </li>
               </ul>
             </>
@@ -133,8 +150,17 @@ export default function AcceptableUsePage() {
               <p>
                 Presets are curated and configured server-side with safety
                 rules that block NSFW output, harmful depictions of minors, and
-                unauthorized use of public figures. A blocked generation does
-                not consume credits; the credits are returned to your balance.
+                unauthorized use of public figures. Upstream AI and
+                infrastructure providers also enforce their own safety rules;
+                where a provider&rsquo;s rules are stricter, they may control
+                whether a request can be produced.
+              </p>
+              <p>
+                A blocked generation does not consume credits; the credits are
+                returned to your balance. If you believe a moderation decision
+                or account restriction was made in error, contact us at{" "}
+                <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> to ask
+                for a review.
               </p>
             </>
           ),
@@ -166,15 +192,28 @@ export default function AcceptableUsePage() {
         },
         {
           id: "reporting",
-          title: "Reporting a violation",
+          title: "Reporting a violation or rights issue",
           body: (
-            <p>
-              If you believe content on 5Pixels violates this policy — including
-              a transformation made from your photo without consent — contact
-              us at{" "}
-              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with the
-              details and we will investigate, typically within 3 business days.
-            </p>
+            <>
+              <p>
+                If you believe content on 5Pixels violates this policy — or that
+                a transformation was made from your photo or likeness without
+                consent — contact us at{" "}
+                <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. Include
+                enough detail for us to locate the content and identify the
+                issue. Reports involving minors, non-consensual intimate
+                imagery, or impersonation are treated as urgent.
+              </p>
+              <p>
+                For copyright, trademark, or publicity complaints — including
+                the information a report must contain and how we handle
+                counter-notices and repeat infringers — see{" "}
+                <Link href="/terms#ip-complaints">
+                  IP complaints and takedown
+                </Link>{" "}
+                in the Terms of Service.
+              </p>
+            </>
           ),
         },
         {

@@ -39,6 +39,7 @@ const footerLinks = {
     { label: "Privacy Policy", href: "/privacy" },
     { label: "Terms of Service", href: "/terms" },
     { label: "Acceptable Use", href: "/acceptable-use" },
+    { label: "Cookie Notice", href: "/cookies" },
   ],
   Community: SOCIAL_LINKS.map(({ label, href }) => ({
     label: label === "X" ? "X / Twitter" : label,

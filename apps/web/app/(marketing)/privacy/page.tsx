@@ -12,14 +12,16 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      lastUpdated="September 28, 2026"
+      lastUpdated="October 2, 2026"
       intro={
         <p>
-          5Pixels (&ldquo;5Pixels,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or
-          &ldquo;our&rdquo;) is an AI-powered photo transformation service. You
-          choose a preset look, upload a photo, and we generate a transformed
-          result using third-party AI models. This Privacy Policy explains what
-          information we collect, how we use it, and the choices you have.
+          5Pixels is an AI-powered photo transformation service operated by{" "}
+          <strong>{"{{LEGAL_ENTITY}}"}</strong> (&ldquo;5Pixels,&rdquo;
+          &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;), which is the
+          data controller for the processing described here. You choose a preset
+          look, upload a photo, and we generate a transformed result using
+          third-party AI models. This Privacy Policy explains what information
+          we collect, how we use it, and the choices you have.
         </p>
       }
       sections={[
@@ -38,8 +40,11 @@ export default function PrivacyPage() {
               <p>
                 <strong>Photos you upload.</strong> To create a transformation,
                 you upload a source photo. Uploads are stored privately and are
-                used only to produce your results — they are never shown to
-                other users.
+                never shown to other users. We process them to produce your
+                results and, where necessary, to operate, secure, moderate,
+                support, and comply with legal obligations relating to the
+                service. We do not sell your photos or use them for unrelated
+                advertising, and we do not use them to train AI models.
               </p>
               <p>
                 <strong>Generated results.</strong> The images we produce for
@@ -66,6 +71,21 @@ export default function PrivacyPage() {
                 secure, and improve the service.
               </p>
               <p>
+                <strong>Information collected automatically.</strong> When you
+                use the service we automatically collect technical information:
+                IP address, browser and device type, operating system, timestamps
+                and request/error logs, referring pages, approximate location
+                inferred from IP, and signals used for security and fraud
+                prevention.
+              </p>
+              <p>
+                <strong>Information from others.</strong> We receive information
+                from authentication providers (for example, your Google account
+                name, email, and profile picture when you sign in with Google),
+                from Creem (transaction and subscription status), and from our
+                infrastructure providers (delivery and error telemetry).
+              </p>
+              <p>
                 <strong>Communications.</strong> If you contact us, we keep a
                 record of that correspondence to respond and resolve your
                 request.
@@ -85,6 +105,39 @@ export default function PrivacyPage() {
               <li>Maintain security, prevent fraud and abuse, and enforce our Terms.</li>
               <li>Analyze aggregated usage to improve presets and product quality.</li>
             </ul>
+          ),
+        },
+        {
+          id: "legal-bases",
+          title: "Legal bases (EEA/UK)",
+          body: (
+            <>
+              <p>
+                If you are in the EEA or UK, we process your personal
+                information on these bases:
+              </p>
+              <ul>
+                <li>
+                  <strong>Contract performance</strong> — operating your
+                  account, processing uploads, delivering results, and
+                  administering credits and plans.
+                </li>
+                <li>
+                  <strong>Legitimate interests</strong> — security, fraud and
+                  abuse prevention, content moderation, product improvement
+                  using aggregated data, and service-related communications.
+                </li>
+                <li>
+                  <strong>Legal obligation</strong> — retaining billing and
+                  transaction records and responding to lawful requests.
+                </li>
+                <li>
+                  <strong>Consent</strong> — where we ask for it, for example
+                  optional product communications; you can withdraw consent at
+                  any time.
+                </li>
+              </ul>
+            </>
           ),
         },
         {
@@ -119,14 +172,15 @@ export default function PrivacyPage() {
               <p>
                 To generate a result, your uploaded photo and preset options are
                 sent to third-party AI model providers over an encrypted
-                connection. These providers process your input transiently to
-                produce the transformation and return the result to us.
+                connection. Those providers process your input to produce the
+                transformation and return the result to us; their retention and
+                handling are governed by our provider agreements.
               </p>
               <p>
                 We do not name our model providers publicly as part of the
-                product experience, but all processing happens server-side under
-                our provider agreements — your photos are not sold and are not
-                shared for unrelated purposes.
+                product experience, but all processing happens server-side.
+                Your photos are not sold and are not shared for unrelated
+                purposes.
               </p>
             </>
           ),
@@ -167,7 +221,8 @@ export default function PrivacyPage() {
             <p>
               We use cookies and similar technologies to keep you signed in,
               remember preferences, and operate the service. We do not run
-              third-party advertising trackers.
+              third-party advertising trackers. The full inventory is in our{" "}
+              <a href="/cookies">Cookie Notice</a>.
             </p>
           ),
         },
@@ -211,8 +266,12 @@ export default function PrivacyPage() {
               <p>
                 If you are in the EEA, UK, or a U.S. state with a privacy law
                 (such as California), you may have additional statutory rights.
-                Contact us to exercise them and we will respond within the time
-                required by law.
+                We may need to verify your identity before acting on a request,
+                and you may use an authorized agent where the law provides for
+                one. If we decline a request, you may ask us to reconsider; you
+                may also complain to your local data-protection or supervisory
+                authority. We respond within the time required by applicable
+                law.
               </p>
             </>
           ),
@@ -247,10 +306,10 @@ export default function PrivacyPage() {
           title: "Children",
           body: (
             <p>
-              The service is not directed to children under 13, and you must be
-              at least 18 (or the age of majority in your jurisdiction) to
-              create an account. If you believe a child has provided us personal
-              information, contact us and we will delete it.
+              5Pixels is not intended for anyone under 18, or under the age of
+              majority in their jurisdiction where higher. If you believe a
+              minor has provided us personal information, contact us and we will
+              delete it.
             </p>
           ),
         },
@@ -271,8 +330,9 @@ export default function PrivacyPage() {
           body: (
             <p>
               Questions or privacy requests:{" "}
-              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. We aim to
-              respond within 3 business days.
+              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or by
+              mail to {"{{LEGAL_ENTITY}}"}, {"{{REGISTERED_ADDRESS}}"}. We
+              respond within the time required by applicable law.
             </p>
           ),
         },
