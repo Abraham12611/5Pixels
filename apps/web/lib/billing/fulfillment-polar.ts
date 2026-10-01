@@ -3,6 +3,8 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { createPolarClient } from "./polar-client";
 import { initializeSubscriptionDrip } from "./drip";
+import { recordOfferConversion } from "@/lib/offers/conversions";
+import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
 import type { Order } from "@polar-sh/sdk/models/components/order.js";
 import type { Subscription } from "@polar-sh/sdk/models/components/subscription.js";
 
@@ -612,6 +614,27 @@ export async function fulfillPolarOneTimeOrder(order: Order) {
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoice.id);
 
+  await recordOfferConversion(
+    mapping.userId,
+    order.metadata as Record<string, unknown>,
+    order.id,
+    order.totalAmount
+  );
+
+  try {
+    await awardOrHoldReferrerShare({
+      buyerUserId: mapping.userId,
+      plan,
+      orderId: order.id,
+    });
+  } catch (err) {
+    // Referral rewards must never break fulfillment — log and move on.
+    console.error(
+      "[fulfillPolarOneTimeOrder] referral reward failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
   console.log(
     `[fulfillPolarOneTimeOrder] granted ${plan.credits_grant} credits to user ${mapping.userId}`
   );
@@ -667,6 +690,26 @@ export async function fulfillPolarSubscriptionOrder(order: Order) {
     order,
     plan.price_cents
   );
+
+  await recordOfferConversion(
+    mapping.userId,
+    order.metadata as Record<string, unknown>,
+    order.id,
+    order.totalAmount
+  );
+
+  try {
+    await awardOrHoldReferrerShare({
+      buyerUserId: mapping.userId,
+      plan,
+      orderId: order.id,
+    });
+  } catch (err) {
+    console.error(
+      "[fulfillPolarSubscriptionOrder] referral reward failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
   if (plan.credit_drip_months > 1) {
     // Annual plans: credits are granted by the monthly drip, not per billing
@@ -767,7 +810,7 @@ export async function fulfillPolarSubscriptionEvent(
         subscriptionRowId: subscriptionId,
         userId: mapping.userId,
         plan,
-        polarSubscriptionId: info.subscriptionId,
+        providerSubscriptionId: info.subscriptionId,
         periodStart: info.currentPeriodStart,
         invoiceId,
       });

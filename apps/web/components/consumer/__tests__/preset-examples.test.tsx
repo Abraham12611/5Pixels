@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PresetExamples } from "../mobile/preset-examples";
+// Warm the module graph at collect time — the lazy `dynamic()` ImageViewer
+// otherwise resolves too slowly inside the 5s test window.
+import "../mobile/image-viewer";
 
 const urls = [
   "https://cdn.example.com/a.jpg",

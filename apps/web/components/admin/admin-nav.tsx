@@ -14,6 +14,7 @@ import {
   WarningOctagon,
   FileText,
   Users,
+  Megaphone,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,10 @@ const NAV_GROUPS: AdminNavGroup[] = [
       { label: "Alerts", href: "/admin/alerts", icon: WarningOctagon },
       { label: "Audit", href: "/admin/audit", icon: FileText },
     ],
+  },
+  {
+    label: "Growth",
+    items: [{ label: "Offers", href: "/admin/offers", icon: Megaphone }],
   },
   {
     label: "People",

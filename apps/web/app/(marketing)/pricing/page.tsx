@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPlansForPurchase } from "@/lib/db/plans";
-import { getActivePlan } from "@/lib/billing/entitlements";
 import { getMedianPresetCost } from "@/lib/db/explore";
-import { PricingPlans } from "@/components/marketing/pricing-plans";
+import { getActivePlan } from "@/lib/billing/entitlements";
 import { PlanFinder } from "@/components/marketing/plan-finder";
+import { PricingCards } from "@/components/marketing/pricing-cards";
 import { PricingComparison } from "@/components/marketing/pricing-comparison";
 import { PricingFaq } from "@/components/marketing/pricing-faq";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ export default async function PricingPage() {
   ]);
 
   const monthlyPlans = plans.filter((p) => p.type === "monthly");
-  const weeklyPlans = plans.filter((p) => p.type === "weekly_trial");
+  const recommendedSlug = "monthly-pro";
 
   return (
     <main className="flex flex-1 flex-col">
@@ -35,15 +35,22 @@ export default async function PricingPage() {
         </h1>
         <p className="text-text-secondary mx-auto mt-4 max-w-xl text-base">
           Plans give you monthly credits to spend on transformations — every
-          preset shows its exact cost before you generate.
+          preset shows its exact cost before you generate. Annual plans cost
+          less per month;{" "}
+          <Link
+            href="/pricing/weekly"
+            className="text-lime-400 hover:text-lime-300 underline-offset-2 transition-colors hover:underline"
+          >
+            weekly passes
+          </Link>{" "}
+          get you started for a few dollars.
         </p>
       </section>
 
-      {/* Plan cards behind a Weekly | Monthly segmented control (13 §5) */}
+      {/* Cards + cadence toggle */}
       <section className="px-4 sm:px-6">
-        <PricingPlans
-          weeklyPlans={weeklyPlans}
-          monthlyPlans={monthlyPlans}
+        <PricingCards
+          plans={plans}
           isAuthenticated={Boolean(user)}
           activePlanId={activePlan?.planId ?? null}
           medianCredits={medianCredits}
@@ -88,7 +95,7 @@ export default async function PricingPage() {
           <div className="mt-8 overflow-x-auto">
             <PricingComparison
               monthlyPlans={monthlyPlans}
-              recommendedSlug="monthly-pro"
+              recommendedSlug={recommendedSlug}
             />
           </div>
         </div>

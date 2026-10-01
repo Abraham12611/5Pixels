@@ -11,6 +11,13 @@ import {
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { isFailureStatus, isTerminalStatus } from "@/lib/generation/stages";
 import { mapSafeGenerationRow } from "@/lib/generation/map";
+import { getPendingGenerationForUser } from "@/lib/teaser/pending";
+import { getUserCreditBalance } from "@/lib/generation/balance";
+import { getTakeoverStateForUser } from "@/lib/offers/engine";
+import { getPlansForPurchase } from "@/lib/db/plans";
+import { getMyReferralCode } from "@/lib/referrals/rewards";
+import { PendingGenerationCard } from "@/components/consumer/pending-generation-card";
+import { OfferTakeoverGate } from "@/components/consumer/offer-takeover-gate";
 import { ProductCard } from "@/components/consumer/product-card";
 import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { MobileSection } from "@/components/consumer/mobile/mobile-section";
@@ -86,7 +93,11 @@ function ProductRail({
   );
 }
 
-export default async function DiscoverPage() {
+export default async function DiscoverPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -97,12 +108,23 @@ export default async function DiscoverPage() {
     redirect("/login");
   }
 
+  // Admin preview: ?offer_preview=<campaignSlug>[:<variant>] — ignored for
+  // non-admins inside getTakeoverStateForUser.
+  const params = await searchParams;
+  const offerPreview =
+    typeof params?.offer_preview === "string" ? params.offer_preview : undefined;
+
   const [
     generationsResult,
     trendingResult,
     newestResult,
     categories,
     favoriteIds,
+    pending,
+    balance,
+    takeover,
+    purchasePlans,
+    referralCode,
   ] = await Promise.all([
     supabase.rpc("get_user_generations"),
     getPublicProducts(
@@ -125,6 +147,11 @@ export default async function DiscoverPage() {
     ),
     getActiveCategories(),
     getUserFavoriteProductIds(),
+    getPendingGenerationForUser(),
+    getUserCreditBalance(),
+    getTakeoverStateForUser(offerPreview),
+    getPlansForPurchase(),
+    getMyReferralCode(),
   ]);
 
   const generations = (
@@ -178,12 +205,32 @@ export default async function DiscoverPage() {
 
   return (
     <main className="flex flex-1 flex-col">
+      {takeover.show && takeover.assignment && (
+        <OfferTakeoverGate
+          assignment={takeover.assignment}
+          plans={purchasePlans}
+          pendingProductName={pending?.productName}
+          referralCode={referralCode ?? undefined}
+          adminVariants={takeover.adminVariants}
+        />
+      )}
       <PresetQuickViewHost
         isAuthenticated
         favoriteIds={favoriteIds}
         returnPath="/app"
       >
         <div className="mx-auto w-full max-w-7xl py-8">
+          {pending && (
+            <div className="px-5 pb-4">
+              <PendingGenerationCard
+                pendingId={pending.id}
+                productName={pending.productName}
+                productSlug={pending.productSlug}
+                creditCost={pending.creditCost}
+                balance={balance}
+              />
+            </div>
+          )}
           {isNewUser ? (
             /* Orientation for a brand-new user */
             <div className="px-5">

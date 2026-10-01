@@ -23,6 +23,9 @@
   --color-error: #ff5b55;
   --color-success: #55d982;
 
+  --color-promo: #ff4d96;
+  --color-promo-soft: rgb(255 77 150 / 0.15);
+
   --color-background: var(--color-ink-950);
   --color-foreground: var(--color-text-primary);
   --color-card: var(--color-charcoal-850);

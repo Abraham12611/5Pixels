@@ -2,14 +2,13 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
-import { getActivePlan, canPurchaseExtraCredits } from "@/lib/billing/entitlements";
+import { getActivePlan } from "@/lib/billing/entitlements";
 import { getPlansForPurchase } from "@/lib/db/plans";
-import { getMedianPresetCost } from "@/lib/db/explore";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { CreditMeter } from "@/components/consumer/five-pixel";
-import { CreditPacks } from "@/components/consumer/credit-packs";
+import { CreditTopUp } from "@/components/consumer/credit-top-up";
 import { Button } from "@/components/ui/button";
 import { Coins } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
@@ -45,18 +44,13 @@ export default async function BillingCreditsPage() {
     redirect("/login?next=/app/billing/credits");
   }
 
-  const [summary, activity, activePlan, profile, plans, medianCredits, canTopUp] =
-    await Promise.all([
-      getCreditPeriodSummary(),
-      getCreditActivity(),
-      getActivePlan(),
-      getMyProfile(),
-      getPlansForPurchase(),
-      getMedianPresetCost(),
-      canPurchaseExtraCredits(user.id),
-    ]);
-
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit") ?? null;
+  const [summary, activity, activePlan, profile, plans] = await Promise.all([
+    getCreditPeriodSummary(),
+    getCreditActivity(),
+    getActivePlan(),
+    getMyProfile(),
+    getPlansForPurchase(),
+  ]);
 
   const name =
     profile?.display_name ??
@@ -68,6 +62,18 @@ export default async function BillingCreditsPage() {
   const meterMax = activePlan?.creditsGrant ?? null;
   const resets = formatDate(summary?.periodEnd ?? null);
   const isOut = balance <= 0;
+
+  // Basis for the "≈ up to N transformations" line on every top-up option:
+  // the cheapest active transformation in the catalog.
+  const { data: cheapest } = await supabase
+    .from("product_versions")
+    .select("credit_cost")
+    .eq("state", "active")
+    .order("credit_cost", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
 
   const metrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -127,11 +133,7 @@ export default async function BillingCreditsPage() {
               </p>
               <div className="mt-5">
                 <Button asChild variant={isOut ? "brand" : "secondary"}>
-                  <Link
-                    href={activePlan ? "/app/billing/plan#top-up" : "/pricing"}
-                  >
-                    Buy credits
-                  </Link>
+                  <Link href="#buy">Buy credits</Link>
                 </Button>
               </div>
             </div>
@@ -151,28 +153,21 @@ export default async function BillingCreditsPage() {
           </div>
         </SettingCard>
 
-        {/* Extra-credit packs — subscribers only (13 §6) */}
-        {extraCreditPlan &&
-          (canTopUp.allowed ? (
+        {/* Buy credits — any amount or a pack; every option says what it buys */}
+        {extraCreditPlan && (
+          <div id="buy" className="scroll-mt-24">
             <SettingCard
-              title="Add credits"
-              description="One-time top-ups — pick a pack, credits land instantly."
+              title="Buy credits"
+              description="Pick any amount or a pack — 1 credit for every $0.01. Top-up credits never expire, and a failed transformation releases its credits back automatically."
             >
-              <CreditPacks
+              <CreditTopUp
                 planId={extraCreditPlan.id}
-                medianCredits={medianCredits}
+                checkoutReady={extraCreditPlan.checkout_ready}
+                creditsPerTransformation={creditsPerTransformation}
               />
             </SettingCard>
-          ) : (
-            <SettingCard title="Add credits">
-              <p className="text-text-secondary text-sm">
-                Extra credits are available on a monthly plan.
-              </p>
-              <Button asChild variant="brand" size="sm" className="mt-3">
-                <Link href="/pricing">See monthly plans</Link>
-              </Button>
-            </SettingCard>
-          ))}
+          </div>
+        )}
 
         {/* Metric tiles */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

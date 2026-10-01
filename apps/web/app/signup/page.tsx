@@ -5,12 +5,13 @@ import { getPublicProductBySlug } from "@/lib/db/explore";
 import { createIntentSlug } from "@/lib/auth/intent";
 import { isRelativePath } from "@/lib/auth/url";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { ReferralCapture } from "@/components/auth/referral-capture";
 import { SignUpForm } from "./signup-form";
 
 export default async function SignUpPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; ref?: string }>;
 }) {
   const supabase = await createClient();
   const {
@@ -53,6 +54,7 @@ export default async function SignUpPage({
         </p>
       }
     >
+      {params.ref && <ReferralCapture referrerId={params.ref} />}
       <SignUpForm next={next} />
     </AuthShell>
   );

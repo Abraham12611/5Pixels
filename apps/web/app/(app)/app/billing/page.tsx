@@ -9,9 +9,15 @@ import {
 import { getMedianPresetCost } from "@/lib/db/explore";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getActivePlan } from "@/lib/billing/entitlements";
+import {
+  getMyReferralCode,
+  getReferralStats,
+} from "@/lib/referrals/rewards";
+import { getSiteUrl } from "@/lib/auth/url";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
+import { ReferralCard } from "@/components/promo/referral-card";
 import { CreditMeter } from "@/components/consumer/five-pixel";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,16 +50,27 @@ export default async function BillingPage() {
     redirect("/login?next=/app/billing");
   }
 
-  const [billing, balance, activePlan, summary, profile, medianCost, recent] =
-    await Promise.all([
-      getBillingData(),
-      getUserCreditBalance(),
-      getActivePlan(),
-      getCreditPeriodSummary(),
-      getMyProfile(),
-      getMedianPresetCost(),
-      getCreditActivity(4),
-    ]);
+  const [
+    billing,
+    balance,
+    activePlan,
+    summary,
+    profile,
+    medianCost,
+    recent,
+    referralStats,
+    referralCode,
+  ] = await Promise.all([
+    getBillingData(),
+    getUserCreditBalance(),
+    getActivePlan(),
+    getCreditPeriodSummary(),
+    getMyProfile(),
+    getMedianPresetCost(),
+    getCreditActivity(4),
+    getReferralStats(),
+    getMyReferralCode(),
+  ]);
 
   if (!billing) {
     redirect("/login");
@@ -85,9 +102,7 @@ export default async function BillingPage() {
       null
   );
   const meterMax = activePlan?.creditsGrant ?? null;
-  const buyCreditsHref = activePlan
-    ? "/app/billing/plan#top-up"
-    : "/pricing";
+  const buyCreditsHref = "/app/billing/credits";
 
   const usageMetrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -172,7 +187,7 @@ export default async function BillingPage() {
                 >
                   <Link href={buyCreditsHref}>Add credits</Link>
                 </Button>
-                {planName && billing.dodoCustomerId ? (
+                {planName && billing.billingCustomerId ? (
                   <Button asChild variant="secondary" className="w-full">
                     <Link href="/app/billing/plan">Manage plan</Link>
                   </Button>
@@ -218,7 +233,7 @@ export default async function BillingPage() {
                     : "Upgrade for more credits and premium looks."}
                 </p>
               </div>
-              {billing.dodoCustomerId && planName ? (
+              {billing.billingCustomerId && planName ? (
                 <form action="/api/billing/portal" method="post">
                   <Button type="submit" variant="secondary" size="sm">
                     Manage plan
@@ -339,6 +354,25 @@ export default async function BillingPage() {
             </Link>
           ))}
         </div>
+
+        {/* Referral program (03 §6 — persistent billing card) */}
+        <ReferralCard
+          referralUrl={referralCode ? `${getSiteUrl()}/r/${referralCode}` : null}
+          referralCode={referralCode}
+          refereeReward="25 credits + their first transformation, free"
+          referrerReward="50 credits + 30% of their first plan's credits"
+          pendingCount={referralStats?.referredCount ?? 0}
+        />
+        {referralStats && referralStats.creditsEarned > 0 && (
+          <p className="text-text-secondary -mt-4 px-1 text-xs">
+            You&apos;ve earned{" "}
+            <span className="text-cream-100">
+              {referralStats.creditsEarned.toLocaleString()} credits
+            </span>{" "}
+            from {referralStats.paidReferrals}{" "}
+            {referralStats.paidReferrals === 1 ? "referral" : "referrals"}.
+          </p>
+        )}
       </div>
     </SettingsShell>
   );

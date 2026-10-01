@@ -20,10 +20,7 @@ import {
 import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
-import dynamic from "next/dynamic";
-const Paywall = dynamic(() =>
-  import("@/components/consumer/paywall-sheet").then((m) => m.Paywall)
-);
+import { BlockedCreditSurface } from "@/components/consumer/blocked-credit-surface";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
@@ -51,6 +48,8 @@ import { cn } from "@/lib/utils";
 import { useOnline } from "@/lib/ui/use-online";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { PlanForPurchase } from "@/lib/db/plans";
+import type { BlockedCreditContext } from "@/lib/billing/segments";
+import type { OfferAssignment } from "@/lib/offers/engine";
 
 interface ReusedSource {
   assetId: string;
@@ -73,6 +72,18 @@ interface CreateGenerationFormProps {
   initialSize?: OutputSizeOption | null;
   /** Purchasable plans for the credits paywall (insufficient balance). */
   plans: PlanForPurchase[];
+  /** Segment-resolved billing context — null when anonymous. */
+  blocked: BlockedCreditContext | null;
+  /** Campaign ladder for offer-eligible segments (new/free users). */
+  offer: OfferAssignment | null;
+  /** Extra-credit plan + translation basis for the in-place top-up. */
+  topUp: {
+    planId: string;
+    checkoutReady: boolean;
+    creditsPerTransformation: number;
+  } | null;
+  /** The signed-in user's human referral code — drives /r/<code> share links. */
+  referralCode?: string;
 }
 
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
@@ -136,6 +147,7 @@ function submitStepIndex(progress: string): number {
 
 export function CreateGenerationForm({
   userId,
+  referralCode,
   product,
   initialBalance,
   hasPriorGenerations,
@@ -144,6 +156,9 @@ export function CreateGenerationForm({
   initialOptions,
   initialSize,
   plans,
+  blocked,
+  offer,
+  topUp,
 }: CreateGenerationFormProps) {
   const isAnonymous = userId === null;
   const [file, setFile] = useState<File | null>(null);
@@ -183,7 +198,6 @@ export function CreateGenerationForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
-
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -256,8 +270,6 @@ export function CreateGenerationForm({
     if (!asset) return null;
     return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
   }, [product.public_assets]);
-
-
 
   // Restore a staged draft after the auth round trip (?draft=1).
   useEffect(() => {
@@ -797,16 +809,25 @@ export function CreateGenerationForm({
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
-      <Paywall
-        open={insufficientOpen}
-        onOpenChange={setInsufficientOpen}
-        plans={plans}
-        required={displayCost}
-        balance={initialBalance}
-        presetName={product.name}
-        presetThumbUrl={presetThumb}
-        returnPath={`/app/create/${product.slug}`}
-      />
+      {blocked && (
+        <BlockedCreditSurface
+          open={insufficientOpen}
+          onOpenChange={setInsufficientOpen}
+          segment={blocked.segment}
+          offer={offer}
+          plans={plans}
+          required={displayCost}
+          balance={initialBalance}
+          presetName={product.name}
+          presetThumbUrl={presetThumb}
+          topUp={topUp}
+          resumePlan={blocked.resumePlan}
+          planEndsAt={blocked.planEndsAt}
+          activePlanName={blocked.activePlanName}
+          isReferred={blocked.isReferred}
+          referralCode={referralCode}
+        />
+      )}
       {/* Anonymous setups autosave to IndexedDB (debounced above), so the auth
           sheet only needs the draft=1 return path — nothing to persist here. */}
       <AuthModal

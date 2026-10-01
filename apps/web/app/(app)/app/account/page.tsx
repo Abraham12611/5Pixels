@@ -24,6 +24,7 @@ import {
   SignOut,
   Trash,
   CaretRight,
+  Gift,
 } from "@phosphor-icons/react/dist/ssr";
 
 export default async function AccountPage() {
@@ -348,6 +349,30 @@ export default async function AccountPage() {
                     <p className="text-text-secondary mt-0.5 text-xs">
                       {activePlan ? activePlan.name : "Free"} ·{" "}
                       {balance} credits
+                    </p>
+                  </div>
+                </div>
+                <CaretRight
+                  size={16}
+                  className="text-text-muted group-hover:text-cream-100 mt-1 transition-colors"
+                />
+              </div>
+            </SettingCard>
+          </Link>
+
+          <Link href="/app/referrals" className="group sm:col-span-2">
+            <SettingCard className="group-hover:border-lime-500/30 h-full transition-colors">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="bg-lime-500/10 text-lime-400 rounded-[10px] p-2.5">
+                    <Gift size={18} weight="regular" />
+                  </span>
+                  <div>
+                    <p className="text-cream-50 text-sm font-medium">
+                      Refer &amp; earn
+                    </p>
+                    <p className="text-text-secondary mt-0.5 text-xs">
+                      Share your link and earn credits when friends join
                     </p>
                   </div>
                 </div>
