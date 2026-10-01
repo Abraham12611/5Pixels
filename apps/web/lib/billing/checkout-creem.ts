@@ -45,7 +45,7 @@ export async function createCreemPlanCheckoutSession(
     return { error: "Plan not found." };
   }
 
-  const creemProductId = resolveCreemProductId(plan.metadata);
+  const creemProductId = resolveCreemProductId(plan.metadata, plan.slug);
   if (!creemProductId) {
     return { error: "This plan is not available for purchase yet." };
   }
@@ -118,7 +118,7 @@ export async function createCreemExtraCreditsCheckoutSession(
     return { error: "Extra credits are not configured." };
   }
 
-  const creemProductId = resolveCreemProductId(plan.metadata);
+  const creemProductId = resolveCreemProductId(plan.metadata, plan.slug);
   if (!creemProductId) {
     return { error: "Extra credits are not available for purchase yet." };
   }

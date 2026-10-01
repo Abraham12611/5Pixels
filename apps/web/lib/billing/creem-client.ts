@@ -33,11 +33,54 @@ export function isCreemConfigured(): boolean {
 }
 
 /**
- * Resolves a plan's Creem product id for the active environment
- * (`creem_product_id_test` / `creem_product_id_live`, with a legacy
- * `creem_product_id` fallback).
+ * `CREEM_PRODUCT_ID_OVERRIDES` is an optional JSON object mapping plan slug
+ * (or plan id) → Creem product id, e.g. {"pro-monthly":"prod_abc"}.
+ * Lets the live product ids be swapped in via Vercel env config without a
+ * DB update; entries override plans.metadata when present.
  */
-export function resolveCreemProductId(metadata: unknown): string | null {
+export function creemProductIdOverrides(): Record<string, string> {
+  const raw = process.env.CREEM_PRODUCT_ID_OVERRIDES?.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "string" && value.length > 0) out[key] = value;
+    }
+    return out;
+  } catch {
+    console.error("[creem] CREEM_PRODUCT_ID_OVERRIDES is not valid JSON");
+    return {};
+  }
+}
+
+/**
+ * Reverse of the override map: returns the plan slug/id whose override
+ * maps to the given Creem product id, or null. Used by webhook fulfillment
+ * to resolve plans when the env map overrode the checkout product id.
+ */
+export function creemPlanKeyForProductId(productId: string): string | null {
+  for (const [key, id] of Object.entries(creemProductIdOverrides())) {
+    if (id === productId) return key;
+  }
+  return null;
+}
+
+/**
+ * Resolves a plan's Creem product id. Priority: CREEM_PRODUCT_ID_OVERRIDES
+ * (keyed by plan slug or id) → env-scoped plans.metadata
+ * (`creem_product_id_test` / `creem_product_id_live`) → legacy
+ * `creem_product_id`.
+ */
+export function resolveCreemProductId(
+  metadata: unknown,
+  planKey?: string | null
+): string | null {
+  if (planKey) {
+    const override = creemProductIdOverrides()[planKey];
+    if (override) return override;
+  }
+
   const meta = (metadata ?? {}) as Record<string, unknown>;
   const scoped = meta[`creem_product_id_${creemEnvironment()}`];
   if (typeof scoped === "string" && scoped.length > 0) return scoped;
