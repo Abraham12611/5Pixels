@@ -1,11 +1,11 @@
 "use client";
 
 import { useActionState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/auth/password-input";
+import { LegalConsentCheckbox } from "@/components/auth/legal-consent-checkbox";
 import {
   signUp,
   signInWithGoogle,
@@ -81,6 +81,7 @@ export function SignUpForm({ next }: { next?: string }) {
           </p>
         )}
       </div>
+      <LegalConsentCheckbox id="signup-consent" />
       {formError && (
         <p
           role="alert"
@@ -97,17 +98,6 @@ export function SignUpForm({ next }: { next?: string }) {
       >
         {pending ? "Creating account…" : "Create account"}
       </Button>
-      <p className="text-text-muted text-center text-xs leading-relaxed">
-        By creating an account you agree to 5Pixels&apos;{" "}
-        <Link href="/terms" className="text-lime-400 hover:underline">
-          Terms of Service
-        </Link>{" "}
-        and{" "}
-        <Link href="/privacy" className="text-lime-400 hover:underline">
-          Privacy Policy
-        </Link>
-        .
-      </p>
     </form>
   );
 }

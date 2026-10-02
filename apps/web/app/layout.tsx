@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
 import { SkipLink, RouteFocus } from "@/components/ui/skip-link";
+import { CookieConsentProvider } from "@/components/consent/cookie-consent-provider";
 import "./globals.css";
 
 const GROWSURF_CAMPAIGN_ID =
@@ -45,9 +46,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-ink-950 text-text-primary">
-        <SkipLink />
-        <RouteFocus />
-        {children}
+        <CookieConsentProvider>
+          <SkipLink />
+          <RouteFocus />
+          {children}
+        </CookieConsentProvider>
         {/* GrowSurf stays dormant but the universal script only makes sense
             on the production origin — on preview/ephemeral hosts it just
             throws "campaign not authorized" 403s into the console. */}

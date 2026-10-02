@@ -47,6 +47,10 @@ export interface SheetProps {
   /** Hides the drag handle and disables swipe dismissal. */
   disableSwipe?: boolean;
   showClose?: boolean;
+  /** Renders the close control floating over the panel instead of a header
+   *  row — for media-bleed layouts (e.g. split auth dialog) where a header
+   *  band would leave a dead strip above the visual. */
+  floatingClose?: boolean;
   className?: string;
   bodyClassName?: string;
   children: ReactNode;
@@ -69,6 +73,7 @@ export function Sheet({
   nested = false,
   disableSwipe = false,
   showClose = true,
+  floatingClose = false,
   className,
   bodyClassName,
   children,
@@ -159,7 +164,7 @@ export function Sheet({
         tabIndex={-1}
         style={dragY > 0 ? { transform: `translateY(${dragY}px)` } : undefined}
         className={cn(
-          "border-cream-100/10 bg-charcoal-850 animate-sheet-in flex flex-col overflow-hidden border-t outline-none sm:border",
+          "border-cream-100/10 bg-charcoal-850 animate-sheet-in relative flex flex-col overflow-hidden border-t outline-none sm:border",
           panelByTier[tier],
           className
         )}
@@ -180,7 +185,18 @@ export function Sheet({
           </div>
         ) : null}
 
-        {title || showClose ? (
+        {showClose && floatingClose && !title ? (
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close"
+            className="text-cream-50 hover:bg-cream-100/15 focus-visible:ring-lime-500/70 absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-ink-950/50 backdrop-blur-sm transition focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <X size={20} weight="bold" />
+          </button>
+        ) : null}
+
+        {title || (showClose && !floatingClose) ? (
           <div
             className={cn(
               "flex shrink-0 items-start justify-between gap-4 px-5",

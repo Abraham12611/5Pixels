@@ -70,4 +70,31 @@ describe("AuthModal", () => {
     // signup tab active — checklist present
     expect(screen.getByText(/at least 8 characters/i)).toBeInTheDocument();
   });
+
+  it("requires the legal consent checkbox on the signup tab", () => {
+    render(
+      <AuthModal open onOpenChange={vi.fn()} next="/app" initialTab="signup" />
+    );
+    const checkbox = screen.getByRole("checkbox", {
+      name: /terms of service/i,
+    });
+    expect(checkbox).toBeRequired();
+    expect(screen.getByText(/acceptable use policy/i)).toBeInTheDocument();
+  });
+
+  it("does not show the consent checkbox on the login tab by default", () => {
+    render(<AuthModal open onOpenChange={vi.fn()} next="/app" />);
+    expect(
+      screen.queryByRole("checkbox", { name: /terms of service/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the showcase slideshow with jump controls", () => {
+    render(<AuthModal open onOpenChange={vi.fn()} next="/app" />);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(4);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(tabs[2]);
+    expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+  });
 });
