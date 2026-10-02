@@ -72,7 +72,7 @@ export function AuthSlideshow() {
             "object-cover transition-opacity duration-700",
             i === active ? "opacity-100" : "opacity-0"
           )}
-          aria-hidden={i !== active}
+          aria-hidden={i !== active || undefined}
         />
       ))}
 
