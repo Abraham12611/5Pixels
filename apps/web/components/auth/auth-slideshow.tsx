@@ -54,7 +54,7 @@ export function AuthSlideshow() {
 
   return (
     <div
-      className="relative hidden h-full min-h-[560px] overflow-hidden sm:block"
+      className="relative hidden h-full overflow-hidden sm:block"
       aria-roledescription="carousel"
       aria-label="What you can create with 5Pixels"
       onMouseEnter={() => setPaused(true)}

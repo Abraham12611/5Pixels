@@ -67,13 +67,15 @@ export function AuthModal({
       tier="full"
       ariaLabel={heading}
       showClose
-      bodyClassName="p-0 sm:p-0"
-      className="sm:max-w-4xl"
+      floatingClose
+      bodyClassName="p-0 sm:overflow-hidden sm:p-0"
+      className="sm:h-[min(92dvh,660px)] sm:max-w-4xl"
     >
-      <div className="sm:grid sm:h-full sm:grid-cols-[5fr_4fr]">
+      <div className="sm:grid sm:h-full sm:grid-cols-2">
         <AuthSlideshow />
 
-        <div className="px-5 pb-6 sm:flex sm:min-h-0 sm:flex-col sm:overflow-y-auto sm:p-8">
+        <div className="px-5 pb-6 pt-14 sm:flex sm:min-h-0 sm:flex-col sm:overflow-y-auto sm:px-9 sm:py-8">
+          <div className="sm:my-auto">
           <h2 className="text-cream-50 mb-4 text-xl font-semibold">
             {heading}
           </h2>
@@ -145,6 +147,7 @@ export function AuthModal({
               onSwitch={() => setTab("login")}
             />
           )}
+          </div>
         </div>
       </div>
     </Sheet>
