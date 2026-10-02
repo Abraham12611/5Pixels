@@ -7,6 +7,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
+import { CookieSettingsButton } from "@/components/consent/cookie-settings-button";
 import { SOCIAL_LINKS, SUPPORT_EMAIL } from "@/lib/constants";
 
 const SOCIAL_ICONS: Record<
@@ -122,6 +123,7 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
           <p className="text-ink-900/70 text-xs">
             5Pixels — AI photo presets.
           </p>
+          <CookieSettingsButton className="text-ink-900/80 hover:text-ink-950 text-xs font-medium underline-offset-2 transition hover:underline" />
           <div className="flex items-center gap-5">
             {SOCIAL_LINKS.map(({ label, href }) => {
               const Icon = SOCIAL_ICONS[label];

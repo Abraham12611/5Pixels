@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPage } from "@/components/marketing/legal-page";
+import { CookieSettingsButton } from "@/components/consent/cookie-settings-button";
 import { SUPPORT_EMAIL } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -120,12 +121,23 @@ export default function CookieNoticePage() {
           id: "your-choices",
           title: "Your choices",
           body: (
-            <p>
-              You can delete or block cookies in your browser settings and clear
-              local storage at any time. Blocking the authentication cookie will
-              prevent sign-in; blocking functional cookies or storage only
-              degrades optional features.
-            </p>
+            <>
+              <p>
+                You can manage optional cookie categories at any time in our
+                preference center:{" "}
+                <CookieSettingsButton
+                  label="Open Cookie Settings"
+                  className="text-lime-400 underline underline-offset-2 hover:text-lime-300"
+                />
+                .
+              </p>
+              <p>
+                You can also delete or block cookies in your browser settings
+                and clear local storage at any time. Blocking the
+                authentication cookie will prevent sign-in; blocking functional
+                cookies or storage only degrades optional features.
+              </p>
+            </>
           ),
         },
         {

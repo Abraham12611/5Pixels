@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { isRelativePath } from "@/lib/auth/url";
+import { LEGAL_VERSION } from "@/lib/legal";
 import { claimAnonSessionToUser } from "@/lib/teaser/pending";
 import { claimReferralForUser } from "@/lib/referrals/session";
 import { syncParticipantToGrowSurf } from "@/lib/growsurf/sync";
@@ -67,9 +69,28 @@ export async function GET(request: Request) {
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("onboarding_completed_at")
+      .select("onboarding_completed_at, legal_consent_version")
       .eq("id", user.id)
       .single();
+
+    // OAuth and email-confirmation logins reach here: the "By continuing you
+    // agree" line under the OAuth button covers consent, so stamp whatever
+    // version is missing/stale. Password sign-ins gate re-acceptance in the
+    // signIn action instead.
+    if (profile && profile.legal_consent_version !== LEGAL_VERSION) {
+      try {
+        const service = createServiceClient();
+        await service
+          .from("profiles")
+          .update({
+            legal_consent_version: LEGAL_VERSION,
+            legal_consent_accepted_at: new Date().toISOString(),
+          })
+          .eq("id", user.id);
+      } catch {
+        // Consent stamping must never block auth.
+      }
+    }
     if (profile && !profile.onboarding_completed_at) {
       const onboardingUrl = new URL("/onboarding", request.url);
       if (redirectTo !== "/app") {

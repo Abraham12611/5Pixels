@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/auth/password-input";
 import { InAppBrowserNotice } from "@/components/auth/in-app-browser-notice";
+import { AuthSlideshow } from "@/components/auth/auth-slideshow";
+import { LegalConsentCheckbox } from "@/components/auth/legal-consent-checkbox";
 import {
   signIn,
   signUp,
@@ -26,11 +28,12 @@ export interface AuthModalPreset {
 }
 
 /**
- * The single contextual auth sheet (12 §3) — T2 bottom sheet on mobile via the
- * shared `Sheet`, centered on desktop. Preserves the preset intent: successful
- * login redirects to `next`, signup routes through verify-email carrying the
- * same intent. Tab switching stays inside the sheet so the interrupted task
- * is never lost.
+ * The single contextual auth surface — T2 bottom sheet on mobile via the
+ * shared `Sheet`, a two-sided dialog on desktop: product showcase slideshow
+ * on the left, auth form on the right. Preserves the preset intent:
+ * successful login redirects to `next`, signup routes through verify-email
+ * carrying the same intent. Tab switching stays inside the sheet so the
+ * interrupted task is never lost.
  */
 export function AuthModal({
   open,
@@ -54,62 +57,96 @@ export function AuthModal({
     if (open) setTab(initialTab);
   }
 
+  const heading =
+    tab === "login" ? "Sign in to generate" : "Create your account";
+
   return (
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      tier="content"
-      title={tab === "login" ? "Sign in to generate" : "Create your account"}
+      tier="full"
+      ariaLabel={heading}
       showClose
-      bodyClassName="px-5 pb-2"
+      bodyClassName="p-0 sm:p-0"
+      className="sm:max-w-4xl"
     >
-      {/* Preset context + the reason line (12 §2.3) */}
-      {preset && (
-        <div className="border-cream-100/10 mb-4 flex items-center gap-3 border-b pb-4">
-          {preset.thumbUrl && (
-            <Image
-              src={preset.thumbUrl}
-              alt=""
-              width={40}
-              height={50}
-              className="h-12 w-10 shrink-0 rounded-md object-cover"
-              unoptimized
-            />
+      <div className="sm:grid sm:h-full sm:grid-cols-[5fr_4fr]">
+        <AuthSlideshow />
+
+        <div className="px-5 pb-6 sm:flex sm:min-h-0 sm:flex-col sm:overflow-y-auto sm:p-8">
+          <h2 className="text-cream-50 mb-4 text-xl font-semibold">
+            {heading}
+          </h2>
+
+          {/* Preset context + the reason line (12 §2.3) */}
+          {preset && (
+            <div className="border-cream-100/10 mb-4 flex items-center gap-3 border-b pb-4">
+              {preset.thumbUrl && (
+                <Image
+                  src={preset.thumbUrl}
+                  alt=""
+                  width={40}
+                  height={50}
+                  className="h-12 w-10 shrink-0 rounded-md object-cover"
+                  unoptimized
+                />
+              )}
+              <div className="min-w-0">
+                <p className="text-cream-50 truncate text-sm font-semibold">
+                  Continue to {preset.name}
+                </p>
+                <p className="text-text-secondary mt-0.5 text-xs leading-relaxed">
+                  We keep your results in your Library and your credits with
+                  your account.
+                </p>
+              </div>
+            </div>
           )}
-          <div className="min-w-0">
-            <p className="text-cream-50 truncate text-sm font-semibold">
-              Continue to {preset.name}
-            </p>
-            <p className="text-text-secondary mt-0.5 text-xs leading-relaxed">
+          {!preset && (
+            <p className="text-text-secondary mb-4 text-sm leading-relaxed">
               We keep your results in your Library and your credits with your
               account.
             </p>
+          )}
+
+          <InAppBrowserNotice />
+
+          {/* Google first — fewest taps on mobile (12 §3) */}
+          <GoogleForm next={next} />
+          <p className="text-text-muted mt-2 text-center text-[11px] leading-relaxed">
+            By continuing, you agree to our{" "}
+            <Link href="/terms" className="text-lime-400 hover:underline">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="text-lime-400 hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+
+          <div
+            className="my-4 flex items-center gap-3"
+            aria-hidden="true"
+          >
+            <span className="bg-cream-100/10 h-px flex-1" />
+            <span className="text-text-muted text-xs">or</span>
+            <span className="bg-cream-100/10 h-px flex-1" />
           </div>
+
+          {tab === "login" ? (
+            <ModalLoginForm
+              next={next}
+              onSwitch={() => setTab("signup")}
+            />
+          ) : (
+            <ModalSignupForm
+              next={next}
+              onSwitch={() => setTab("login")}
+            />
+          )}
         </div>
-      )}
-      {!preset && (
-        <p className="text-text-secondary mb-4 text-sm leading-relaxed">
-          We keep your results in your Library and your credits with your
-          account.
-        </p>
-      )}
-
-      <InAppBrowserNotice />
-
-      {/* Google first — fewest taps on mobile (12 §3) */}
-      <GoogleForm next={next} />
-
-      <div className="my-4 flex items-center gap-3" aria-hidden="true">
-        <span className="bg-cream-100/10 h-px flex-1" />
-        <span className="text-text-muted text-xs">or</span>
-        <span className="bg-cream-100/10 h-px flex-1" />
       </div>
-
-      {tab === "login" ? (
-        <ModalLoginForm next={next} onSwitch={() => setTab("signup")} />
-      ) : (
-        <ModalSignupForm next={next} onSwitch={() => setTab("login")} />
-      )}
     </Sheet>
   );
 }
@@ -205,6 +242,11 @@ function ModalLoginForm({
           </p>
         )}
       </div>
+      {/* Legal docs changed since this account last accepted — re-consent
+          before signing back in. */}
+      {state?.consentRequired && (
+        <LegalConsentCheckbox id="modal-login-consent" />
+      )}
       <FormAlert state={state} />
       <Button type="submit" variant="brand" disabled={pending} className="h-12 w-full">
         {pending ? "Signing in…" : "Sign in"}
@@ -271,21 +313,11 @@ function ModalSignupForm({
           </p>
         )}
       </div>
+      <LegalConsentCheckbox id="modal-signup-consent" />
       <FormAlert state={state} />
       <Button type="submit" variant="brand" disabled={pending} className="h-12 w-full">
         {pending ? "Creating account…" : "Create account"}
       </Button>
-      <p className="text-text-muted text-center text-xs leading-relaxed">
-        By creating an account you agree to 5Pixels&apos;{" "}
-        <Link href="/terms" className="text-lime-400 hover:underline">
-          Terms of Service
-        </Link>{" "}
-        and{" "}
-        <Link href="/privacy" className="text-lime-400 hover:underline">
-          Privacy Policy
-        </Link>
-        .
-      </p>
       <p className="text-text-secondary text-center text-sm">
         Already have an account?{" "}
         <button
