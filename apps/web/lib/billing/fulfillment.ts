@@ -2,6 +2,7 @@
 
 import { createServiceClient } from "@/lib/supabase/service";
 import { createDodoClient } from "./dodo-client";
+import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
 import type { Payment, Subscription } from "dodopayments/resources/index";
 
 interface PlanRow {
@@ -547,6 +548,20 @@ export async function fulfillOneTimePayment(payment: Payment) {
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoice.id);
 
+  try {
+    await awardOrHoldReferrerShare({
+      buyerUserId: mapping.userId,
+      plan,
+      orderId: payment.payment_id,
+    });
+  } catch (err) {
+    // Referral rewards must never break fulfillment — log and move on.
+    console.error(
+      "[fulfillOneTimePayment] referral reward failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
   console.log(
     `[fulfillOneTimePayment] granted ${plan.credits_grant} credits to user ${mapping.userId}`
   );
@@ -624,6 +639,19 @@ export async function fulfillSubscriptionPayment(payment: Payment) {
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+
+  try {
+    await awardOrHoldReferrerShare({
+      buyerUserId: mapping.userId,
+      plan,
+      orderId: `${info.subscriptionId}:${info.nextBillingDate}`,
+    });
+  } catch (err) {
+    console.error(
+      "[fulfillSubscriptionPayment] referral reward failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
   console.log(
     `[fulfillSubscriptionPayment] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.nextBillingDate}`

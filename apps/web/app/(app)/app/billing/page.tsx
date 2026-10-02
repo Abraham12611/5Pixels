@@ -1,12 +1,23 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getBillingData, getCreditPeriodSummary } from "@/lib/db/billing";
+import {
+  getBillingData,
+  getCreditPeriodSummary,
+  getCreditActivity,
+} from "@/lib/db/billing";
+import { getMedianPresetCost } from "@/lib/db/explore";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getActivePlan } from "@/lib/billing/entitlements";
+import {
+  getMyReferralCode,
+  getReferralStats,
+} from "@/lib/referrals/rewards";
+import { getSiteUrl } from "@/lib/auth/url";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
+import { ReferralCard } from "@/components/promo/referral-card";
 import { CreditMeter } from "@/components/consumer/five-pixel";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,12 +50,26 @@ export default async function BillingPage() {
     redirect("/login?next=/app/billing");
   }
 
-  const [billing, balance, activePlan, summary, profile] = await Promise.all([
+  const [
+    billing,
+    balance,
+    activePlan,
+    summary,
+    profile,
+    medianCost,
+    recent,
+    referralStats,
+    referralCode,
+  ] = await Promise.all([
     getBillingData(),
     getUserCreditBalance(),
     getActivePlan(),
     getCreditPeriodSummary(),
     getMyProfile(),
+    getMedianPresetCost(),
+    getCreditActivity(4),
+    getReferralStats(),
+    getMyReferralCode(),
   ]);
 
   if (!billing) {
@@ -77,9 +102,7 @@ export default async function BillingPage() {
       null
   );
   const meterMax = activePlan?.creditsGrant ?? null;
-  const buyCreditsHref = activePlan
-    ? "/app/billing/plan#top-up"
-    : "/pricing";
+  const buyCreditsHref = "/app/billing/credits";
 
   const usageMetrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -144,13 +167,35 @@ export default async function BillingPage() {
                       ? `Resets ${renews}`
                       : "Credits don't expire while your account is active."}
               </p>
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <Button asChild variant={isOut || isLow ? "brand" : "secondary"}>
-                  <Link href={buyCreditsHref}>Buy credits</Link>
+              {/* "Enough for N more" against the median preset cost (13 §8) */}
+              {!isOut && (
+                <p className="text-text-muted mt-1 text-[13px]">
+                  Enough for ~
+                  {Math.max(1, Math.floor(balance / Math.max(1, medianCost)))}{" "}
+                  more transformation
+                  {Math.floor(balance / Math.max(1, medianCost)) === 1
+                    ? ""
+                    : "s"}
+                </p>
+              )}
+              {/* Two 50/50 actions per spec §8 */}
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <Button
+                  asChild
+                  variant={isOut || isLow ? "brand" : "secondary"}
+                  className="w-full"
+                >
+                  <Link href={buyCreditsHref}>Add credits</Link>
                 </Button>
-                <Button asChild variant="ghost">
-                  <Link href="/app/billing/credits">View usage</Link>
-                </Button>
+                {planName && billing.billingCustomerId ? (
+                  <Button asChild variant="secondary" className="w-full">
+                    <Link href="/app/billing/plan">Manage plan</Link>
+                  </Button>
+                ) : (
+                  <Button asChild variant="secondary" className="w-full">
+                    <Link href="/pricing">Compare plans</Link>
+                  </Button>
+                )}
               </div>
             </div>
             <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
@@ -188,7 +233,7 @@ export default async function BillingPage() {
                     : "Upgrade for more credits and premium looks."}
                 </p>
               </div>
-              {billing.dodoCustomerId && planName ? (
+              {billing.billingCustomerId && planName ? (
                 <form action="/api/billing/portal" method="post">
                   <Button type="submit" variant="secondary" size="sm">
                     Manage plan
@@ -223,6 +268,48 @@ export default async function BillingPage() {
             </div>
           </SettingCard>
         </div>
+
+        {/* Recent activity — ledger rows, see-all into history (13 §8) */}
+        {recent.length > 0 && (
+          <SettingCard
+            title="Recent activity"
+            action={
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/app/billing/history">See all</Link>
+              </Button>
+            }
+          >
+            <ul className="divide-cream-100/10 divide-y">
+              {recent.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0">
+                    <p className="text-cream-50 truncate text-sm font-medium">
+                      {entry.label}
+                    </p>
+                    <p className="text-text-muted mt-0.5 text-xs">
+                      {formatDate(entry.date)}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 text-sm font-medium tabular-nums",
+                      entry.kind === "released" || entry.kind === "added"
+                        ? "text-lime-300"
+                        : "text-text-secondary"
+                    )}
+                  >
+                    {entry.kind === "released"
+                      ? `+${Math.abs(entry.amount)} refunded`
+                      : `${entry.amount > 0 ? "+" : "−"}${Math.abs(entry.amount)} credits`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </SettingCard>
+        )}
 
         {/* Section nav cards */}
         <div className="grid gap-4 sm:grid-cols-3">
@@ -267,6 +354,25 @@ export default async function BillingPage() {
             </Link>
           ))}
         </div>
+
+        {/* Referral program (03 §6 — persistent billing card) */}
+        <ReferralCard
+          referralUrl={referralCode ? `${getSiteUrl()}/r/${referralCode}` : null}
+          referralCode={referralCode}
+          refereeReward="25 credits + their first transformation, free"
+          referrerReward="50 credits + 30% of their first plan's credits"
+          pendingCount={referralStats?.referredCount ?? 0}
+        />
+        {referralStats && referralStats.creditsEarned > 0 && (
+          <p className="text-text-secondary -mt-4 px-1 text-xs">
+            You&apos;ve earned{" "}
+            <span className="text-cream-100">
+              {referralStats.creditsEarned.toLocaleString()} credits
+            </span>{" "}
+            from {referralStats.paidReferrals}{" "}
+            {referralStats.paidReferrals === 1 ? "referral" : "referrals"}.
+          </p>
+        )}
       </div>
     </SettingsShell>
   );

@@ -1,7 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getSiteUrl, isRelativePath } from "@/lib/auth/url";
+import { LEGAL_VERSION } from "@/lib/legal";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -46,8 +48,30 @@ export type AuthFormState =
       errors?: Record<string, string[]>;
       /** Email the last action targeted — lets sent states offer resend. */
       sentTo?: string;
+      /**
+       * True when the account's recorded legal-consent version is behind
+       * LEGAL_VERSION — the UI reveals the acceptance checkbox and asks the
+       * user to resubmit.
+       */
+      consentRequired?: boolean;
     }
   | undefined;
+
+/** Stamp the current legal-consent version on a profile. Best-effort. */
+async function recordLegalConsent(userId: string) {
+  try {
+    const service = createServiceClient();
+    await service
+      .from("profiles")
+      .update({
+        legal_consent_version: LEGAL_VERSION,
+        legal_consent_accepted_at: new Date().toISOString(),
+      })
+      .eq("id", userId);
+  } catch {
+    // Consent recording is best-effort — never block auth over it.
+  }
+}
 
 function parseFormData<T>(schema: z.ZodSchema<T>, formData: FormData) {
   const entries = Object.fromEntries(formData.entries());
@@ -70,6 +94,15 @@ export async function signUp(
     return { success: false, errors: parsed.errors };
   }
 
+  if (formData.get("accept_terms") !== "on") {
+    return {
+      success: false,
+      message:
+        "Please accept the Terms of Service and Privacy Policy to create an account.",
+      consentRequired: true,
+    };
+  }
+
   const next = String(formData.get("next") ?? "/app");
   const safeNext = isRelativePath(next) ? next : "/app";
   const siteUrl = getSiteUrl();
@@ -80,6 +113,7 @@ export async function signUp(
     password: parsed.data.password,
     options: {
       emailRedirectTo: `${siteUrl}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+      data: { legal_consent_version: LEGAL_VERSION },
     },
   });
 
@@ -96,6 +130,12 @@ export async function signUp(
       message:
         "An account with this email already exists. Try signing in instead.",
     };
+  }
+
+  // The profiles trigger copies legal_consent_version from user metadata;
+  // this is a belt-and-braces write in case the trigger raced.
+  if (data.user) {
+    await recordLegalConsent(data.user.id);
   }
 
   redirect(
@@ -159,12 +199,50 @@ export async function signIn(
 
   if (error) {
     const raw = error.message.toLowerCase();
-    const message = raw.includes("invalid login credentials")
-      ? "Email or password is incorrect. Try again."
-      : raw.includes("email not confirmed")
-        ? "Confirm your email first — we sent a verification link."
-        : error.message;
+    const rateLimited =
+      error.status === 429 ||
+      raw.includes("rate limit") ||
+      /after \d+ seconds?/.test(raw);
+    const waitSecs = Number(raw.match(/after (\d+) seconds?/)?.[1]);
+    const message = rateLimited
+      ? `Too many attempts — try again in ${
+          Number.isFinite(waitSecs) && waitSecs > 0
+            ? `${Math.ceil(waitSecs / 60)} minute${Math.ceil(waitSecs / 60) === 1 ? "" : "s"}`
+            : "a few minutes"
+        }`
+      : raw.includes("invalid login credentials")
+        ? "Email or password is incorrect. Try again."
+        : raw.includes("email not confirmed")
+          ? "Confirm your email first — we sent a verification link."
+          : error.message;
     return { success: false, message };
+  }
+
+  // Legal re-consent: if the stored version predates LEGAL_VERSION, the
+  // sign-in only completes after an affirmative re-acceptance.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("legal_consent_version")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile && profile.legal_consent_version !== LEGAL_VERSION) {
+      if (formData.get("accept_terms") === "on") {
+        await recordLegalConsent(user.id);
+      } else {
+        await supabase.auth.signOut();
+        return {
+          success: false,
+          consentRequired: true,
+          message:
+            "We've updated our legal terms. Please review and accept them to continue.",
+        };
+      }
+    }
   }
 
   redirect(isRelativePath(next) ? next : "/app");

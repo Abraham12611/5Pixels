@@ -15,8 +15,8 @@ export function DegradedBanner() {
     >
       <div className="text-text-secondary mx-auto flex max-w-7xl items-center justify-center gap-2 px-4 py-2 text-center text-[13px] sm:px-6">
         <Warning size={14} weight="fill" className="shrink-0 text-lime-400" />
-        New transformations are temporarily paused — browsing, your library,
-        and saved looks all still work.
+        Transformations are paused right now. Browsing and your Library still
+        work.
       </div>
     </div>
   );

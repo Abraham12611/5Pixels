@@ -2,18 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import {
-  useActionState,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { X } from "@phosphor-icons/react";
+import { useActionState, useState } from "react";
+import { GoogleLogo } from "@phosphor-icons/react";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { useDialogA11y } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/auth/password-input";
+import { InAppBrowserNotice } from "@/components/auth/in-app-browser-notice";
+import { AuthSlideshow } from "@/components/auth/auth-slideshow";
+import { LegalConsentCheckbox } from "@/components/auth/legal-consent-checkbox";
 import {
   signIn,
   signUp,
@@ -30,10 +28,12 @@ export interface AuthModalPreset {
 }
 
 /**
- * P44 — contextual auth modal for gated actions. Preserves the preset intent:
- * successful login redirects to `next` (usually /app/create/<slug>), signup
- * routes through verify-email carrying the same intent. Bottom sheet on
- * mobile, centered dialog on desktop.
+ * The single contextual auth surface — T2 bottom sheet on mobile via the
+ * shared `Sheet`, a two-sided dialog on desktop: product showcase slideshow
+ * on the left, auth form on the right. Preserves the preset intent:
+ * successful login redirects to `next`, signup routes through verify-email
+ * carrying the same intent. Tab switching stays inside the sheet so the
+ * interrupted task is never lost.
  */
 export function AuthModal({
   open,
@@ -48,139 +48,109 @@ export function AuthModal({
   preset?: AuthModalPreset | null;
   initialTab?: "login" | "signup";
 }) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open) onOpenChange(false);
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [open, onOpenChange]);
-
-  if (!open) return null;
-
-  // Remounts on every open, so the tab resets without an effect.
-  return (
-    <AuthModalBody
-      overlayRef={overlayRef}
-      onOpenChange={onOpenChange}
-      next={next}
-      preset={preset}
-      initialTab={initialTab}
-    />
-  );
-}
-
-function AuthModalBody({
-  overlayRef,
-  onOpenChange,
-  next,
-  preset,
-  initialTab,
-}: {
-  overlayRef: React.RefObject<HTMLDivElement | null>;
-  onOpenChange: (open: boolean) => void;
-  next: string;
-  preset?: AuthModalPreset | null;
-  initialTab: "login" | "signup";
-}) {
   const [tab, setTab] = useState<"login" | "signup">(initialTab);
-  const panelRef = useRef<HTMLDivElement>(null);
-  // Mounted only while open — always active.
-  useDialogA11y(true, panelRef);
+  const [prevOpen, setPrevOpen] = useState(open);
+  // Reset to the caller's default tab each time the sheet opens — render-phase
+  // adjust, no effect.
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (open) setTab(initialTab);
+  }
+
+  const heading =
+    tab === "login" ? "Sign in to generate" : "Create your account";
 
   return (
-    <div
-      ref={overlayRef}
-      role="presentation"
-      className="bg-ink-950/80 fixed inset-0 z-50 flex items-end justify-center backdrop-blur-sm sm:items-center sm:p-4"
-      onClick={(e) => {
-        if (e.target === overlayRef.current) onOpenChange(false);
-      }}
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      tier="full"
+      ariaLabel={heading}
+      showClose
+      floatingClose
+      bodyClassName="p-0 sm:overflow-hidden sm:p-0"
+      className="sm:h-[min(92dvh,660px)] sm:max-w-4xl"
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={tab === "login" ? "Log in" : "Create account"}
-        tabIndex={-1}
-        className="border-cream-100/10 bg-charcoal-850 flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border outline-none sm:max-w-sm sm:rounded-2xl"
-      >
-        {/* Sticky header: context + close */}
-        <div className="border-cream-100/10 flex items-center gap-3 border-b px-5 py-4">
-          {preset?.thumbUrl && (
-            <Image
-              src={preset.thumbUrl}
-              alt=""
-              width={40}
-              height={50}
-              className="h-10 w-8 shrink-0 rounded-md object-cover"
-              unoptimized
+      <div className="sm:grid sm:h-full sm:grid-cols-2">
+        <AuthSlideshow />
+
+        <div className="px-5 pb-6 pt-14 sm:flex sm:min-h-0 sm:flex-col sm:overflow-y-auto sm:px-9 sm:py-8">
+          <div className="sm:my-auto">
+          <h2 className="text-cream-50 mb-4 text-xl font-semibold">
+            {heading}
+          </h2>
+
+          {/* Preset context + the reason line (12 §2.3) */}
+          {preset && (
+            <div className="border-cream-100/10 mb-4 flex items-center gap-3 border-b pb-4">
+              {preset.thumbUrl && (
+                <Image
+                  src={preset.thumbUrl}
+                  alt=""
+                  width={40}
+                  height={50}
+                  className="h-12 w-10 shrink-0 rounded-md object-cover"
+                  unoptimized
+                />
+              )}
+              <div className="min-w-0">
+                <p className="text-cream-50 truncate text-sm font-semibold">
+                  Continue to {preset.name}
+                </p>
+                <p className="text-text-secondary mt-0.5 text-xs leading-relaxed">
+                  We keep your results in your Library and your credits with
+                  your account.
+                </p>
+              </div>
+            </div>
+          )}
+          {!preset && (
+            <p className="text-text-secondary mb-4 text-sm leading-relaxed">
+              We keep your results in your Library and your credits with your
+              account.
+            </p>
+          )}
+
+          <InAppBrowserNotice />
+
+          {/* Google first — fewest taps on mobile (12 §3) */}
+          <GoogleForm next={next} />
+          <p className="text-text-muted mt-2 text-center text-[11px] leading-relaxed">
+            By continuing, you agree to our{" "}
+            <Link href="/terms" className="text-lime-400 hover:underline">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="text-lime-400 hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+
+          <div
+            className="my-4 flex items-center gap-3"
+            aria-hidden="true"
+          >
+            <span className="bg-cream-100/10 h-px flex-1" />
+            <span className="text-text-muted text-xs">or</span>
+            <span className="bg-cream-100/10 h-px flex-1" />
+          </div>
+
+          {tab === "login" ? (
+            <ModalLoginForm
+              next={next}
+              onSwitch={() => setTab("signup")}
+            />
+          ) : (
+            <ModalSignupForm
+              next={next}
+              onSwitch={() => setTab("login")}
             />
           )}
-          <div className="min-w-0 flex-1">
-            <p className="text-cream-50 truncate text-sm font-semibold">
-              {preset?.name ?? "Welcome to 5Pixels"}
-            </p>
-            <p className="text-text-muted text-xs">
-              {preset
-                ? tab === "login"
-                  ? "You'll return to this look after signing in."
-                  : "Create an account to try this look."
-                : "Sign in to keep creating."}
-            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            aria-label="Close"
-            className="text-text-muted hover:text-cream-50 focus-visible:ring-lime-500 flex h-9 w-9 items-center justify-center rounded-md transition focus-visible:ring-2 focus-visible:outline-none"
-          >
-            <X size={18} weight="bold" />
-          </button>
-        </div>
-
-        {/* Tab switch */}
-        <div className="px-5 pt-4">
-          <div
-            role="tablist"
-            aria-label="Authentication"
-            className="bg-charcoal-800 grid grid-cols-2 rounded-lg p-1"
-          >
-            {(
-              [
-                { id: "login", label: "Log in" },
-                { id: "signup", label: "Create account" },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                role="tab"
-                aria-selected={tab === t.id}
-                onClick={() => setTab(t.id)}
-                className={cn(
-                  "h-8 rounded-md text-sm font-medium transition",
-                  tab === t.id
-                    ? "bg-charcoal-600 text-cream-50"
-                    : "text-text-muted hover:text-cream-100"
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="overflow-y-auto px-5 pt-4 pb-6">
-          {tab === "login" ? (
-            <ModalLoginForm next={next} onSwitch={() => setTab("signup")} />
-          ) : (
-            <ModalSignupForm next={next} onSwitch={() => setTab("login")} />
-          )}
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -188,24 +158,19 @@ const googleAction = async (formData: FormData) => {
   await signInWithGoogle(undefined, formData);
 };
 
-function GoogleButton({ disabled }: { disabled: boolean }) {
+function GoogleForm({ next }: { next: string }) {
   return (
-    <>
-      <div className="flex items-center gap-3" aria-hidden="true">
-        <span className="bg-cream-100/10 h-px flex-1" />
-        <span className="text-text-muted text-xs">or</span>
-        <span className="bg-cream-100/10 h-px flex-1" />
-      </div>
+    <form action={googleAction}>
+      <input type="hidden" name="next" value={next} />
       <Button
         type="submit"
-        formAction={googleAction}
         variant="secondary"
-        disabled={disabled}
-        className="w-full"
+        className="h-12 w-full gap-2"
       >
+        <GoogleLogo size={18} weight="bold" aria-hidden />
         Continue with Google
       </Button>
-    </>
+    </form>
   );
 }
 
@@ -247,10 +212,11 @@ function ModalLoginForm({
           id="modal-email"
           name="email"
           type="email"
+          inputMode="email"
+          enterKeyHint="next"
           placeholder="you@example.com"
           required
           autoComplete="email"
-          autoFocus
         />
         {state?.errors?.email && (
           <p className="text-error text-[13px]" role="alert">
@@ -268,26 +234,34 @@ function ModalLoginForm({
             Forgot password?
           </Link>
         </div>
-        <PasswordInput id="modal-password" autoComplete="current-password" />
+        <PasswordInput
+          id="modal-password"
+          autoComplete="current-password"
+          enterKeyHint="go"
+        />
         {state?.errors?.password && (
           <p className="text-error text-[13px]" role="alert">
             {state.errors.password.join(" ")}
           </p>
         )}
       </div>
+      {/* Legal docs changed since this account last accepted — re-consent
+          before signing back in. */}
+      {state?.consentRequired && (
+        <LegalConsentCheckbox id="modal-login-consent" />
+      )}
       <FormAlert state={state} />
-      <Button type="submit" variant="brand" disabled={pending} className="w-full">
-        {pending ? "Logging in…" : "Log in"}
+      <Button type="submit" variant="brand" disabled={pending} className="h-12 w-full">
+        {pending ? "Signing in…" : "Sign in"}
       </Button>
-      <GoogleButton disabled={pending} />
       <p className="text-text-secondary text-center text-sm">
-        New to 5Pixels?{" "}
+        New here?{" "}
         <button
           type="button"
           onClick={onSwitch}
           className="font-medium text-lime-400 hover:underline"
         >
-          Sign up
+          Create an account
         </button>
       </p>
     </form>
@@ -315,10 +289,11 @@ function ModalSignupForm({
           id="modal-su-email"
           name="email"
           type="email"
+          inputMode="email"
+          enterKeyHint="next"
           placeholder="you@example.com"
           required
           autoComplete="email"
-          autoFocus
         />
         {state?.errors?.email && (
           <p className="text-error text-[13px]" role="alert">
@@ -331,24 +306,21 @@ function ModalSignupForm({
         <PasswordInput
           id="modal-su-password"
           autoComplete="new-password"
+          enterKeyHint="go"
           minLength={8}
+          showChecklist
         />
-        <p className="text-text-muted text-xs">At least 8 characters.</p>
         {state?.errors?.password && (
           <p className="text-error text-[13px]" role="alert">
             {state.errors.password.join(" ")}
           </p>
         )}
       </div>
+      <LegalConsentCheckbox id="modal-signup-consent" />
       <FormAlert state={state} />
-      <Button type="submit" variant="brand" disabled={pending} className="w-full">
+      <Button type="submit" variant="brand" disabled={pending} className="h-12 w-full">
         {pending ? "Creating account…" : "Create account"}
       </Button>
-      <p className="text-text-muted text-center text-xs leading-relaxed">
-        By creating an account you agree to 5Pixels&apos; terms and privacy
-        practices.
-      </p>
-      <GoogleButton disabled={pending} />
       <p className="text-text-secondary text-center text-sm">
         Already have an account?{" "}
         <button
@@ -356,7 +328,7 @@ function ModalSignupForm({
           onClick={onSwitch}
           className="font-medium text-lime-400 hover:underline"
         >
-          Log in
+          Sign in
         </button>
       </p>
     </form>

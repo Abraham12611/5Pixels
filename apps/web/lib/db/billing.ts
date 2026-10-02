@@ -26,7 +26,7 @@ export async function getBillingData() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("dodo_customer_id")
+    .select("dodo_customer_id, polar_customer_id, creem_customer_id")
     .eq("id", user.id)
     .single();
 
@@ -60,7 +60,10 @@ export async function getBillingData() {
   return {
     userId: user.id,
     email: user.email ?? null,
-    dodoCustomerId: profile?.dodo_customer_id as string | undefined,
+    /** True when the user has a customer record with any billing provider. */
+    billingCustomerId: (profile?.creem_customer_id ??
+      profile?.polar_customer_id ??
+      profile?.dodo_customer_id) as string | undefined,
     activeSubscription: activeSubscription ?? undefined,
     transactions: transactions ?? [],
     invoices: (invoices ?? []) as unknown as InvoiceWithPlan[],
@@ -240,12 +243,15 @@ export async function getSavedPaymentMethods(): Promise<{
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("dodo_customer_id")
+    .select("dodo_customer_id, polar_customer_id, creem_customer_id")
     .eq("id", user.id)
     .single();
 
   const customerId = profile?.dodo_customer_id as string | undefined;
-  if (!customerId) return { methods: [], portalAvailable: false };
+  const portalAvailable = Boolean(
+    profile?.creem_customer_id ?? profile?.polar_customer_id ?? customerId
+  );
+  if (!customerId) return { methods: [], portalAvailable };
 
   try {
     const client = createDodoClient();

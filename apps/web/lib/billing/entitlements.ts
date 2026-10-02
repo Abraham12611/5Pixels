@@ -17,6 +17,57 @@ export interface EntitlementResult {
   reason: string;
 }
 
+export type UserTier = "visitor" | "free" | "paid_active" | "paid_exhausted";
+
+/**
+ * Monotonic: once a user has ever paid (paid invoice) or held any subscription
+ * row — including cancelled/expired — this stays true. Used to decide whether
+ * monetization UI shows scarcity (never to first-timers) vs. normal surfaces.
+ */
+export async function hasEverPaid(userId?: string): Promise<boolean> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) return false;
+
+  const [invoiceCount, subscriptionCount] = await Promise.all([
+    supabase
+      .from("invoices")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", effectiveUserId)
+      .eq("status", "paid"),
+    supabase
+      .from("subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", effectiveUserId),
+  ]);
+
+  return (
+    (invoiceCount.count ?? 0) > 0 || (subscriptionCount.count ?? 0) > 0
+  );
+}
+
+export async function getUserTier(userId?: string): Promise<UserTier> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) return "visitor";
+
+  const [everPaid, activePlan, balance] = await Promise.all([
+    hasEverPaid(effectiveUserId),
+    getActivePlan(effectiveUserId),
+    getAvailableBalance(effectiveUserId),
+  ]);
+
+  if (!everPaid && balance <= 0 && !activePlan) return "free";
+  if (activePlan || balance > 0) return "paid_active";
+  return "paid_exhausted";
+}
+
 export async function getAvailableBalance(userId?: string): Promise<number> {
   const supabase = await createClient();
   const {
@@ -167,7 +218,8 @@ export async function canPurchaseTrial(
     };
   }
 
-  // Existing weekly trial blocks a second one.
+  // Any prior trial subscription — weekly or annual — blocks another trial.
+  // One free trial per user across all plan types.
   const { count: trialCount } = await supabase
     .from("subscriptions")
     .select("id", { count: "exact", head: true })
@@ -177,7 +229,81 @@ export async function canPurchaseTrial(
   if ((trialCount ?? 0) > 0) {
     return {
       allowed: false,
-      reason: "You have already used a weekly trial.",
+      reason: "You have already used a free trial.",
+    };
+  }
+
+  return { allowed: true, reason: "" };
+}
+
+/**
+ * Weekly passes are repurchasable for anyone who has never held a real
+ * subscription ("Get another week" — 06 §6.2). Blocked while any subscription
+ * is active and forever after any monthly/annual history or non-weekly paid
+ * invoice — at that point the user is on the plan/top-up ladder instead.
+ */
+export async function canPurchaseWeeklyPass(
+  userId?: string
+): Promise<EntitlementResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) {
+    return { allowed: false, reason: "Please sign in to continue." };
+  }
+
+  const { count: activeCount } = await supabase
+    .from("subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", effectiveUserId)
+    .in("status", ["active", "past_due"])
+    .gte("current_period_end", new Date().toISOString());
+
+  if ((activeCount ?? 0) > 0) {
+    return {
+      allowed: false,
+      reason: "You already have an active plan — weekly passes can't stack.",
+    };
+  }
+
+  // Any non-weekly history (a real plan or a non-weekly paid invoice)
+  // graduates the user off weekly passes — top-ups and plans are theirs.
+  const [{ data: subs }, { data: paidInvoices }] = await Promise.all([
+    supabase
+      .from("subscriptions")
+      .select("plan_id")
+      .eq("user_id", effectiveUserId),
+    supabase
+      .from("invoices")
+      .select("plan_id")
+      .eq("user_id", effectiveUserId)
+      .eq("status", "paid"),
+  ]);
+
+  const planIds = [
+    ...new Set(
+      [...(subs ?? []), ...(paidInvoices ?? [])]
+        .map((r) => r.plan_id as string | null)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  if (planIds.length === 0) return { allowed: true, reason: "" };
+
+  const { data: planRows } = await supabase
+    .from("plans")
+    .select("id, type")
+    .in("id", planIds);
+
+  const graduated = (planRows ?? []).some(
+    (p) => p.type !== "weekly_trial" && p.type !== "extra_credit"
+  );
+
+  if (graduated) {
+    return {
+      allowed: false,
+      reason: "Weekly passes are only for first-time plans.",
     };
   }
 
@@ -187,19 +313,11 @@ export async function canPurchaseTrial(
 export async function canPurchaseExtraCredits(
   userId?: string
 ): Promise<EntitlementResult> {
-  const effectiveUserId = userId;
-  if (!effectiveUserId) {
+  // Top-ups are open to any signed-in user — the dedicated credits surface
+  // sells them to subscribers, lapsed users, and free users alike.
+  if (!userId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
-
-  const isSubscriber = await isMonthlySubscriber(effectiveUserId);
-  if (!isSubscriber) {
-    return {
-      allowed: false,
-      reason: "Extra credits are only available to active monthly subscribers.",
-    };
-  }
-
   return { allowed: true, reason: "" };
 }
 

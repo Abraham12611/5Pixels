@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearRecentPresets,
   getRecentPresets,
   RECENT_PRESETS_KEY,
   recordRecentPreset,
@@ -46,5 +47,12 @@ describe("recents", () => {
     expect(getRecentPresets()).toEqual([
       { slug: "ok", name: "OK", thumbUrl: null },
     ]);
+  });
+
+  it("clears all recents", () => {
+    recordRecentPreset({ slug: "a", name: "Alpha", thumbUrl: null });
+    recordRecentPreset({ slug: "b", name: "Beta", thumbUrl: null });
+    clearRecentPresets();
+    expect(getRecentPresets()).toEqual([]);
   });
 });

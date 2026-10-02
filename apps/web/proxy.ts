@@ -24,6 +24,23 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Onboarding gate (08 §5): signed-in users who haven't finished the
+  // setup flow go through /onboarding before any /app surface. Existing
+  // users are backfilled by the migration and never see this. The anon
+  // teaser path (/app/create) is unaffected — it has no session.
+  if (user && pathname.startsWith("/app")) {
+    const { data: onboardingProfile } = await supabase
+      .from("profiles")
+      .select("onboarding_completed_at")
+      .eq("id", user.id)
+      .single();
+    if (!onboardingProfile?.onboarding_completed_at) {
+      const url = new URL("/onboarding", request.url);
+      url.searchParams.set("next", pathname + request.nextUrl.search);
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (pathname.startsWith("/admin")) {
     if (!user) {
       return NextResponse.redirect(new URL("/login", request.url));

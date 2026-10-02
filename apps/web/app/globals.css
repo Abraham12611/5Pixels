@@ -12,7 +12,7 @@
   --color-cream-100: #eee7da;
   --color-text-primary: #f7f2e8;
   --color-text-secondary: #a6aaa4;
-  --color-text-muted: #777d77;
+  --color-text-muted: #828a82;
 
   --color-lime-500: #82ea3a;
   --color-lime-400: #96f04c;
@@ -22,6 +22,9 @@
   --color-warning: #f5c84c;
   --color-error: #ff5b55;
   --color-success: #55d982;
+
+  --color-promo: #ff4d96;
+  --color-promo-soft: rgb(255 77 150 / 0.15);
 
   --color-background: var(--color-ink-950);
   --color-foreground: var(--color-text-primary);

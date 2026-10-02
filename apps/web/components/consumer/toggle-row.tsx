@@ -13,6 +13,7 @@ interface ToggleRowProps {
   settingKey?:
     | "notifyGenerationCompleted"
     | "notifyBilling"
+    | "notificationsPaused"
     | "productUpdatesOptIn"
     | "marketingOptIn";
   defaultChecked?: boolean;

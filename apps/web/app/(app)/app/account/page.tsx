@@ -10,12 +10,23 @@ import { getActivePlan } from "@/lib/billing/entitlements";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { EditAccountButton } from "@/components/consumer/edit-account-dialog";
+import { signOut } from "@/app/actions/auth";
+import { SITE_VERSION } from "@/lib/site-version";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 import {
   User,
   LockSimple,
   ShieldCheck,
   Coins,
+  Crown,
+  Receipt,
+  Bell,
+  Question,
+  EnvelopeSimple,
+  SignOut,
+  Trash,
   CaretRight,
+  Gift,
 } from "@phosphor-icons/react/dist/ssr";
 
 export default async function AccountPage() {
@@ -34,6 +45,7 @@ export default async function AccountPage() {
     getUserCreditBalance(),
     getActivePlan(),
   ]);
+
 
   if (!profile) {
     redirect("/app");
@@ -69,7 +81,166 @@ export default async function AccountPage() {
 
   return (
     <SettingsShell userName={name} userEmail={email}>
-      <div className="space-y-6">
+      {/* Mobile: grouped index — 56px rows, group headers, labelled groups
+          per 14 §2 (desktop keeps the card grid below) */}
+      <div className="lg:hidden">
+        {/* Identity row → profile */}
+        <Link
+          href="/app/account/profile"
+          className="focus-visible:ring-lime-500/70 -mx-2 flex items-center gap-4 rounded-xl px-2 py-3 transition-colors hover:bg-cream-100/5 focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <div className="border-cream-100/10 bg-charcoal-800 relative h-14 w-14 shrink-0 overflow-hidden rounded-full border">
+            {avatarUrl ? (
+              <Image
+                src={avatarUrl}
+                alt=""
+                fill
+                unoptimized
+                className="object-cover"
+                sizes="56px"
+              />
+            ) : (
+              <span className="text-text-muted flex h-full w-full items-center justify-center text-lg font-semibold">
+                {name.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-cream-50 truncate text-base font-semibold">
+              {name}
+            </p>
+            <p className="text-text-secondary truncate text-sm">{email}</p>
+          </div>
+          <CaretRight size={16} className="text-text-muted shrink-0" />
+        </Link>
+
+        {[
+          {
+            heading: "Credits & billing",
+            rows: [
+              {
+                href: "/app/billing",
+                icon: Coins,
+                label: "Balance",
+                value: `${balance} credits`,
+              },
+              {
+                href: "/app/billing/plan",
+                icon: Crown,
+                label: "Plan",
+                value: activePlan ? activePlan.name : "Free",
+              },
+              {
+                href: "/app/billing/history",
+                icon: Receipt,
+                label: "Payment history",
+                value: "",
+              },
+            ],
+          },
+          {
+            heading: "Account",
+            rows: [
+              {
+                href: "/app/account/profile",
+                icon: User,
+                label: "Profile",
+                value: "",
+              },
+              {
+                href: "/app/account/security",
+                icon: ShieldCheck,
+                label: "Security",
+                value: "",
+              },
+              {
+                href: "/app/account/notifications",
+                icon: Bell,
+                label: "Notifications",
+                value: "",
+              },
+              {
+                href: "/app/account/privacy",
+                icon: LockSimple,
+                label: "Privacy & data",
+                value: "",
+              },
+            ],
+          },
+          {
+            heading: "Support",
+            rows: [
+              {
+                href: "/pricing#faq",
+                icon: Question,
+                label: "Help & FAQ",
+                value: "",
+              },
+              {
+                href: `mailto:${SUPPORT_EMAIL}`,
+                icon: EnvelopeSimple,
+                label: "Contact support",
+                value: "",
+              },
+            ],
+          },
+        ].map((group) => (
+          <section key={group.heading} className="mt-6">
+            <h2 className="text-text-muted text-[11px] font-semibold uppercase tracking-wider">
+              {group.heading}
+            </h2>
+            <div className="border-cream-100/10 divide-cream-100/10 bg-charcoal-850 mt-2 divide-y rounded-xl border">
+              {group.rows.map((row) => (
+                <Link
+                  key={row.href + row.label}
+                  href={row.href}
+                  className="focus-visible:ring-lime-500/70 flex min-h-14 items-center gap-3 px-4 transition-colors hover:bg-cream-100/[0.04] focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  <row.icon
+                    size={18}
+                    className="text-text-secondary shrink-0"
+                  />
+                  <span className="text-cream-50 flex-1 text-sm font-medium">
+                    {row.label}
+                  </span>
+                  {row.value && (
+                    <span className="text-text-muted text-sm">
+                      {row.value}
+                    </span>
+                  )}
+                  <CaretRight
+                    size={14}
+                    className="text-text-muted shrink-0"
+                  />
+                </Link>
+              ))}
+            </div>
+          </section>
+        ))}
+
+        {/* Sign out + danger row + version */}
+        <div className="mt-8 space-y-4 pb-4">
+          <form action={signOut}>
+            <button
+              type="submit"
+              className="text-cream-50 hover:text-cream-100 flex w-full items-center gap-3 py-1 text-sm font-medium transition-colors"
+            >
+              <SignOut size={18} className="text-text-secondary" />
+              Sign out
+            </button>
+          </form>
+          <Link
+            href="/app/account/delete"
+            className="text-error/80 hover:text-error flex items-center gap-3 py-1 text-sm transition-colors"
+          >
+            <Trash size={18} className="text-error/60" weight="regular" />
+            Delete account
+          </Link>
+          <p className="text-text-muted text-xs">v{SITE_VERSION}</p>
+        </div>
+      </div>
+
+      <div className="hidden space-y-6 lg:block">
         {/* Identity header */}
         <div className="flex items-center gap-4">
           <div className="border-cream-100/10 bg-charcoal-800 relative h-14 w-14 shrink-0 overflow-hidden rounded-full border">
@@ -186,6 +357,30 @@ export default async function AccountPage() {
                     <p className="text-text-secondary mt-0.5 text-xs">
                       {activePlan ? activePlan.name : "Free"} ·{" "}
                       {balance} credits
+                    </p>
+                  </div>
+                </div>
+                <CaretRight
+                  size={16}
+                  className="text-text-muted group-hover:text-cream-100 mt-1 transition-colors"
+                />
+              </div>
+            </SettingCard>
+          </Link>
+
+          <Link href="/app/referrals" className="group sm:col-span-2">
+            <SettingCard className="group-hover:border-lime-500/30 h-full transition-colors">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="bg-lime-500/10 text-lime-400 rounded-[10px] p-2.5">
+                    <Gift size={18} weight="regular" />
+                  </span>
+                  <div>
+                    <p className="text-cream-50 text-sm font-medium">
+                      Refer &amp; earn
+                    </p>
+                    <p className="text-text-secondary mt-0.5 text-xs">
+                      Share your link and earn credits when friends join
                     </p>
                   </div>
                 </div>

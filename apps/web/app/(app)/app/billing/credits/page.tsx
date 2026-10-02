@@ -3,10 +3,12 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getActivePlan } from "@/lib/billing/entitlements";
+import { getPlansForPurchase } from "@/lib/db/plans";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
 import { CreditMeter } from "@/components/consumer/five-pixel";
+import { CreditTopUp } from "@/components/consumer/credit-top-up";
 import { Button } from "@/components/ui/button";
 import { Coins } from "@phosphor-icons/react/dist/ssr";
 import { cn } from "@/lib/utils";
@@ -42,11 +44,12 @@ export default async function BillingCreditsPage() {
     redirect("/login?next=/app/billing/credits");
   }
 
-  const [summary, activity, activePlan, profile] = await Promise.all([
+  const [summary, activity, activePlan, profile, plans] = await Promise.all([
     getCreditPeriodSummary(),
     getCreditActivity(),
     getActivePlan(),
     getMyProfile(),
+    getPlansForPurchase(),
   ]);
 
   const name =
@@ -59,6 +62,18 @@ export default async function BillingCreditsPage() {
   const meterMax = activePlan?.creditsGrant ?? null;
   const resets = formatDate(summary?.periodEnd ?? null);
   const isOut = balance <= 0;
+
+  // Basis for the "≈ up to N transformations" line on every top-up option:
+  // the cheapest active transformation in the catalog.
+  const { data: cheapest } = await supabase
+    .from("product_versions")
+    .select("credit_cost")
+    .eq("state", "active")
+    .order("credit_cost", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
 
   const metrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -118,11 +133,7 @@ export default async function BillingCreditsPage() {
               </p>
               <div className="mt-5">
                 <Button asChild variant={isOut ? "brand" : "secondary"}>
-                  <Link
-                    href={activePlan ? "/app/billing/plan#top-up" : "/pricing"}
-                  >
-                    Buy credits
-                  </Link>
+                  <Link href="#buy">Buy credits</Link>
                 </Button>
               </div>
             </div>
@@ -141,6 +152,22 @@ export default async function BillingCreditsPage() {
             </div>
           </div>
         </SettingCard>
+
+        {/* Buy credits — any amount or a pack; every option says what it buys */}
+        {extraCreditPlan && (
+          <div id="buy" className="scroll-mt-24">
+            <SettingCard
+              title="Buy credits"
+              description="Pick any amount or a pack — 1 credit for every $0.01. Top-up credits never expire, and a failed transformation releases its credits back automatically."
+            >
+              <CreditTopUp
+                planId={extraCreditPlan.id}
+                checkoutReady={extraCreditPlan.checkout_ready}
+                creditsPerTransformation={creditsPerTransformation}
+              />
+            </SettingCard>
+          </div>
+        )}
 
         {/* Metric tiles */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

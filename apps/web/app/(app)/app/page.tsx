@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
+import { ArrowCounterClockwise, ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import { createClient } from "@/lib/supabase/server";
 import {
   getActiveCategories,
@@ -11,11 +11,24 @@ import {
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { isFailureStatus, isTerminalStatus } from "@/lib/generation/stages";
 import { mapSafeGenerationRow } from "@/lib/generation/map";
+import { getPendingGenerationForUser } from "@/lib/teaser/pending";
+import { getUserCreditBalance } from "@/lib/generation/balance";
+import { getTakeoverStateForUser } from "@/lib/offers/engine";
+import { getPlansForPurchase } from "@/lib/db/plans";
+import { getMyReferralCode } from "@/lib/referrals/rewards";
+import { PendingGenerationCard } from "@/components/consumer/pending-generation-card";
+import { OfferTakeoverGate } from "@/components/consumer/offer-takeover-gate";
 import { ProductCard } from "@/components/consumer/product-card";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
+import { MobileSection } from "@/components/consumer/mobile/mobile-section";
+import {
+  MobileRail,
+  MobileRailMoreCard,
+} from "@/components/consumer/mobile/mobile-rail";
 import { cn } from "@/lib/utils";
 import type { PublicProductSummary } from "@/types/catalog";
 
-const RAIL_SIZE = 10;
+const RAIL_SIZE = 6;
 
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -52,48 +65,39 @@ function generationStatusChip(status: string): {
   return { label: status, className: "bg-cream-100/10 text-cream-100" };
 }
 
-function SectionHeader({
-  title,
-  href,
-  action,
+function ProductRail({
+  products,
+  label,
+  moreHref,
+  favoriteIds,
 }: {
-  title: string;
-  href?: string;
-  action?: string;
+  products: PublicProductSummary[];
+  label: string;
+  moreHref: string;
+  favoriteIds?: Set<string>;
 }) {
   return (
-    <div className="mb-4 flex items-baseline justify-between gap-4">
-      <h2 className="text-cream-50 text-lg font-semibold">{title}</h2>
-      {href && action && (
-        <Link
-          href={href}
-          className="text-text-secondary hover:text-lime-400 inline-flex items-center gap-1 text-[13px] font-medium transition-colors"
-        >
-          {action}
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      )}
-    </div>
-  );
-}
-
-function ProductRail({ products }: { products: PublicProductSummary[] }) {
-  return (
-    <div className="scrollbar-none -mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
+    <MobileRail label={label} itemClassName="w-44 sm:w-52">
       {products.map((product) => (
         <ProductCard
           key={product.id}
           product={product}
           isAuthenticated
           variant="rail"
+          initialIsFavorite={favoriteIds?.has(product.id)}
           returnPath="/app"
         />
       ))}
-    </div>
+      <MobileRailMoreCard href={moreHref} />
+    </MobileRail>
   );
 }
 
-export default async function DiscoverPage() {
+export default async function DiscoverPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -104,19 +108,55 @@ export default async function DiscoverPage() {
     redirect("/login");
   }
 
-  const [generationsResult, trendingResult, newestResult, categories, favoriteIds] =
-    await Promise.all([
-      supabase.rpc("get_user_generations"),
-      getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, RAIL_SIZE),
-      getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, RAIL_SIZE),
-      getActiveCategories(),
-      getUserFavoriteProductIds(),
-    ]);
+  // Admin preview: ?offer_preview=<campaignSlug>[:<variant>] — ignored for
+  // non-admins inside getTakeoverStateForUser.
+  const params = await searchParams;
+  const offerPreview =
+    typeof params?.offer_preview === "string" ? params.offer_preview : undefined;
 
-  const generations = ((generationsResult.data ?? []) as Record<
-    string,
-    unknown
-  >[])
+  const [
+    generationsResult,
+    trendingResult,
+    newestResult,
+    categories,
+    favoriteIds,
+    pending,
+    balance,
+    takeover,
+    purchasePlans,
+    referralCode,
+  ] = await Promise.all([
+    supabase.rpc("get_user_generations"),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "featured",
+      1,
+      RAIL_SIZE
+    ),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "newest",
+      1,
+      RAIL_SIZE
+    ),
+    getActiveCategories(),
+    getUserFavoriteProductIds(),
+    getPendingGenerationForUser(),
+    getUserCreditBalance(),
+    getTakeoverStateForUser(offerPreview),
+    getPlansForPurchase(),
+    getMyReferralCode(),
+  ]);
+
+  const generations = (
+    (generationsResult.data ?? []) as Record<string, unknown>[]
+  )
     .map(mapSafeGenerationRow)
     .slice(0, 8);
   const trending = trendingResult.data ?? [];
@@ -128,11 +168,11 @@ export default async function DiscoverPage() {
       ? await getPublicProducts(
           undefined,
           undefined,
-          favoriteIds.slice(0, 4),
+          favoriteIds.slice(0, RAIL_SIZE),
           undefined,
           "featured",
           1,
-          4
+          RAIL_SIZE
         )
       : { data: [] };
   const favorites = favoritesResult.data ?? [];
@@ -152,6 +192,7 @@ export default async function DiscoverPage() {
       return {
         id: gen.id,
         productName: gen.productName,
+        productSlug: gen.productSlug,
         thumb,
         status: gen.status,
         when: relativeTime(gen.createdAt),
@@ -164,143 +205,193 @@ export default async function DiscoverPage() {
 
   return (
     <main className="flex flex-1 flex-col">
-      <div className="mx-auto w-full max-w-7xl space-y-10 px-4 py-8 sm:px-6">
-        {isNewUser ? (
-          /* Orientation for a brand-new user */
-          <section className="shadow-border from-charcoal-850 to-charcoal-850 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">
-            <h1 className="text-cream-50 max-w-lg text-2xl font-bold sm:text-3xl">
-              Pick a look. We&apos;ll handle the rest.
-            </h1>
-            <p className="text-text-secondary mt-3 max-w-md text-sm sm:text-base">
-              Every preset is a complete transformation — add one photo, adjust
-              a couple of options, and get a finished result. No prompts, no
-              settings rabbit holes.
-            </p>
-            <Link
-              href="/explore"
-              className="bg-lime-400 text-ink-950 hover:bg-lime-300 mt-6 inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold transition-colors"
-            >
-              Browse looks
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </section>
-        ) : (
-          <section>
-            <SectionHeader
-              title="Continue"
-              href="/app/library"
-              action="View all"
-            />
-            <div className="scrollbar-none -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
-              {continueItems.map((item) => {
-                const chip = generationStatusChip(item.status);
-                return (
-                  <Link
-                    key={item.id}
-                    href={item.href}
-                    className="group shadow-border hover:shadow-border-hover w-36 shrink-0 snap-start overflow-hidden rounded-xl bg-charcoal-850 transition-shadow sm:w-40"
-                  >
-                    <div className="bg-charcoal-800 relative aspect-square overflow-hidden">
-                      {item.thumb ? (
-                        <Image
-                          src={item.thumb}
-                          alt=""
-                          fill
-                          className="object-cover"
-                          unoptimized
-                          sizes="160px"
-                        />
-                      ) : (
-                        <div className="bg-charcoal-700 h-full w-full" />
-                      )}
-                      <span
-                        className={cn(
-                          "absolute left-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur-sm",
-                          chip.className
-                        )}
-                      >
-                        {chip.label}
-                      </span>
-                    </div>
-                    <div className="p-2.5">
-                      <p className="text-cream-50 truncate text-[13px] font-medium">
-                        {item.productName}
-                      </p>
-                      <p className="text-text-muted mt-0.5 text-[11px]">
-                        {item.when}
-                      </p>
-                    </div>
-                  </Link>
-                );
-              })}
+      {takeover.show && takeover.assignment && (
+        <OfferTakeoverGate
+          assignment={takeover.assignment}
+          plans={purchasePlans}
+          pendingProductName={pending?.productName}
+          referralCode={referralCode ?? undefined}
+          adminVariants={takeover.adminVariants}
+        />
+      )}
+      <PresetQuickViewHost
+        isAuthenticated
+        favoriteIds={favoriteIds}
+        returnPath="/app"
+      >
+        <div className="mx-auto w-full max-w-7xl py-8">
+          {pending && (
+            <div className="px-5 pb-4">
+              <PendingGenerationCard
+                pendingId={pending.id}
+                productName={pending.productName}
+                productSlug={pending.productSlug}
+                creditCost={pending.creditCost}
+                balance={balance}
+              />
             </div>
-          </section>
-        )}
-
-        {trending.length > 0 && (
-          <section>
-            <SectionHeader
-              title="Trending now"
-              href="/explore"
-              action="Explore all"
-            />
-            <ProductRail products={trending} />
-          </section>
-        )}
-
-        {newest.length > 0 && (
-          <section>
-            <SectionHeader
-              title="New looks"
-              href="/explore?sort=newest"
-              action="See what's new"
-            />
-            <ProductRail products={newest} />
-          </section>
-        )}
-
-        {favorites.length > 0 && (
-          <section>
-            <SectionHeader
-              title="Your saved looks"
-              href="/app/favorites"
-              action="View favorites"
-            />
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {favorites.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  isAuthenticated
-                  initialIsFavorite={favoriteIdSet.has(product.id)}
-                  returnPath="/app"
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {categories.length > 0 && (
-          <section>
-            <SectionHeader
-              title="Browse by category"
-              href="/categories"
-              action="All categories"
-            />
-            <div className="flex flex-wrap gap-2">
-              {categories.map((category) => (
+          )}
+          {isNewUser ? (
+            /* Orientation for a brand-new user */
+            <div className="px-5">
+              <section className="shadow-border from-charcoal-850 to-charcoal-850 relative overflow-hidden rounded-xl bg-gradient-to-br p-8 sm:p-10">
+                <h1 className="text-cream-50 max-w-lg text-2xl font-bold sm:text-3xl">
+                  Pick a look. We&apos;ll handle the rest.
+                </h1>
+                <p className="text-text-secondary mt-3 max-w-md text-sm sm:text-base">
+                  Every preset is a complete transformation — add one photo,
+                  adjust a couple of options, and get a finished result. No
+                  prompts, no settings rabbit holes.
+                </p>
                 <Link
-                  key={category.slug}
-                  href={`/explore?category=${category.slug}`}
-                  className="shadow-border hover:shadow-border-hover text-text-secondary hover:text-cream-50 rounded-lg bg-charcoal-800/80 px-3.5 py-2 text-[13px] font-medium transition-shadow"
+                  href="/explore"
+                  className="text-ink-950 mt-6 inline-flex items-center gap-2 rounded-md bg-lime-400 px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-lime-300"
                 >
-                  {category.name}
+                  Browse looks
+                  <ArrowRight className="h-4 w-4" />
                 </Link>
-              ))}
+              </section>
             </div>
-          </section>
-        )}
-      </div>
+          ) : (
+            <MobileSection
+              title="Continue"
+              seeAllHref="/app/library"
+              seeAllLabel="View all"
+              bleed
+            >
+              <MobileRail label="Continue editing" itemClassName="w-36 sm:w-40">
+                {continueItems.map((item) => {
+                  const chip = generationStatusChip(item.status);
+                  const failed = isFailureStatus(item.status);
+                  return (
+                    <div
+                      key={item.id}
+                      className="group shadow-border hover:shadow-border-hover bg-charcoal-850 relative w-full overflow-hidden rounded-xl transition-shadow"
+                    >
+                      {/* Stretched link keeps the card tappable while Retry
+                          stays independently clickable (5.7) */}
+                      <Link
+                        href={item.href}
+                        prefetch={false}
+                        aria-label={`${item.productName} — ${chip.label}`}
+                        className="absolute inset-0 z-10 rounded-xl"
+                      />
+                      <div className="bg-charcoal-800 relative aspect-square overflow-hidden">
+                        {item.thumb ? (
+                          <Image
+                            src={item.thumb}
+                            alt=""
+                            fill
+                            className="object-cover"
+                            unoptimized
+                            sizes="160px"
+                          />
+                        ) : (
+                          <div className="bg-charcoal-700 h-full w-full" />
+                        )}
+                        <span
+                          className={cn(
+                            "absolute top-2 left-2 rounded px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur-sm",
+                            chip.className
+                          )}
+                        >
+                          {chip.label}
+                        </span>
+                        {failed && (
+                          <Link
+                            href={`/app/create/${item.productSlug}`}
+                            prefetch={false}
+                            className="bg-lime-400 text-ink-950 hover:bg-lime-300 absolute bottom-2 left-2 z-20 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold transition-colors"
+                          >
+                            <ArrowCounterClockwise size={11} weight="bold" />
+                            Retry
+                          </Link>
+                        )}
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-cream-50 truncate text-[13px] font-medium">
+                          {item.productName}
+                        </p>
+                        <p className="text-text-muted mt-0.5 text-[11px]">
+                          {item.when}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </MobileRail>
+            </MobileSection>
+          )}
+
+          {trending.length > 0 && (
+            <MobileSection
+              title="Trending now"
+              seeAllHref="/explore"
+              seeAllLabel="Explore all"
+              bleed
+            >
+              <ProductRail
+                products={trending}
+                label="Trending looks"
+                moreHref="/explore"
+                favoriteIds={favoriteIdSet}
+              />
+            </MobileSection>
+          )}
+
+          {newest.length > 0 && (
+            <MobileSection
+              title="New looks"
+              seeAllHref="/explore?sort=newest"
+              seeAllLabel="See what's new"
+              bleed
+            >
+              <ProductRail
+                products={newest}
+                label="New looks"
+                moreHref="/explore?sort=newest"
+                favoriteIds={favoriteIdSet}
+              />
+            </MobileSection>
+          )}
+
+          {favorites.length > 0 && (
+            <MobileSection
+              title="Your saved looks"
+              seeAllHref="/app/library?tab=presets"
+              seeAllLabel="View favorites"
+              bleed
+            >
+              <ProductRail
+                products={favorites}
+                label="Saved looks"
+                moreHref="/app/library?tab=presets"
+                favoriteIds={favoriteIdSet}
+              />
+            </MobileSection>
+          )}
+
+          {categories.length > 0 && (
+            <MobileSection
+              title="Browse by category"
+              seeAllHref="/categories"
+              seeAllLabel="All categories"
+            >
+              <div className="flex flex-wrap gap-2">
+                {categories.map((category) => (
+                  <Link
+                    key={category.slug}
+                    href={`/explore?category=${category.slug}`}
+                    className="shadow-border hover:shadow-border-hover text-text-secondary hover:text-cream-50 bg-charcoal-800/80 rounded-lg px-3.5 py-2 text-[13px] font-medium transition-shadow"
+                  >
+                    {category.name}
+                  </Link>
+                ))}
+              </div>
+            </MobileSection>
+          )}
+        </div>
+      </PresetQuickViewHost>
     </main>
   );
 }

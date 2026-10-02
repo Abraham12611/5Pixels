@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPublicProducts } from "@/lib/db/explore";
 import { EdgePage } from "@/components/edge/edge-page";
 import { ProductCard } from "@/components/consumer/product-card";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 
 /**
  * Unavailable/retired preset recovery — always leaves the visitor with real
@@ -32,19 +33,24 @@ export async function PresetNotFound() {
     >
       {alternatives.length > 0 && (
         <div className="mt-10 w-full max-w-4xl">
-          <p className="text-text-muted mb-4 text-xs font-semibold uppercase tracking-wide">
+          <p className="text-text-muted mb-4 text-xs font-semibold tracking-wide uppercase">
             Try one of these instead
           </p>
-          <div className="grid grid-cols-2 gap-4 text-left sm:grid-cols-4">
-            {alternatives.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                isAuthenticated={Boolean(user)}
-                returnPath="/explore"
-              />
-            ))}
-          </div>
+          <PresetQuickViewHost
+            isAuthenticated={Boolean(user)}
+            returnPath="/explore"
+          >
+            <div className="grid grid-cols-2 gap-4 text-left sm:grid-cols-4">
+              {alternatives.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  isAuthenticated={Boolean(user)}
+                  returnPath="/explore"
+                />
+              ))}
+            </div>
+          </PresetQuickViewHost>
         </div>
       )}
     </EdgePage>

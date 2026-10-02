@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import { CaretDown } from "@phosphor-icons/react/dist/ssr";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 
-const FAQ_ITEMS = [
+const FAQ_ITEMS: { q: string; a: ReactNode }[] = [
   {
     q: "How do credits work?",
     a: "Every preset shows an exact credit cost before you generate. You spend that many credits per transformation — no hidden usage.",
@@ -23,11 +25,33 @@ const FAQ_ITEMS = [
   },
   {
     q: "How are my uploaded photos handled?",
-    a: "Photos you upload are stored privately, used only to create your transformations, and can auto-delete on a schedule you choose in Privacy settings.",
+    a: "Photos you upload are stored privately, processed to create your transformations, and can auto-delete on a schedule you choose in Privacy settings.",
+  },
+  {
+    q: "Who processes my payment?",
+    a: (
+      <>
+        Checkout is handled by Creem, our merchant of record — they process
+        payment, issue your receipt, and handle sales tax. The{" "}
+        <a
+          href="https://creem.io/terms"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-lime-400 hover:underline"
+        >
+          Creem Buyer Terms
+        </a>{" "}
+        apply to your purchase.
+      </>
+    ),
   },
   {
     q: "Can I use my results commercially?",
     a: "Yes — the results you generate are yours to keep and use.",
+  },
+  {
+    q: "How do I contact support?",
+    a: `Email us at ${SUPPORT_EMAIL} — we aim to respond within 3 business days.`,
   },
 ];
 

@@ -12,10 +12,12 @@ import {
   Coins,
   Receipt,
   Question,
+  Gift,
   SignOut,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { signOut } from "@/app/actions/auth";
+import { SUPPORT_EMAIL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface SettingsNavItem {
@@ -43,6 +45,7 @@ const BILLING_ITEMS: SettingsNavItem[] = [
   { label: "Plan", href: "/app/billing/plan", icon: Crown },
   { label: "Credits", href: "/app/billing/credits", icon: Coins },
   { label: "History", href: "/app/billing/history", icon: Receipt },
+  { label: "Referrals", href: "/app/referrals", icon: Gift },
 ];
 
 function isActive(pathname: string, item: SettingsNavItem): boolean {
@@ -106,31 +109,48 @@ export function SettingsShell({
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:py-10">
       <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
-        {/* Mobile: horizontal chip rail */}
-        <nav
-          aria-label="Account settings"
-          className="flex gap-2 overflow-x-auto pb-1 lg:hidden"
-        >
-          {[...ACCOUNT_ITEMS, ...BILLING_ITEMS].map((item) => {
-            const active = isActive(pathname, item);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm transition-colors",
-                  active
-                    ? "border-lime-500/40 bg-lime-500/10 text-cream-50"
-                    : "border-cream-100/10 bg-charcoal-850 text-text-secondary hover:text-cream-100"
-                )}
-              >
-                <item.icon size={15} weight={active ? "fill" : "regular"} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+        {/* Mobile nav (14 §2): index pages use their own grouped rows, so the
+            chip rail yields to a labelled back link on sub-pages */}
+        {pathname !== "/app/account" && pathname !== "/app/billing" ? (
+          <nav aria-label="Back" className="pb-1 lg:hidden">
+            <Link
+              href={
+                pathname.startsWith("/app/billing")
+                  ? "/app/billing"
+                  : "/app/account"
+              }
+              className="text-text-secondary hover:text-cream-50 inline-flex items-center gap-1.5 py-2 text-sm transition-colors"
+            >
+              ←{" "}
+              {pathname.startsWith("/app/billing") ? "Billing" : "Account"}
+            </Link>
+          </nav>
+        ) : (
+          <nav
+            aria-label="Account settings"
+            className="flex gap-2 overflow-x-auto pb-1 lg:hidden"
+          >
+            {[...ACCOUNT_ITEMS, ...BILLING_ITEMS].map((item) => {
+              const active = isActive(pathname, item);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm transition-colors",
+                    active
+                      ? "border-lime-500/40 bg-lime-500/10 text-cream-50"
+                      : "border-cream-100/10 bg-charcoal-850 text-text-secondary hover:text-cream-100"
+                  )}
+                >
+                  <item.icon size={15} weight={active ? "fill" : "regular"} />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        )}
 
         {/* Desktop: stable settings rail */}
         <aside className="hidden lg:block">
@@ -160,14 +180,23 @@ export function SettingsShell({
                 <p className="text-cream-50 text-sm font-medium">Need help?</p>
               </div>
               <p className="text-text-secondary mt-1.5 text-xs leading-relaxed">
-                Answers about credits, plans, and billing live in the FAQ.
+                Answers about credits, plans, and billing live in the FAQ — or
+                email us anytime.
               </p>
-              <Link
-                href="/pricing#faq"
-                className="text-lime-400 hover:text-lime-300 mt-2 inline-block text-xs font-medium transition-colors"
-              >
-                Browse FAQ
-              </Link>
+              <div className="mt-2 flex flex-col gap-1.5">
+                <Link
+                  href="/pricing#faq"
+                  className="text-lime-400 hover:text-lime-300 text-xs font-medium transition-colors"
+                >
+                  Browse FAQ
+                </Link>
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}`}
+                  className="text-lime-400 hover:text-lime-300 text-xs font-medium transition-colors"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
+              </div>
             </div>
 
             <form action={signOut} className="px-1">

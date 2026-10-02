@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/auth/password-input";
+import { LegalConsentCheckbox } from "@/components/auth/legal-consent-checkbox";
 import {
   signUp,
   signInWithGoogle,
@@ -33,6 +34,20 @@ export function SignUpForm({ next }: { next?: string }) {
   return (
     <form action={submitAction} className="mt-6 space-y-4">
       <input type="hidden" name="next" value={next ?? "/app"} />
+      <Button
+        type="submit"
+        formAction={googleAction}
+        variant="secondary"
+        disabled={pending || googlePending}
+        className="w-full"
+      >
+        {googlePending ? "Connecting…" : "Continue with Google"}
+      </Button>
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="bg-cream-100/10 h-px flex-1" />
+        <span className="text-text-muted text-xs">or</span>
+        <span className="bg-cream-100/10 h-px flex-1" />
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="email">Email</Label>
         <Input
@@ -42,6 +57,8 @@ export function SignUpForm({ next }: { next?: string }) {
           placeholder="you@example.com"
           required
           autoComplete="email"
+          inputMode="email"
+          enterKeyHint="next"
         />
         {state?.errors?.email && (
           <p className="text-error text-[13px]" role="alert">
@@ -55,14 +72,16 @@ export function SignUpForm({ next }: { next?: string }) {
           id="password"
           autoComplete="new-password"
           minLength={8}
+          enterKeyHint="go"
+          showChecklist
         />
-        <p className="text-text-muted text-xs">At least 8 characters.</p>
         {state?.errors?.password && (
           <p className="text-error text-[13px]" role="alert">
             {state.errors.password.join(" ")}
           </p>
         )}
       </div>
+      <LegalConsentCheckbox id="signup-consent" />
       {formError && (
         <p
           role="alert"
@@ -78,24 +97,6 @@ export function SignUpForm({ next }: { next?: string }) {
         className="w-full"
       >
         {pending ? "Creating account…" : "Create account"}
-      </Button>
-      <p className="text-text-muted text-center text-xs leading-relaxed">
-        By creating an account you agree to 5Pixels&apos; terms and privacy
-        practices.
-      </p>
-      <div className="flex items-center gap-3" aria-hidden="true">
-        <span className="bg-cream-100/10 h-px flex-1" />
-        <span className="text-text-muted text-xs">or</span>
-        <span className="bg-cream-100/10 h-px flex-1" />
-      </div>
-      <Button
-        type="submit"
-        formAction={googleAction}
-        variant="secondary"
-        disabled={pending || googlePending}
-        className="w-full"
-      >
-        {googlePending ? "Connecting…" : "Continue with Google"}
       </Button>
     </form>
   );

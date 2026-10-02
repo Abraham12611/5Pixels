@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { lockBodyScroll, unlockBodyScroll } from "@/lib/ui/scroll-lock";
 import { useEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE =
@@ -39,8 +40,7 @@ export function useDialogA11y(
       (first ?? panel).focus();
     }
 
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
@@ -66,7 +66,7 @@ export function useDialogA11y(
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = prevOverflow;
+      unlockBodyScroll();
       restoreFocusRef.current?.focus();
       restoreFocusRef.current = null;
     };

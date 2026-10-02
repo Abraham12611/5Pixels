@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
-import { getActivePlan } from "@/lib/billing/entitlements";
+import { getActivePlan, hasEverPaid } from "@/lib/billing/entitlements";
 import {
   getMyNotifications,
   getUnreadNotificationCount,
@@ -8,10 +8,11 @@ import {
 import {
   getActiveCategories,
   getPublicProducts,
+  getUserFavoriteProductIds,
 } from "@/lib/db/explore";
 import { getAvatarUrl } from "@/lib/profile/actions";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
-import { selectCatalogMediaAsset } from "@/lib/catalog/media";
+import { buildSearchPresets } from "@/lib/search/search-presets";
 import type { SafeGeneration } from "@/lib/generation/types";
 import type {
   SearchCategory,
@@ -26,10 +27,6 @@ const TERMINAL_STATUSES = new Set([
   "blocked",
   "cancelled",
 ]);
-
-function publicAssetUrl(bucket: string, storageKey: string): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${bucket}/${storageKey}`;
-}
 
 export async function AppHeader() {
   const supabase = await createClient();
@@ -49,6 +46,7 @@ export async function AppHeader() {
 
   const [
     creditBalance,
+    everPaid,
     unreadCount,
     notifications,
     avatarUrl,
@@ -57,41 +55,43 @@ export async function AppHeader() {
     newest,
     categories,
     generationsResult,
+    favoriteIds,
   ] = await Promise.all([
     getUserCreditBalance(),
+    hasEverPaid(),
     getUnreadNotificationCount(),
     getMyNotifications(15),
     getAvatarUrl(profile?.avatar_asset_id as string | null | undefined),
     getActivePlan(),
-    getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, 48),
-    getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, 8),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "featured",
+      1,
+      48
+    ),
+    getPublicProducts(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "newest",
+      1,
+      8
+    ),
     getActiveCategories(),
     supabase.rpc("get_user_generations"),
+    getUserFavoriteProductIds(),
   ]);
 
-  const generations = ((generationsResult.data ?? []) as SafeGeneration[]);
+  const generations = (generationsResult.data ?? []) as SafeGeneration[];
 
-  const newSlugs = new Set(newest.data.map((p) => p.slug));
-  const searchPresets: SearchPreset[] = featured.data.map((p, index) => {
-    const asset = selectCatalogMediaAsset(p.public_assets, "card");
-    const badge =
-      p.featured_rank !== null && index < 5
-        ? "trending"
-        : newSlugs.has(p.slug)
-          ? "new"
-          : null;
-    return {
-      slug: p.slug,
-      name: p.name,
-      description: p.short_description,
-      categoryName: p.category_name,
-      categorySlug: p.category_slug,
-      type: p.type,
-      creditCost: p.credit_cost,
-      thumbUrl: asset ? publicAssetUrl(asset.bucket, asset.storage_key) : null,
-      badge,
-    };
-  });
+  const searchPresets: SearchPreset[] = buildSearchPresets(
+    featured.data,
+    newest.data
+  );
 
   const searchCategories: SearchCategory[] = categories.map((c) => ({
     slug: c.slug,
@@ -106,7 +106,10 @@ export async function AppHeader() {
       let thumbUrl: string | null = null;
       if (g.status === "completed" && g.outputBucket && g.outputStorageKey) {
         try {
-          thumbUrl = await getSignedAssetUrl(g.outputBucket, g.outputStorageKey);
+          thumbUrl = await getSignedAssetUrl(
+            g.outputBucket,
+            g.outputStorageKey
+          );
         } catch {
           thumbUrl = null;
         }
@@ -141,6 +144,9 @@ export async function AppHeader() {
     <AppHeaderClient
       isAdmin={isAdmin}
       creditBalance={creditBalance}
+      // Chip hidden for never-paid zero-balance users (01): scarcity styling
+      // on an empty wallet reads as a dead end, not an offer.
+      showCredits={everPaid || creditBalance > 0}
       userName={name}
       userEmail={email}
       avatarUrl={avatarUrl}
@@ -154,6 +160,7 @@ export async function AppHeader() {
       searchPresets={searchPresets}
       searchCategories={searchCategories}
       searchLibrary={libraryItems}
+      searchFavoriteIds={favoriteIds}
       catalogError={Boolean(featured.error)}
     />
   );

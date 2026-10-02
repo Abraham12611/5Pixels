@@ -99,7 +99,7 @@ export function UserDropdown({
   const action = isOut || isLow
     ? {
         label: "Buy credits",
-        href: planName ? "/app/billing/plan#top-up" : "/pricing",
+        href: "/app/billing/credits",
       }
     : planName
       ? { label: "Manage plan", href: "/app/billing/plan" }

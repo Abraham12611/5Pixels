@@ -7,9 +7,8 @@ export default function LibraryLoading() {
           <div className="bg-charcoal-800 h-8 w-32 animate-pulse rounded-md" />
           <div className="bg-charcoal-800 h-4 w-48 animate-pulse rounded-md" />
         </div>
-        <div className="mb-5 flex items-center gap-2">
-          <div className="bg-charcoal-800 h-9 w-52 animate-pulse rounded-md" />
-          <div className="bg-charcoal-800 ml-auto h-9 w-64 animate-pulse rounded-md" />
+        <div className="mb-5">
+          <div className="bg-charcoal-850 shadow-border h-11 w-full animate-pulse rounded-full" />
         </div>
         <div className="columns-2 gap-5 md:columns-3 xl:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid">
           {aspects.map((aspect, i) => (

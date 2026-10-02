@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
+import { resultFilename } from "@/lib/generation/download";
 import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
 import { ResultView } from "@/components/consumer/result-view";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
@@ -48,6 +49,11 @@ export default async function ResultPage({
     source_bucket: string | null;
     source_storage_key: string | null;
     saved_at: string | null;
+    outputs: Array<{
+      bucket: string;
+      storage_key: string;
+      mime_type: string | null;
+    }> | null;
   };
 
   if (generation.status !== "completed") {
@@ -92,6 +98,52 @@ export default async function ResultPage({
     );
   }
 
+  // Every output signed for Download / Download all (10 §5). These carry
+  // Content-Disposition: attachment — `<a download>` is ignored cross-origin.
+  const downloadUrls: string[] = [];
+  const outputRows = Array.isArray(generation.outputs)
+    ? generation.outputs
+    : [];
+  const downloadNameFor = (mime: string | null | undefined, index?: number) =>
+    resultFilename(generation.product_slug, id, mime, index);
+  for (let i = 0; i < outputRows.length; i++) {
+    const row = outputRows[i]!;
+    if (!row?.bucket || !row?.storage_key) continue;
+    try {
+      downloadUrls.push(
+        await getSignedAssetUrl(
+          row.bucket,
+          row.storage_key,
+          600,
+          downloadNameFor(
+            row.mime_type,
+            outputRows.length > 1 ? i : undefined
+          )
+        )
+      );
+    } catch {
+      // skip — one unlucky output shouldn't block the rest
+    }
+  }
+  if (
+    downloadUrls.length === 0 &&
+    generation.output_bucket &&
+    generation.output_storage_key
+  ) {
+    try {
+      downloadUrls.push(
+        await getSignedAssetUrl(
+          generation.output_bucket,
+          generation.output_storage_key,
+          600,
+          downloadNameFor(outputAsset?.mime_type)
+        )
+      );
+    } catch {
+      // fall through — the Download button simply won't render
+    }
+  }
+
   const creditCost = Number(generation.credit_cost) || 0;
   const createdLabel = generation.created_at
     ? new Date(generation.created_at).toLocaleDateString(undefined, {
@@ -111,9 +163,10 @@ export default async function ResultPage({
   };
 
   return (
-    <main className="flex flex-1 flex-col px-4 py-4 sm:px-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:overflow-hidden">
-      {/* Context row */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <main className="flex flex-1 flex-col px-4 sm:px-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-0 lg:overflow-hidden lg:py-4">
+      {/* Context row — the immersive mobile stage uses floating chrome
+          instead (10 §3). */}
+      <div className="hidden flex-wrap items-center gap-x-3 gap-y-1 md:flex">
         <Link
           href="/app/library"
           className="text-text-muted hover:text-cream-100 -ml-1 inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[13px] transition-colors"
@@ -160,6 +213,7 @@ export default async function ResultPage({
           initialRating={myFeedback?.rating ?? null}
           initialNotes={myFeedback?.notes ?? null}
           details={details}
+          downloadUrls={downloadUrls}
         />
       ) : (
         <div className="media-frame bg-charcoal-850 mt-4 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">
