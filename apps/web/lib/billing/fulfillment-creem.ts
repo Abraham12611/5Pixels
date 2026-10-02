@@ -1,7 +1,10 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
-import { getCreemSubscription } from "./creem-client";
+import {
+  creemPlanKeyForProductId,
+  getCreemSubscription,
+} from "./creem-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
 import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
@@ -222,7 +225,13 @@ async function getPlanByCreemProductId(
       meta.creem_product_id_test === creemProductId ||
       meta.creem_product_id_live === creemProductId
     );
-  });
+  }) ?? (() => {
+    // Env-var override path: CREEM_PRODUCT_ID_OVERRIDES keys a plan slug/id
+    // to a product id that may not appear in plans.metadata.
+    const key = creemPlanKeyForProductId(creemProductId);
+    if (!key) return undefined;
+    return (data ?? []).find((row) => row.slug === key || row.id === key);
+  })();
 
   if (!match) {
     console.error(
