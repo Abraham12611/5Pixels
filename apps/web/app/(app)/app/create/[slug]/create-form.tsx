@@ -24,6 +24,7 @@ import { BlockedCreditSurface } from "@/components/consumer/blocked-credit-surfa
 import { AuthModal } from "@/components/auth/auth-modal";
 import { Button } from "@/components/ui/button";
 import { normalizeField, sortFields } from "@/lib/catalog/fields";
+import { publicAssetUrl } from "@/lib/catalog/media";
 import {
   classifySourceDimensions,
   classifySourceFile,
@@ -268,7 +269,7 @@ export function CreateGenerationForm({
       product.public_assets?.find((a) => a.role === "hero") ??
       product.public_assets?.[0];
     if (!asset) return null;
-    return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
+    return publicAssetUrl(asset.bucket, asset.storage_key);
   }, [product.public_assets]);
 
   // Restore a staged draft after the auth round trip (?draft=1).

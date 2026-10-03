@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { publicAssetUrl } from "@/lib/catalog/media";
 import type { PublicProductAsset } from "@/types/catalog";
 
 interface ExampleGalleryProps {
@@ -31,7 +32,7 @@ export function ExampleGallery({ publicAssets }: ExampleGalleryProps) {
               <div className="grid grid-cols-2">
                 <div className="relative aspect-square">
                   <Image
-                    src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${source.bucket}/${source.storage_key}`}
+                    src={publicAssetUrl(source.bucket, source.storage_key)}
                     alt={`Example source ${index + 1}`}
                     fill
                     className="object-cover"
@@ -44,7 +45,7 @@ export function ExampleGallery({ publicAssets }: ExampleGalleryProps) {
                 <div className="relative aspect-square">
                   {result ? (
                     <Image
-                      src={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${result.bucket}/${result.storage_key}`}
+                      src={publicAssetUrl(result.bucket, result.storage_key)}
                       alt={`Example result ${index + 1}`}
                       fill
                       className="object-cover"

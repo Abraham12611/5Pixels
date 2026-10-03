@@ -1,7 +1,11 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import type { PublicProductAsset } from "@/types/catalog";
-import { isImageMimeType, isVideoMimeType } from "@/lib/catalog/media";
+import {
+  isImageMimeType,
+  isVideoMimeType,
+  publicAssetUrl,
+} from "@/lib/catalog/media";
 import { AutoplayVideo } from "@/components/consumer/autoplay-video";
 
 interface ProductMediaProps {
@@ -39,7 +43,7 @@ export function ProductMedia({
     );
   }
 
-  const publicUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
+  const publicUrl = publicAssetUrl(asset.bucket, asset.storage_key);
 
   if (isVideoMimeType(asset.mime_type)) {
     return (

@@ -7,6 +7,12 @@ describe("supabase env helpers", () => {
     expect(supabaseUrl()).toBe("https://test.supabase.co");
   });
 
+  it("strips stray whitespace and trailing slashes from the URL", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL =
+      "https://test.supabase.co/\n\t ";
+    expect(supabaseUrl()).toBe("https://test.supabase.co");
+  });
+
   it("prefer NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY over legacy anon key", () => {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "publishable";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "legacy";

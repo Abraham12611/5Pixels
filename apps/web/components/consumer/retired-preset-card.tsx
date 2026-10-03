@@ -3,12 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { isImageMimeType } from "@/lib/catalog/media";
+import { isImageMimeType, publicAssetUrl } from "@/lib/catalog/media";
 import type { PublicProductSummary } from "@/types/catalog";
-
-function publicUrl(bucket: string, key: string): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${bucket}/${key}`;
-}
 
 /**
  * A saved preset that is no longer available. Kept visible (rather than
@@ -42,7 +38,7 @@ export function RetiredPresetCard({
       >
         {still ? (
           <Image
-            src={publicUrl(still.bucket, still.storage_key)}
+            src={publicAssetUrl(still.bucket, still.storage_key)}
             alt={`Preview for ${product.name}`}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"

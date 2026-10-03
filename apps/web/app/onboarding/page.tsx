@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getActiveCategories, getPublicProducts } from "@/lib/db/explore";
+import { publicAssetUrl } from "@/lib/catalog/media";
 import {
   OnboardingFlow,
   type InterestTile,
@@ -15,7 +16,6 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-const PUBLIC_STORAGE = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public`;
 
 export default async function OnboardingPage({
   searchParams,
@@ -84,7 +84,7 @@ export default async function OnboardingPage({
     if (still) {
       imageByCategory.set(
         p.category_slug,
-        `${PUBLIC_STORAGE}/${still.bucket}/${still.storage_key}`
+        publicAssetUrl(still.bucket, still.storage_key)
       );
     }
   }

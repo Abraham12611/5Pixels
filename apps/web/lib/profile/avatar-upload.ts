@@ -3,6 +3,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { supabaseUrl } from "@/lib/supabase/env";
 
 const AVATAR_BUCKET = "user-assets";
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
@@ -59,10 +60,9 @@ export async function prepareAvatarUpload(
   }
 
   // Always hand back an absolute URL — some client versions return a path.
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const signedUrl = data.signedUrl.startsWith("http")
     ? data.signedUrl
-    : new URL(data.signedUrl, supabaseUrl).toString();
+    : new URL(data.signedUrl, supabaseUrl()).toString();
 
   return { signedUrl, path };
 }
