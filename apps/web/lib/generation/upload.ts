@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { applyRetentionForNewAsset } from "@/lib/db/retention-asset";
+import { supabaseUrl } from "@/lib/supabase/env";
 import { buildOutputPath, isOwnedUserPath } from "./paths";
 
 const USER_ASSET_BUCKET = "user-assets";
@@ -63,10 +64,9 @@ export async function prepareSourceUpload(
   }
 
   // Older clients return a path-only signedUrl; always hand back absolute.
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const signedUrl = data.signedUrl.startsWith("http")
     ? data.signedUrl
-    : new URL(data.signedUrl, supabaseUrl).toString();
+    : new URL(data.signedUrl, supabaseUrl()).toString();
 
   return { signedUrl, path, token: data.token };
 }

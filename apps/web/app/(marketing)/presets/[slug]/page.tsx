@@ -24,7 +24,11 @@ import {
   DockedActionBar,
   MobilePageBottomSpacer,
 } from "@/components/consumer/mobile/docked-action-bar";
-import { isImageMimeType, selectCatalogMediaAsset } from "@/lib/catalog/media";
+import {
+  isImageMimeType,
+  publicAssetUrl,
+  selectCatalogMediaAsset,
+} from "@/lib/catalog/media";
 import { fidelityLabel } from "@/lib/catalog/badges";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
@@ -52,7 +56,7 @@ export async function generateMetadata({
     "Curated AI photo transformation preset on 5Pixels.";
   const heroAsset = selectCatalogMediaAsset(product.public_assets, "hero");
   const ogImage = heroAsset
-    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${heroAsset.bucket}/${heroAsset.storage_key}`
+    ? publicAssetUrl(heroAsset.bucket, heroAsset.storage_key)
     : undefined;
 
   return {
@@ -92,7 +96,7 @@ function buildJsonLd(product: Awaited<ReturnType<typeof getPublicProductBySlug>>
         priceCurrency: "USD",
       },
       image: heroAsset
-        ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${heroAsset.bucket}/${heroAsset.storage_key}`
+        ? publicAssetUrl(heroAsset.bucket, heroAsset.storage_key)
         : undefined,
     }),
   };
@@ -120,7 +124,7 @@ export default async function PresetDetailPage({
   const stillAsset =
     product.public_assets.find((a) => isImageMimeType(a.mime_type)) ?? null;
   const presetThumbUrl = stillAsset
-    ? `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${stillAsset.bucket}/${stillAsset.storage_key}`
+    ? publicAssetUrl(stillAsset.bucket, stillAsset.storage_key)
     : null;
   const videoAsset = product.public_assets.find(
     (asset) => asset.role === "preview_video"
@@ -131,10 +135,7 @@ export default async function PresetDetailPage({
         asset.role === "example_result" && isImageMimeType(asset.mime_type)
     )
     .slice(0, 3)
-    .map(
-      (asset) =>
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`
-    );
+    .map((asset) => publicAssetUrl(asset.bucket, asset.storage_key));
   const ctaHref = `/app/create/${product.slug}`;
   const returnPath = `/presets/${product.slug}`;
   const jsonLd = buildJsonLd(product);
@@ -298,7 +299,10 @@ export default async function PresetDetailPage({
               {videoAsset && (
                 <div className="mt-6">
                   <ProductVideoPlayer
-                    publicUrl={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${videoAsset.bucket}/${videoAsset.storage_key}`}
+                    publicUrl={publicAssetUrl(
+                      videoAsset.bucket,
+                      videoAsset.storage_key
+                    )}
                     posterUrl={presetThumbUrl ?? undefined}
                     label={`${product.name} preview`}
                   />

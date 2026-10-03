@@ -4,18 +4,18 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { selectCatalogMediaAsset } from "@/lib/catalog/media";
-import { isVideoMimeType, isImageMimeType } from "@/lib/catalog/media";
+import {
+  isImageMimeType,
+  isVideoMimeType,
+  publicAssetUrl,
+  selectCatalogMediaAsset,
+} from "@/lib/catalog/media";
 import type { PublicProductSummary } from "@/types/catalog";
 
 interface ProductVideoCardProps {
   product: PublicProductSummary;
   className?: string;
   priority?: boolean;
-}
-
-function buildPublicUrl(bucket: string, storageKey: string): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${bucket}/${storageKey}`;
 }
 
 function getReducedMotion(): boolean {
@@ -97,7 +97,7 @@ export function ProductVideoCard({
           {mediaAsset && isVideoMimeType(mediaAsset.mime_type) ? (
             <video
               ref={videoRef}
-              src={buildPublicUrl(mediaAsset.bucket, mediaAsset.storage_key)}
+              src={publicAssetUrl(mediaAsset.bucket, mediaAsset.storage_key)}
               loop
               muted
               playsInline
@@ -110,7 +110,7 @@ export function ProductVideoCard({
             />
           ) : mediaAsset && isImageMimeType(mediaAsset.mime_type) ? (
             <Image
-              src={buildPublicUrl(mediaAsset.bucket, mediaAsset.storage_key)}
+              src={publicAssetUrl(mediaAsset.bucket, mediaAsset.storage_key)}
               alt={`Preview for ${product.name}`}
               fill
               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"

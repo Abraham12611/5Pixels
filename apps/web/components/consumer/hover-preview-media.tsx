@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import type { PublicProductAsset } from "@/types/catalog";
-import { isVideoMimeType } from "@/lib/catalog/media";
+import { isVideoMimeType, publicAssetUrl } from "@/lib/catalog/media";
 
 function getReducedMotion(): boolean {
   if (typeof window === "undefined") return false;
@@ -31,7 +31,7 @@ function subscribeToCoarsePointer(callback: () => void): () => void {
 }
 
 function publicUrl(asset: PublicProductAsset): string {
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${asset.bucket}/${asset.storage_key}`;
+  return publicAssetUrl(asset.bucket, asset.storage_key);
 }
 
 interface HoverPreviewMediaProps {
