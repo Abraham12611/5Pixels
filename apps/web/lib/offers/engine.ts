@@ -102,6 +102,38 @@ async function loadSteps(
  * (subject, campaign) makes concurrent assignment race-safe — a loser of
  * the insert race reads back the winner's variant.
  */
+/**
+ * Read-only variant of {@link getOrAssignCampaignForUser}: returns the
+ * subject's existing sticky assignment, never writes one. Use for passive
+ * surfaces (headers, teasers) where merely rendering a page must not
+ * bucket the user into a campaign.
+ */
+export async function getExistingAssignmentForUser(
+  userId: string
+): Promise<OfferAssignment | null> {
+  const service = createServiceClient();
+
+  const { data: existing } = await service
+    .from("promo_assignments")
+    .select("campaign_id, variant, promo_campaigns!inner(slug, status)")
+    .eq("user_id", userId)
+    .eq("promo_campaigns.status", "live")
+    .maybeSingle();
+
+  if (!existing) return null;
+
+  const campaign = existing.promo_campaigns as unknown as { slug: string };
+  return {
+    campaignId: existing.campaign_id as string,
+    campaignSlug: campaign.slug,
+    variant: existing.variant as string,
+    steps: await loadSteps(
+      existing.campaign_id as string,
+      existing.variant as string
+    ),
+  };
+}
+
 export async function getOrAssignCampaignForUser(
   userId: string
 ): Promise<OfferAssignment | null> {
