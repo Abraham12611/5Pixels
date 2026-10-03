@@ -104,27 +104,27 @@ export async function createAndSubmitGeneration(
   }
 
   // Creem content-policy screen (required for AI image products): every
-  // user-supplied text that could reach the model is moderated before
-  // credits are reserved or the provider is called. deny/flag → blocked;
-  // an unreachable moderator fails closed.
+  // generation path must call the Moderation API before credits are
+  // reserved or the provider is invoked. Free-text options are screened
+  // verbatim; image-only requests send a fixed neutral descriptor so the
+  // call still happens (repeat payloads are cached/free server-side).
+  // deny/flag → blocked; an unreachable moderator fails closed.
   const userText = extractUserText(input.options).join("\n");
-  if (userText) {
-    const screening = await screenUserText(
-      userText,
-      `user_${user.id}:product_${input.productId}`
-    );
-    if (screening.kind === "blocked") {
-      return {
-        error:
-          "That text can't be used — it violates our content policy. Please revise it and try again.",
-      };
-    }
-    if (screening.kind === "unavailable") {
-      return {
-        error:
-          "We couldn't verify your input right now. Please try again in a moment.",
-      };
-    }
+  const screening = await screenUserText(
+    userText || "user photo transformation",
+    `user_${user.id}:product_${input.productId}`
+  );
+  if (screening.kind === "blocked") {
+    return {
+      error:
+        "That text can't be used — it violates our content policy. Please revise it and try again.",
+    };
+  }
+  if (screening.kind === "unavailable") {
+    return {
+      error:
+        "We couldn't verify your input right now. Please try again in a moment.",
+    };
   }
 
   // "Match photo" sizes resolve from the uploaded source image (clamped to
