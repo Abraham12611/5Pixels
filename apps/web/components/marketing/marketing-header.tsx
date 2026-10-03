@@ -9,8 +9,8 @@ import {
   Fire,
   FrameCorners,
   GridFour,
-  SealCheck,
   Sparkle,
+  Tag,
 } from "@phosphor-icons/react";
 import {
   NavigationMenu,
@@ -31,6 +31,11 @@ interface MarketingHeaderProps {
   /** Palette data — anonymous surfaces pass presets/categories, no library. */
   searchPresets?: SearchPreset[];
   searchCategories?: SearchCategory[];
+  /**
+   * Authenticated promo pill copy (links to /pricing). Rendered only for
+   * signed-in users who have never paid — null/omitted hides the pill.
+   */
+  promoLabel?: string | null;
 }
 
 const MEGA_SECTIONS = [
@@ -96,6 +101,7 @@ export function MarketingHeader({
   isAuthenticated,
   searchPresets = [],
   searchCategories = [],
+  promoLabel = null,
 }: MarketingHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -213,10 +219,16 @@ export function MarketingHeader({
 
           {isAuthenticated ? (
             <>
-              <span className="text-lime-400 hidden items-center gap-1.5 rounded-full bg-lime-400/10 px-3 py-1 text-xs font-medium sm:flex">
-                <SealCheck size={14} weight="fill" />
-                <span>3 free credits</span>
-              </span>
+              {promoLabel ? (
+                <Link
+                  href="/pricing"
+                  data-testid="promo-pill"
+                  className="text-lime-400 hover:bg-lime-400/20 hidden items-center gap-1.5 rounded-full bg-lime-400/10 px-3 py-1 text-xs font-medium transition-colors sm:flex"
+                >
+                  <Tag size={14} weight="fill" />
+                  <span>{promoLabel}</span>
+                </Link>
+              ) : null}
               <Button asChild variant="secondary" size="sm">
                 <Link href="/app">Open app</Link>
               </Button>

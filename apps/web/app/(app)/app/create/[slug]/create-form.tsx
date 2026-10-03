@@ -235,21 +235,18 @@ export function CreateGenerationForm({
   useEffect(() => {
     if (!previewUrl) return;
     let cancelled = false;
-    const img = new window.Image();
-    img.onload = () => {
-      if (!cancelled && img.naturalWidth > 0 && img.naturalHeight > 0) {
-        const dims = {
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-        };
-        setSourceDims(dims);
-        const verdict = classifySourceDimensions(dims);
-        setSourceWarning(
-          verdict.class === "warning" ? (verdict.message ?? "") : ""
-        );
-      }
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const applyDims = (dims: { width: number; height: number }) => {
+      if (cancelled || dims.width <= 0 || dims.height <= 0) return;
+      setSourceDims(dims);
+      const verdict = classifySourceDimensions(dims);
+      setSourceWarning(
+        verdict.class === "warning" ? (verdict.message ?? "") : ""
+      );
     };
-    img.onerror = () => {
+
+    const fail = () => {
       if (cancelled) return;
       setSourceDims(null);
       setFile(null);
@@ -258,11 +255,52 @@ export function CreateGenerationForm({
         "We couldn't read that photo — try a different image."
       );
     };
-    img.src = previewUrl;
+
+    // <img> decode on the blob URL, retried — Chrome on Android
+    // intermittently fails the first decode of gallery-picked files
+    // (content://-backed blobs), and a retry resolves it.
+    const img = new window.Image();
+    let retries = 0;
+    img.onload = () =>
+      applyDims({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => {
+      if (cancelled) return;
+      if (retries < 2) {
+        retries += 1;
+        retryTimer = setTimeout(() => {
+          if (!cancelled) img.src = previewUrl;
+        }, 250);
+        return;
+      }
+      fail();
+    };
+
+    // Picked files decode via createImageBitmap first — a separate decoder
+    // path that survives the blob-URL failures. Reused sources (signed
+    // URLs) use the <img> path directly.
+    if (file && typeof createImageBitmap === "function") {
+      createImageBitmap(file)
+        .then((bmp) => {
+          if (cancelled) {
+            bmp.close();
+            return;
+          }
+          const dims = { width: bmp.width, height: bmp.height };
+          bmp.close();
+          applyDims(dims);
+        })
+        .catch(() => {
+          if (!cancelled) img.src = previewUrl;
+        });
+    } else {
+      img.src = previewUrl;
+    }
+
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [previewUrl]);
+  }, [previewUrl, file]);
 
   const presetThumb = useMemo(() => {
     const asset =
