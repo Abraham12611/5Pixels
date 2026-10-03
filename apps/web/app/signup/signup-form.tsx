@@ -37,6 +37,7 @@ export function SignUpForm({ next }: { next?: string }) {
       <Button
         type="submit"
         formAction={googleAction}
+        formNoValidate
         variant="secondary"
         disabled={pending || googlePending}
         className="w-full"
