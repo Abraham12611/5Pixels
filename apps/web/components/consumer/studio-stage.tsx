@@ -228,16 +228,19 @@ export function StudioStage({
           >
             <div
               className={cn(
-                "media-frame relative max-h-full min-h-[240px] w-full max-w-3xl overflow-hidden rounded-xl transition-opacity",
+                "media-frame relative min-h-[240px] max-w-3xl overflow-hidden rounded-xl transition-opacity",
                 submitting && "opacity-60"
               )}
               style={{
-                // Fallback ratio keeps the frame from collapsing when the
-                // output size defers to the photo ("match source") or dims
-                // are still decoding.
+                // Height-bounded width: the frame keeps the output ratio but
+                // never grows taller than the stage budget, so portrait
+                // outputs stay fully on screen instead of requiring a scroll.
                 aspectRatio: String(
                   aspectRatio && aspectRatio > 0 ? aspectRatio : 4 / 3
                 ),
+                width: `min(100%, calc(min(70dvh, 640px) * ${
+                  aspectRatio && aspectRatio > 0 ? aspectRatio : 4 / 3
+                }))`,
               }}
             >
               <Image
