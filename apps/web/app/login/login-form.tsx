@@ -72,6 +72,7 @@ export function LoginForm({
       <Button
         type="submit"
         formAction={googleAction}
+        formNoValidate
         variant="secondary"
         disabled={pending || googlePending}
         className="w-full"
