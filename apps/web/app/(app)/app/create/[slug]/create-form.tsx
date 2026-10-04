@@ -189,6 +189,7 @@ export function CreateGenerationForm({
   const online = useOnline();
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   /** Rejected pick (wrong type / too large) — inline under the source zone. */
   const [sourceError, setSourceError] = useState<string>("");
   /** Non-blocking quality warning (small / extreme shape). */
@@ -401,6 +402,7 @@ export function CreateGenerationForm({
 
   const handleFileSelected = useCallback((selected: File | null) => {
     setError("");
+    setErrorCode(null);
     setSourceError("");
     setSourceWarning("");
     setUploadFailed(false);
@@ -441,6 +443,7 @@ export function CreateGenerationForm({
     if (e.target !== e.currentTarget) return;
     e.preventDefault();
     setError("");
+    setErrorCode(null);
     setProgress("");
     setUploadFailed(false);
 
@@ -572,6 +575,7 @@ export function CreateGenerationForm({
           setAuthGateOpen(true);
         } else {
           setError(result.error);
+          setErrorCode(result.code ?? null);
         }
       }
       // On success the server action redirects. On idempotent retry it also redirects.
@@ -586,6 +590,7 @@ export function CreateGenerationForm({
       const message =
         err instanceof Error ? err.message : "Something went wrong.";
       setError(message);
+      setErrorCode(null);
     } finally {
       setLoading(false);
       setProgress("");
@@ -613,7 +618,23 @@ export function CreateGenerationForm({
   const submitError = error ? (
     <div className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
       <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
-      <p className="flex-1">{error}</p>
+      <p className="flex-1">
+        {error}
+        {errorCode === "content_policy" ? (
+          <>
+            {" "}
+            <Link
+              href="/acceptable-use"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold underline underline-offset-2"
+            >
+              Read our Acceptable Use Policy
+            </Link>
+            .
+          </>
+        ) : null}
+      </p>
       {uploadFailed && file ? (
         <button
           type="button"
