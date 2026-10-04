@@ -90,6 +90,8 @@ function userFacingError(): string {
 
 export interface CreateAndSubmitResult {
   error: string;
+  /** Lets the UI render error-specific affordances (e.g. a policy link). */
+  code?: "content_policy";
 }
 
 export async function createAndSubmitGeneration(
@@ -118,6 +120,7 @@ export async function createAndSubmitGeneration(
     return {
       error:
         "That text can't be used — it violates our content policy. Please revise it and try again.",
+      code: "content_policy",
     };
   }
   if (screening.kind === "unavailable") {
