@@ -19,11 +19,13 @@ export function LandingPage({
   products,
   categories,
   searchPresets = [],
+  promoLabel = null,
 }: {
   isAuthenticated: boolean;
   products: PublicProductSummary[];
   categories: { slug: string; name: string }[];
   searchPresets?: SearchPreset[];
+  promoLabel?: string | null;
 }) {
   return (
     <div className="flex min-h-screen flex-col">
@@ -31,6 +33,7 @@ export function LandingPage({
         isAuthenticated={isAuthenticated}
         searchPresets={searchPresets}
         searchCategories={categories}
+        promoLabel={promoLabel}
       />
 
       {/* Desktop composition — untouched editorial sections */}
