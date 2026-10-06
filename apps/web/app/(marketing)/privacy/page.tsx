@@ -58,10 +58,10 @@ export default function PrivacyPage() {
               </p>
               <p>
                 <strong>Billing information.</strong> Purchases are processed by
-                Creem, our merchant of record and payment processor. We receive
+                Whop, our merchant of record and payment processor. We receive
                 transaction details (plan purchased, amount, status) but we do
                 not collect or store your full payment card number. If you begin
-                a purchase and don&rsquo;t finish, Creem may email you a reminder
+                a purchase and don&rsquo;t finish, Whop may email you a reminder
                 to complete your checkout.
               </p>
               <p>
@@ -81,7 +81,7 @@ export default function PrivacyPage() {
                 <strong>Information from others.</strong> We receive information
                 from authentication providers (for example, your Google account
                 name, email, and profile picture when you sign in with Google),
-                from Creem (transaction and subscription status), and from our
+                from Whop (transaction and subscription status), and from our
                 infrastructure providers (delivery and error telemetry).
               </p>
               <p>
@@ -203,7 +203,7 @@ export default function PrivacyPage() {
                   transformations.
                 </li>
                 <li>
-                  <strong>Creem</strong>, our merchant of record, to process
+                  <strong>Whop</strong>, our merchant of record, to process
                   payments, subscriptions, refunds, and receipts.
                 </li>
                 <li>

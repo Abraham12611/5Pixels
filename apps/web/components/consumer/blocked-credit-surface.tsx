@@ -18,6 +18,7 @@ import { SaveLine } from "@/components/promo/save-line";
 import { OfferBadge } from "@/components/promo/offer-badge";
 import { ReferralCard } from "@/components/promo/referral-card";
 import { CreditTopUp } from "@/components/consumer/credit-top-up";
+import type { CreditPack } from "@/lib/billing/credit-packs";
 import { recordOfferEvent } from "@/lib/offers/actions";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -26,8 +27,7 @@ import type { PlanForPurchase } from "@/lib/db/plans";
 import type { BlockedSegment, ResumePlan } from "@/lib/billing/segments";
 
 interface TopUpInfo {
-  planId: string;
-  checkoutReady: boolean;
+  packs: CreditPack[];
   creditsPerTransformation: number;
 }
 
@@ -346,8 +346,7 @@ export function BlockedCreditSurface({
           )}
           {topUp ? (
             <CreditTopUp
-              planId={topUp.planId}
-              checkoutReady={topUp.checkoutReady}
+              packs={topUp.packs}
               creditsPerTransformation={topUp.creditsPerTransformation}
             />
           ) : (
@@ -682,8 +681,7 @@ export function BlockedCreditSurface({
                 </p>
               </div>
               <CreditTopUp
-                planId={topUp.planId}
-                checkoutReady={topUp.checkoutReady}
+                packs={topUp.packs}
                 creditsPerTransformation={topUp.creditsPerTransformation}
               />
             </div>
@@ -751,8 +749,7 @@ export function BlockedCreditSurface({
       </div>
       {topUp ? (
         <CreditTopUp
-          planId={topUp.planId}
-          checkoutReady={topUp.checkoutReady}
+          packs={topUp.packs}
           creditsPerTransformation={topUp.creditsPerTransformation}
         />
       ) : (

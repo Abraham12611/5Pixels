@@ -31,15 +31,15 @@ const FAQ_ITEMS: { q: string; a: ReactNode }[] = [
     q: "Who processes my payment?",
     a: (
       <>
-        Checkout is handled by Creem, our merchant of record — they process
+        Checkout is handled by Whop, our merchant of record — they process
         payment, issue your receipt, and handle sales tax. The{" "}
         <a
-          href="https://creem.io/terms"
+          href="https://whop.com/terms"
           target="_blank"
           rel="noopener noreferrer"
           className="text-lime-400 hover:underline"
         >
-          Creem Buyer Terms
+          Whop Terms
         </a>{" "}
         apply to your purchase.
       </>

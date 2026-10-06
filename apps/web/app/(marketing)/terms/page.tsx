@@ -260,18 +260,18 @@ export default function TermsPage() {
             <>
               <p>
                 <strong>Merchant of record.</strong> Purchases are processed by
-                Creem, which acts as merchant of record and contractual reseller
-                for purchases made through its checkout. Creem enters into the
+                Whop, which acts as merchant of record and contractual reseller
+                for purchases made through its checkout. Whop enters into the
                 purchase transaction with you, processes payment, issues
                 receipts and invoices, and handles applicable sales taxes where
-                required. &ldquo;Creem&rdquo; may appear on your payment
+                required. &ldquo;Whop&rdquo; may appear on your payment
                 statement. The{" "}
                 <a
-                  href="https://creem.io/terms"
+                  href="https://whop.com/terms"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Creem Buyer Terms
+                  Whop Terms
                 </a>{" "}
                 also apply to your purchase and are presented at checkout.
               </p>
@@ -295,9 +295,9 @@ export default function TermsPage() {
                 For purchases of plans, passes, or credit packs, refund requests
                 are assessed individually through our support at{" "}
                 <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> and
-                Creem&rsquo;s processes. Nothing in these Terms limits any
+                Whop&rsquo;s processes. Nothing in these Terms limits any
                 refund or withdrawal rights you have under mandatory consumer
-                law. Note that Creem may issue a refund within 60 days of a
+                law. Note that Whop may issue a refund within 60 days of a
                 purchase where needed to resolve a dispute.
               </p>
               <p>

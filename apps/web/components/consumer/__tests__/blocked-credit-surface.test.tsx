@@ -67,8 +67,14 @@ const plans: PlanForPurchase[] = [
 ];
 
 const topUp = {
-  planId: "extra-1",
-  checkoutReady: true,
+  packs: [
+    {
+      planId: "pack-1000",
+      priceCents: 1000,
+      credits: 1000,
+      checkoutReady: true,
+    },
+  ],
   creditsPerTransformation: 5,
 };
 
@@ -114,7 +120,9 @@ describe("BlockedCreditSurface", () => {
   it("subscriber: shows only the top-up — never weekly plans", () => {
     renderSurface("subscriber", { activePlanName: "Creator" });
     expect(screen.getByText(/out of credits/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/any amount/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /buy for \$10/i })
+    ).toBeInTheDocument();
     expect(screen.queryByText("Starter")).not.toBeInTheDocument();
     expect(screen.queryByText("Choose a plan")).not.toBeInTheDocument();
   });

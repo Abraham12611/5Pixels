@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils";
 import { useOnline } from "@/lib/ui/use-online";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { PlanForPurchase } from "@/lib/db/plans";
+import type { CreditPack } from "@/lib/billing/credit-packs";
 import type { BlockedCreditContext } from "@/lib/billing/segments";
 import type { OfferAssignment } from "@/lib/offers/engine";
 
@@ -77,10 +78,9 @@ interface CreateGenerationFormProps {
   blocked: BlockedCreditContext | null;
   /** Campaign ladder for offer-eligible segments (new/free users). */
   offer: OfferAssignment | null;
-  /** Extra-credit plan + translation basis for the in-place top-up. */
+  /** Credit packs + translation basis for the in-place top-up. */
   topUp: {
-    planId: string;
-    checkoutReady: boolean;
+    packs: CreditPack[];
     creditsPerTransformation: number;
   } | null;
   /** The signed-in user's human referral code — drives /r/<code> share links. */

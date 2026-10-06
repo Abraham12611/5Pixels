@@ -108,10 +108,12 @@ export async function createCreemExtraCreditsCheckoutSession(
     return { error: "The minimum extra-credit purchase is $10." };
   }
 
+  // The legacy variable-price row (not the fixed credit packs).
   const { data: plan } = await supabase
     .from("plans")
     .select("*")
     .eq("type", "extra_credit")
+    .eq("slug", "extra-credits")
     .single();
 
   if (!plan) {

@@ -1,50 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { CreditTopUp } from "../credit-top-up";
 
+const packs = [
+  { planId: "pack-1000", priceCents: 1000, credits: 1000, checkoutReady: true },
+  { planId: "pack-2500", priceCents: 2500, credits: 2500, checkoutReady: true },
+  { planId: "pack-5000", priceCents: 5000, credits: 5000, checkoutReady: true },
+  {
+    planId: "pack-10000",
+    priceCents: 10000,
+    credits: 10000,
+    checkoutReady: true,
+  },
+];
+
 const props = {
-  planId: "extra-1",
-  checkoutReady: true,
+  packs,
   creditsPerTransformation: 5,
 };
 
 describe("CreditTopUp", () => {
-  it("renders the four pack shortcuts with what-they-buy lines", () => {
+  it("renders the fixed packs with what-they-buy lines", () => {
     render(<CreditTopUp {...props} />);
-    // Pack labels — the $10 pack also matches the default custom amount
-    expect(screen.getAllByText(/1,000\s+credits/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("1,000 credits")).toBeInTheDocument();
     expect(screen.getByText("10,000 credits")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /buy for \$50/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /buy for \$50/i })
+    ).toBeInTheDocument();
     // $50 pack = 5000 credits / 5 = 1000 transformations
     expect(
       screen.getByText("≈ up to 1,000 transformations")
     ).toBeInTheDocument();
   });
 
-  it("translates a custom amount into credits and transformations live", () => {
-    render(<CreditTopUp {...props} />);
-    const input = screen.getByLabelText(/any amount/i);
-    fireEvent.change(input, { target: { value: "30" } });
-    expect(screen.getByText("3,000 credits")).toBeInTheDocument();
-    expect(
-      screen.getByText("≈ up to 600 transformations")
-    ).toBeInTheDocument();
+  it("posts only the pack plan_id — no amount field exists", () => {
+    const { container } = render(<CreditTopUp {...props} />);
+    const forms = container.querySelectorAll("form");
+    expect(forms).toHaveLength(4);
+    for (const form of forms) {
+      expect(form.querySelector('input[name="amount"]')).toBeNull();
+      expect(
+        form.querySelector('input[name="plan_id"]')
+      ).toBeInTheDocument();
+    }
+    // No custom-amount input anywhere.
+    expect(screen.queryByLabelText(/any amount/i)).toBeNull();
   });
 
-  it("blocks the custom buy below the minimum", () => {
-    render(<CreditTopUp {...props} />);
-    const input = screen.getByLabelText(/any amount/i);
-    fireEvent.change(input, { target: { value: "5" } });
-    expect(screen.getByText("Minimum $10")).toBeInTheDocument();
+  it("disables a pack whose Whop variant is not configured", () => {
+    render(
+      <CreditTopUp
+        {...props}
+        packs={[{ ...packs[0], checkoutReady: false }]}
+      />
+    );
     expect(
-      screen.getByRole("button", { name: /^buy credits$/i })
+      screen.getByRole("button", { name: /coming soon/i })
     ).toBeDisabled();
   });
 
-  it("disables all buys when no product id is configured", () => {
-    render(<CreditTopUp {...props} checkoutReady={false} />);
-    expect(
-      screen.getAllByRole("button", { name: /coming soon|buy for/i })[0]
-    ).toBeDisabled();
+  it("renders nothing when no packs are configured", () => {
+    const { container } = render(
+      <CreditTopUp packs={[]} creditsPerTransformation={5} />
+    );
+    expect(container.firstChild).toBeNull();
   });
 });
