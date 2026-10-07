@@ -197,8 +197,10 @@ export function refundWhopPayment(
 
 /**
  * Whop signs `{webhook-id}.{webhook-timestamp}.{raw body}` with HMAC-SHA256,
- * keyed by the `ws_…` webhook secret (base64-decoded after the prefix).
- * The `webhook-signature` header carries `v1,<base64>` (possibly multiple
+ * keyed by the `ws_…` webhook secret **used verbatim** — the whole string,
+ * prefix included, is the HMAC key (Standard-Webhooks `whsec_…` secrets are
+ * the exception: prefix stripped, remainder base64-decoded). The
+ * `webhook-signature` header carries `v1,<base64>` (possibly multiple
  * space-separated signatures). Timestamps more than 5 minutes out are
  * rejected to prevent replay.
  *
@@ -208,13 +210,10 @@ export function refundWhopPayment(
 const WHOP_SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
 function whopSigningKey(secret: string): Buffer {
-  // `ws_`-prefixed secrets are base64 payloads; a bare secret is used as-is.
-  const raw = secret.startsWith("ws_") ? secret.slice(3) : secret;
-  try {
-    return Buffer.from(raw, "base64");
-  } catch {
-    return Buffer.from(raw, "utf8");
+  if (secret.startsWith("whsec_")) {
+    return Buffer.from(secret.slice(6), "base64");
   }
+  return Buffer.from(secret, "utf8");
 }
 
 export function verifyWhopSignature(input: {

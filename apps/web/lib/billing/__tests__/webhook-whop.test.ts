@@ -39,9 +39,8 @@ vi.mock("@/lib/billing/whop-client", async (importOriginal) => {
 
 import { POST } from "@/app/api/webhooks/whop/route";
 
-// ws_ secrets are base64 payloads after the prefix.
-const RAW_SECRET = "whop-webhook-test-secret";
-const SECRET = `ws_${Buffer.from(RAW_SECRET, "utf8").toString("base64")}`;
+// Whop signs with the ws_ secret verbatim — the whole string is the key.
+const SECRET = "ws_0123456789abcdef0123456789abcdef";
 process.env.WHOP_WEBHOOK_SECRET = SECRET;
 process.env.WHOP_API_KEY = "whop_test_dummy";
 
@@ -50,7 +49,7 @@ function sign(
   webhookId: string,
   timestampSeconds: number
 ): Record<string, string> {
-  const sig = createHmac("sha256", RAW_SECRET)
+  const sig = createHmac("sha256", SECRET)
     .update(`${webhookId}.${timestampSeconds}.${body}`)
     .digest("base64");
   return {
