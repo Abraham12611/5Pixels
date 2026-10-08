@@ -527,46 +527,65 @@ export async function fulfillOneTimePayment(payment: Payment) {
 
   await recordCustomer(mapping.userId, mapping.customerId);
 
-  if (await findInvoiceByPaymentId(payment.payment_id)) {
-    console.log(`[fulfillOneTimePayment] already processed`);
-    return;
-  }
-
+  // Reconcile, don't return: an existing invoice may be a partial
+  // fulfillment (invoice written, grant or link failed). The credit grant
+  // below is idempotent on `purchase:payment:{id}`, so always run it and
+  // re-link the ledger entry — retries then resume the missing steps.
   const service = createServiceClient();
-  const { data: invoice, error: invoiceError } = await service
-    .from("invoices")
-    .insert({
-      user_id: mapping.userId,
-      plan_id: plan.id,
-      amount_cents: payment.total_amount,
-      currency: payment.currency,
-      status: "paid",
-      dodo_payment_id: payment.payment_id,
-      dodo_checkout_session_id: payment.checkout_session_id ?? null,
-      metadata: payment.metadata,
-    })
-    .select("id")
-    .single();
+  let invoiceId: string;
 
-  if (invoiceError || !invoice) {
-    throw new Error(
-      `Failed to insert invoice: ${invoiceError?.message ?? "unknown"}`
-    );
+  const existingInvoice = await findInvoiceByPaymentId(payment.payment_id);
+  if (existingInvoice) {
+    invoiceId = existingInvoice.id;
+  } else {
+    const { data: invoice, error: invoiceError } = await service
+      .from("invoices")
+      .insert({
+        user_id: mapping.userId,
+        plan_id: plan.id,
+        amount_cents: payment.total_amount,
+        currency: payment.currency,
+        status: "paid",
+        dodo_payment_id: payment.payment_id,
+        dodo_checkout_session_id: payment.checkout_session_id ?? null,
+        metadata: payment.metadata,
+      })
+      .select("id")
+      .single();
+
+    if (invoiceError || !invoice) {
+      // A concurrent webhook delivery may have inserted the same payment
+      // between the check and this insert — reconcile instead of failing.
+      const raced = await findInvoiceByPaymentId(payment.payment_id);
+      if (!raced) {
+        throw new Error(
+          `Failed to insert invoice: ${invoiceError?.message ?? "unknown"}`
+        );
+      }
+      invoiceId = raced.id;
+    } else {
+      invoiceId = invoice.id;
+    }
   }
 
   const ledgerEntryId = await ensureCreditsForBillingPeriod(
     mapping.userId,
     plan,
     undefined,
-    invoice.id,
+    invoiceId,
     `purchase:payment:${payment.payment_id}`,
     payment.total_amount
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
-    .eq("id", invoice.id);
+    .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   try {
     await awardOrHoldReferrerShare({
@@ -655,10 +674,15 @@ export async function fulfillSubscriptionPayment(payment: Payment) {
   );
 
   const service = createServiceClient();
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   try {
     await awardOrHoldReferrerShare({
@@ -744,10 +768,15 @@ export async function fulfillSubscriptionLifecycleEvent(
   );
 
   const service = createServiceClient();
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   await service
     .from("subscriptions")

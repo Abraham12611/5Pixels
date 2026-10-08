@@ -59,8 +59,8 @@ async function sumGrantedCreditsForInvoice(
  *
  * The ledger is append-only: we never delete the grant, we add a negative
  * `debit` entry capped at the user's current available balance so
- * get_available_balance (a plain SUM over non-reservation entries) is never
- * pushed below zero. Any shortfall — credits already spent — is recorded in
+ * get_available_balance (a plain SUM over all ledger entries — reservations
+ * are negative and already reduce it) is never pushed below zero. Any shortfall — credits already spent — is recorded in
  * the reversal entry's metadata as `unrecovered_credits` instead of being
  * clawed back.
  */
@@ -96,8 +96,7 @@ export async function handlePolarRefund(refund: Refund): Promise<void> {
   const { data: ledgerRows } = await service
     .from("credit_ledger")
     .select("amount")
-    .eq("user_id", invoice.user_id)
-    .neq("entry_type", "reservation");
+    .eq("user_id", invoice.user_id);
 
   const availableBalance = (ledgerRows ?? []).reduce(
     (sum, row) => sum + Number(row.amount),
@@ -221,8 +220,7 @@ export async function handleCreemRefund(
   const { data: ledgerRows } = await service
     .from("credit_ledger")
     .select("amount")
-    .eq("user_id", invoice.user_id)
-    .neq("entry_type", "reservation");
+    .eq("user_id", invoice.user_id);
 
   const availableBalance = (ledgerRows ?? []).reduce(
     (sum, row) => sum + Number(row.amount),

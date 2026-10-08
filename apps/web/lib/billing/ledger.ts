@@ -65,6 +65,17 @@ export function mapLedgerRow(
         statusLabel: "In progress",
         date: row.created_at,
       };
+    case "reservation_released":
+      // Terminal bookkeeping twin of a refund. Consumers never see it
+      // (getCreditActivity filters it); this case exists for admin/raw views.
+      return {
+        id: row.id,
+        kind: "released",
+        label: productName ?? "Transformation",
+        amount,
+        statusLabel: "Failed",
+        date: row.created_at,
+      };
     case "purchase": {
       const isTopUp =
         typeof row.metadata?.subscription_id !== "string" && !planName;
