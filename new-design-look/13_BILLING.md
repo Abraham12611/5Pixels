@@ -50,6 +50,8 @@ Prefer: **Preset, Look, Transformation, Original, Result, Collection, Category, 
 
 Avoid exposing: **prompt, system prompt, seed, CFG, checkpoint, LoRA, inference, scheduler, provider, model routing, technical generation pipeline.**
 
+> **Credit-policy note (canonical):** credits never expire while the account is active, and balances accumulate past a single period's grant. Mock copy in this file that says `Resets …`, `credits left`, or implies a per-period cap is superseded — see `18_BILLING_CREDITS_PLAN.md`, "Canonical credit policy". Render reset/reset-date positions as next-grant language (`+N credits each month`, `Next grant …`) and show the raw balance, never `X of Y left` where Y is the period grant.
+
 ## Global authenticated desktop navigation
 
 Use a slim sticky top bar:

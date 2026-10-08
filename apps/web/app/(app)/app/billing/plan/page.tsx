@@ -256,8 +256,8 @@ export default async function BillingPlanPage() {
                 Your {displayName} plan ends {renewal ?? "soon"}
               </p>
               <p className="text-text-secondary mt-1 text-sm">
-                You keep your credits and plan until then — nothing is lost
-                today.
+                Your plan stays active until then — and your credits never
+                expire.
               </p>
             </div>
             <PortalForm label="Restart plan" variant="secondary" />
@@ -432,7 +432,7 @@ export default async function BillingPlanPage() {
                 </Link>
               </Button>
               <p className="text-text-muted mt-2.5 text-xs">
-                Top-up credits never expire.
+                Credits never expire.
               </p>
             </SettingCard>
 
@@ -459,7 +459,7 @@ export default async function BillingPlanPage() {
             title={weeklyReturner ? "Get another week" : "Start with a week"}
             description={
               weeklyReturner
-                ? "Another one-time week of credits — never renews, stacks with nothing."
+                ? "Another one-time week of credits — never renews, and the credits never expire."
                 : "One-time weekly plans — a low-commitment way to load up on credits. They never renew."
             }
           >

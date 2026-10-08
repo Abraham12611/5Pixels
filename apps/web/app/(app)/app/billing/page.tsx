@@ -103,6 +103,12 @@ export default async function BillingPage() {
   );
   const meterMax = activePlan?.creditsGrant ?? null;
   const buyCreditsHref = "/app/billing/credits";
+  // Credits never expire and can exceed a single period's grant — the grant
+  // cadence tells the user what's coming, never what the balance caps at.
+  const grantCadence =
+    activePlan?.type === "weekly" || activePlan?.type === "weekly_trial"
+      ? "week"
+      : "month";
 
   const usageMetrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -143,11 +149,7 @@ export default async function BillingPage() {
                 <span className="font-display text-cream-50 text-5xl leading-none tracking-tight tabular-nums sm:text-6xl">
                   {balance.toLocaleString()}
                 </span>
-                <span className="text-text-secondary text-sm">
-                  {meterMax
-                    ? `of ${meterMax.toLocaleString()} credits left`
-                    : "credits left"}
-                </span>
+                <span className="text-text-secondary text-sm">credits</span>
               </p>
               <p
                 className={cn(
@@ -162,10 +164,12 @@ export default async function BillingPage() {
                 {isOut
                   ? "You're out of credits — top up to keep generating."
                   : isLow
-                    ? "Running low — you may run out before your next reset."
-                    : renews
-                      ? `Resets ${renews}`
-                      : "Credits don't expire while your account is active."}
+                    ? "Running low — top up anytime. Your credits never expire."
+                    : planName && meterMax
+                      ? `Credits never expire — +${meterMax.toLocaleString()} more each ${grantCadence}${
+                          renews ? `, next grant ${renews}` : ""
+                        }.`
+                      : "Your credits never expire."}
               </p>
               {/* "Enough for N more" against the median preset cost (13 §8) */}
               {!isOut && (
@@ -206,9 +210,9 @@ export default async function BillingPage() {
                 className="scale-150 origin-bottom-right"
               />
               <p className="text-text-muted text-xs">
-                {meterMax
-                  ? `${Math.round((balance / meterMax) * 100)}% of this cycle's credits`
-                  : "Each bar is ~10 credits"}
+                {`Each bar is ~${Math.round(
+                  (meterMax ?? 50) / 5
+                ).toLocaleString()} credits`}
               </p>
             </div>
           </div>

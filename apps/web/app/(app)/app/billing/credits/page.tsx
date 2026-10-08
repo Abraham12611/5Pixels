@@ -60,8 +60,12 @@ export default async function BillingCreditsPage() {
 
   const balance = summary?.balance ?? 0;
   const meterMax = activePlan?.creditsGrant ?? null;
-  const resets = formatDate(summary?.periodEnd ?? null);
   const isOut = balance <= 0;
+  // Credits never expire and can exceed a single period's grant.
+  const grantCadence =
+    activePlan?.type === "weekly" || activePlan?.type === "weekly_trial"
+      ? "week"
+      : "month";
 
   // Basis for the "≈ up to N transformations" line on every top-up option:
   // the cheapest active transformation in the catalog.
@@ -115,9 +119,7 @@ export default async function BillingCreditsPage() {
                 <span className="font-display text-cream-50 text-5xl leading-none tracking-tight tabular-nums sm:text-6xl">
                   {balance.toLocaleString()}
                 </span>
-                <span className="text-text-secondary text-sm">
-                  credits left
-                </span>
+                <span className="text-text-secondary text-sm">credits</span>
               </p>
               <p
                 className={cn(
@@ -127,9 +129,9 @@ export default async function BillingCreditsPage() {
               >
                 {isOut
                   ? "You're out of credits — top up to keep generating."
-                  : resets
-                    ? `Resets ${resets}`
-                    : "Credits don't expire while your account is active."}
+                  : activePlan && meterMax
+                    ? `Credits never expire — +${meterMax.toLocaleString()} more each ${grantCadence}.`
+                    : "Your credits never expire."}
               </p>
               <div className="mt-5">
                 <Button asChild variant={isOut ? "brand" : "secondary"}>
@@ -145,9 +147,9 @@ export default async function BillingCreditsPage() {
                 className="scale-150 origin-bottom-right"
               />
               <p className="text-text-muted text-xs">
-                {meterMax
-                  ? `${Math.round((balance / meterMax) * 100)}% of this cycle's credits`
-                  : "Each bar is ~10 credits"}
+                {`Each bar is ~${Math.round(
+                  (meterMax ?? 50) / 5
+                ).toLocaleString()} credits`}
               </p>
             </div>
           </div>
