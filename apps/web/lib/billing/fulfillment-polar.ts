@@ -242,6 +242,16 @@ async function upsertSubscription(
   const status = mapSubscriptionStatus(info.status);
 
   if (existing) {
+    // A renewed annual term arrives as a different current_period_start on
+    // the same provider subscription. Reset the drip counters for the new
+    // term — otherwise drips_granted stays 12 and year two pays but never
+    // receives credits. Drip idempotency keys are term-scoped (see
+    // drip.ts), so re-granting drip 1 under the new anchor cannot collide
+    // with last year's grants.
+    const isNewDripTerm =
+      (plan?.credit_drip_months ?? 1) > 1 &&
+      existing.currentPeriodStart !== null &&
+      existing.currentPeriodStart !== info.currentPeriodStart;
     const { error } = await service
       .from("subscriptions")
       .update({
@@ -254,6 +264,13 @@ async function upsertSubscription(
         trial: info.isTrial,
         ended_at: info.endedAt,
         polar_customer_id: polarCustomerId,
+        ...(isNewDripTerm
+          ? {
+              drips_granted: 0,
+              drip_anchor_at: info.currentPeriodStart,
+              next_drip_at: info.currentPeriodStart,
+            }
+          : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
@@ -573,46 +590,65 @@ export async function fulfillPolarOneTimeOrder(order: Order) {
 
   await recordCustomer(mapping.userId, mapping.customerId);
 
-  if (await findInvoiceByOrderId(order.id)) {
-    console.log(`[fulfillPolarOneTimeOrder] already processed`);
-    return;
-  }
-
+  // Reconcile, don't return: an existing invoice may be a partial
+  // fulfillment (invoice written, grant or link failed). The credit grant
+  // below is idempotent on `purchase:payment:{id}`, so always run it and
+  // re-link the ledger entry — retries then resume the missing steps.
   const service = createServiceClient();
-  const { data: invoice, error: invoiceError } = await service
-    .from("invoices")
-    .insert({
-      user_id: mapping.userId,
-      plan_id: plan.id,
-      amount_cents: order.totalAmount,
-      currency: order.currency,
-      status: "paid",
-      polar_order_id: order.id,
-      polar_checkout_id: order.checkoutId ?? null,
-      metadata: order.metadata,
-    })
-    .select("id")
-    .single();
+  let invoiceId: string;
 
-  if (invoiceError || !invoice) {
-    throw new Error(
-      `Failed to insert invoice: ${invoiceError?.message ?? "unknown"}`
-    );
+  const existingInvoice = await findInvoiceByOrderId(order.id);
+  if (existingInvoice) {
+    invoiceId = existingInvoice.id;
+  } else {
+    const { data: invoice, error: invoiceError } = await service
+      .from("invoices")
+      .insert({
+        user_id: mapping.userId,
+        plan_id: plan.id,
+        amount_cents: order.totalAmount,
+        currency: order.currency,
+        status: "paid",
+        polar_order_id: order.id,
+        polar_checkout_id: order.checkoutId ?? null,
+        metadata: order.metadata,
+      })
+      .select("id")
+      .single();
+
+    if (invoiceError || !invoice) {
+      // A concurrent webhook delivery may have inserted the same order
+      // between the check and this insert — reconcile instead of failing.
+      const raced = await findInvoiceByOrderId(order.id);
+      if (!raced) {
+        throw new Error(
+          `Failed to insert invoice: ${invoiceError?.message ?? "unknown"}`
+        );
+      }
+      invoiceId = raced.id;
+    } else {
+      invoiceId = invoice.id;
+    }
   }
 
   const ledgerEntryId = await ensureCreditsForBillingPeriod(
     mapping.userId,
     plan,
     undefined,
-    invoice.id,
+    invoiceId,
     `purchase:payment:${order.id}`,
     order.totalAmount
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
-    .eq("id", invoice.id);
+    .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   await recordOfferConversion(
     mapping.userId,
@@ -713,10 +749,20 @@ export async function fulfillPolarSubscriptionOrder(order: Order) {
 
   if (plan.credit_drip_months > 1) {
     // Annual plans: credits are granted by the monthly drip, not per billing
-    // event. Drip 1 was granted at subscription creation.
-    console.log(
-      `[fulfillPolarSubscriptionOrder] plan ${plan.slug} is credit-dripped; skipping per-period grant`
-    );
+    // event. Initialize drip 1 whenever the counters say this term hasn't
+    // started — covers subscription creation AND renewal-term resets
+    // (upsertSubscription zeroes drips_granted on a new period start).
+    const sub = await findSubscriptionByPolarId(info.subscriptionId);
+    if (sub && sub.dripsGranted === 0) {
+      await initializeSubscriptionDrip({
+        subscriptionRowId: sub.id,
+        userId: mapping.userId,
+        plan,
+        providerSubscriptionId: info.subscriptionId,
+        periodStart: info.currentPeriodStart,
+        invoiceId,
+      });
+    }
     return;
   }
 
@@ -731,10 +777,15 @@ export async function fulfillPolarSubscriptionOrder(order: Order) {
   );
 
   const service = createServiceClient();
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   console.log(
     `[fulfillPolarSubscriptionOrder] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.currentPeriodEnd}`
@@ -828,10 +879,15 @@ export async function fulfillPolarSubscriptionEvent(
     invoiceAmount
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   if (isNew || subscription.status === "active") {
     await service

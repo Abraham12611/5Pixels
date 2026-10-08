@@ -151,7 +151,8 @@ export async function getAdminAnalytics(): Promise<AdminAnalytics> {
   for (const l of ledger ?? []) {
     const type = l.entry_type as string;
     const amount = Number(l.amount ?? 0);
-    if (type === "reservation") creditsReserved30d += amount;
+    if (type === "reservation" || type === "reservation_released")
+      creditsReserved30d += amount;
     if (type === "debit") creditsDebit30d += amount;
     if (type === "refund") creditsRefund30d += amount;
   }

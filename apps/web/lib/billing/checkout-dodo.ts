@@ -45,6 +45,17 @@ export async function createDodoPlanCheckoutSession(
     return { error: "Plan not found." };
   }
 
+  // Dripped (annual) plans are unsupported on Dodo: its fulfillment never
+  // enters the monthly drip schedule, so an annual sale would grant one
+  // month and silently stop. Dodo is a rollback provider — refuse the
+  // checkout rather than under-fulfil a year-long purchase.
+  if (Number(plan.credit_drip_months ?? 1) > 1) {
+    return {
+      error:
+        "This plan is not available with the current payment option. Please try again later.",
+    };
+  }
+
   const dodoProductId = (plan.metadata as { dodo_product_id?: string })
     ?.dodo_product_id;
   if (!dodoProductId) {
