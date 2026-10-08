@@ -40,6 +40,15 @@ describe("mapLedgerRow", () => {
     expect(entry.kind).toBe("held");
   });
 
+  it("labels released holds as Failed (raw/admin views only)", () => {
+    const entry = mapLedgerRow(
+      { ...base, entry_type: "reservation_released", amount: -3 },
+      { productName: "Magazine Cover 02" }
+    );
+    expect(entry.statusLabel).toBe("Failed");
+    expect(entry.kind).toBe("released");
+  });
+
   it("labels plan-linked purchases by plan name", () => {
     const entry = mapLedgerRow(
       {
