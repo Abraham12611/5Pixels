@@ -8,11 +8,21 @@ interface DrippablePlan {
   credit_drip_months: number;
 }
 
-function dripIdempotencyKey(
+/**
+ * Drip keys are scoped by the term anchor (the immutable start of the
+ * annual term) so a year-two renewal can never collide with year-one
+ * keys. The unscoped legacy format is still consulted on every grant —
+ * drips granted before the scoping change must keep their idempotency.
+ */
+function dripIdempotencyKeys(
   providerSubscriptionId: string,
+  termAnchor: string,
   dripIndex: number
-): string {
-  return `subscription:${providerSubscriptionId}:drip:${dripIndex}`;
+): { scoped: string; legacy: string } {
+  return {
+    scoped: `subscription:${providerSubscriptionId}:${termAnchor}:drip:${dripIndex}`,
+    legacy: `subscription:${providerSubscriptionId}:drip:${dripIndex}`,
+  };
 }
 
 /** Anchor + n months, clamped to the last valid day (Jan 31 +1mo => Feb 28/29). */
@@ -30,19 +40,20 @@ async function grantDripCredits(
   userId: string,
   plan: DrippablePlan,
   providerSubscriptionId: string,
+  termAnchor: string,
   dripIndex: number,
   invoiceId?: string | null
 ): Promise<string> {
   const service = createServiceClient();
-  const idempotencyKey = dripIdempotencyKey(providerSubscriptionId, dripIndex);
+  const keys = dripIdempotencyKeys(providerSubscriptionId, termAnchor, dripIndex);
 
   const { data: existing } = await service
     .from("credit_ledger")
     .select("id")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  if (existing) {
-    return existing.id as string;
+    .in("idempotency_key", [keys.scoped, keys.legacy])
+    .limit(1);
+  if (existing && existing.length > 0) {
+    return existing[0].id as string;
   }
 
   const { data: ledger, error } = await service
@@ -52,11 +63,12 @@ async function grantDripCredits(
       entry_type: "purchase",
       amount: plan.credits_grant,
       currency_unit: "credits",
-      idempotency_key: idempotencyKey,
+      idempotency_key: keys.scoped,
       metadata: {
         plan_id: plan.id,
         subscription_id: providerSubscriptionId,
         drip_index: dripIndex,
+        term_anchor: termAnchor,
         ...(invoiceId ? { invoice_id: invoiceId } : {}),
       },
     })
@@ -68,9 +80,9 @@ async function grantDripCredits(
       const { data: dup } = await service
         .from("credit_ledger")
         .select("id")
-        .eq("idempotency_key", idempotencyKey)
-        .maybeSingle();
-      if (dup) return dup.id as string;
+        .in("idempotency_key", [keys.scoped, keys.legacy])
+        .limit(1);
+      if (dup && dup.length > 0) return dup[0].id as string;
     }
     throw new Error(
       `Failed to insert drip credit_ledger: ${error?.message ?? "unknown"}`
@@ -78,6 +90,32 @@ async function grantDripCredits(
   }
 
   return ledger.id as string;
+}
+
+/**
+ * Latest paid invoice for a provider subscription — i.e. the invoice that
+ * opened the current term. Drip grants stamp it in metadata so a refund
+ * can find and reverse every instalment of the term, not just drip 1.
+ */
+async function findTermInvoiceId(
+  providerSubscriptionId: string
+): Promise<string | null> {
+  const service = createServiceClient();
+  const { data } = await service
+    .from("invoices")
+    .select(
+      "id, polar_subscription_id, creem_subscription_id, dodo_subscription_id"
+    )
+    .eq("status", "paid")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  const match = (data ?? []).find(
+    (i) =>
+      i.polar_subscription_id === providerSubscriptionId ||
+      i.creem_subscription_id === providerSubscriptionId ||
+      i.dodo_subscription_id === providerSubscriptionId
+  );
+  return (match?.id as string | undefined) ?? null;
 }
 
 /**
@@ -113,7 +151,14 @@ export async function initializeSubscriptionDrip(args: {
     return;
   }
 
-  await grantDripCredits(userId, plan, providerSubscriptionId, 1, invoiceId);
+  await grantDripCredits(
+    userId,
+    plan,
+    providerSubscriptionId,
+    periodStart,
+    1,
+    invoiceId
+  );
 
   const nextDripAt =
     plan.credit_drip_months > 1 ? addMonthsClamped(periodStart, 1) : null;
@@ -153,7 +198,7 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
   const { data: due, error } = await service
     .from("subscriptions")
     .select(
-      "id, user_id, plan_id, drips_granted, next_drip_at, drip_anchor_at, current_period_start, polar_subscription_id, creem_subscription_id, plans(id, credits_grant, credit_drip_months)"
+      "id, user_id, plan_id, drips_granted, next_drip_at, drip_anchor_at, current_period_start, polar_subscription_id, creem_subscription_id, dodo_subscription_id, plans(id, credits_grant, credit_drip_months)"
     )
     .eq("status", "active")
     .not("next_drip_at", "is", null)
@@ -170,7 +215,8 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
     const dripMonths = Number(plan?.credit_drip_months ?? 1);
     const providerSubscriptionId =
       (row.polar_subscription_id as string | null) ??
-      (row.creem_subscription_id as string | null);
+      (row.creem_subscription_id as string | null) ??
+      (row.dodo_subscription_id as string | null);
 
     if (!plan || !providerSubscriptionId) {
       continue;
@@ -194,6 +240,7 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
       (row.current_period_start as string | null) ??
       (row.next_drip_at as string);
     try {
+      const termInvoiceId = await findTermInvoiceId(providerSubscriptionId);
       await grantDripCredits(
         row.user_id as string,
         {
@@ -202,7 +249,9 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
           credit_drip_months: dripMonths,
         },
         providerSubscriptionId,
-        dripIndex
+        anchor,
+        dripIndex,
+        termInvoiceId
       );
 
       const isLast = dripIndex >= dripMonths;

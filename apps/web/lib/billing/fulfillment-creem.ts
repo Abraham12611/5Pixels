@@ -326,6 +326,16 @@ async function upsertSubscription(
   const status = mapSubscriptionStatus(info.status);
 
   if (existing) {
+    // A renewed annual term arrives as a different current_period_start on
+    // the same provider subscription. Reset the drip counters for the new
+    // term — otherwise drips_granted stays 12 and year two pays but never
+    // receives credits. Drip idempotency keys are term-scoped (see
+    // drip.ts), so re-granting drip 1 under the new anchor cannot collide
+    // with last year's grants.
+    const isNewDripTerm =
+      (plan?.credit_drip_months ?? 1) > 1 &&
+      existing.currentPeriodStart !== null &&
+      existing.currentPeriodStart !== info.currentPeriodStart;
     const { error } = await service
       .from("subscriptions")
       .update({
@@ -338,6 +348,13 @@ async function upsertSubscription(
         trial: info.isTrial,
         ended_at: info.endedAt,
         creem_customer_id: creemCustomerId,
+        ...(isNewDripTerm
+          ? {
+              drips_granted: 0,
+              drip_anchor_at: info.currentPeriodStart,
+              next_drip_at: info.currentPeriodStart,
+            }
+          : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);

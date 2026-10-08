@@ -220,7 +220,9 @@ describe("fulfillPolarSubscriptionEvent", () => {
     );
     const entries = ledgerEntries();
     expect(entries).toHaveLength(1);
-    expect(entries[0].idempotency_key).toBe("subscription:sub_1:drip:1");
+    expect(entries[0].idempotency_key).toBe(
+      "subscription:sub_1:2026-10-01T00:00:00.000Z:drip:1"
+    );
     expect(entries[0].amount).toBe(2000);
     const sub = fake.table("subscriptions")[0];
     expect(sub.drips_granted).toBe(1);
@@ -278,7 +280,9 @@ describe("runCreditDrip", () => {
     expect(entries).toHaveLength(12);
     const keys = entries.map((e) => e.idempotency_key);
     expect(new Set(keys).size).toBe(12);
-    expect(keys).toContain("subscription:sub_1:drip:12");
+    expect(keys).toContain(
+      "subscription:sub_1:2026-10-01T00:00:00.000Z:drip:12"
+    );
 
     const sub = fake.table("subscriptions")[0];
     expect(sub.drips_granted).toBe(12);
@@ -360,6 +364,42 @@ describe("runCreditDrip", () => {
     expect(r.granted).toBe(0);
     expect(ledgerEntries()).toHaveLength(2);
   });
+
+  it("resets the drip schedule on a new annual term", async () => {
+    await fulfillPolarSubscriptionEvent(
+      subscription({
+        productId: "polar_prod_annual",
+        currentPeriodEnd: new Date("2027-10-01T00:00:00Z"),
+        metadata: { user_id: "user-1", plan_id: "plan-annual" },
+      })
+    );
+    // Term 1 fully dripped.
+    fake.table("subscriptions")[0].drips_granted = 12;
+    fake.table("subscriptions")[0].next_drip_at = null;
+
+    await fulfillPolarSubscriptionEvent(
+      subscription({
+        productId: "polar_prod_annual",
+        currentPeriodStart: new Date("2027-10-01T00:00:00Z"),
+        currentPeriodEnd: new Date("2028-10-01T00:00:00Z"),
+        metadata: { user_id: "user-1", plan_id: "plan-annual" },
+      })
+    );
+
+    const sub = fake.table("subscriptions")[0];
+    expect(sub.drips_granted).toBe(1);
+    expect(sub.drip_anchor_at).toBe("2027-10-01T00:00:00.000Z");
+    expect(sub.next_drip_at).toBeTruthy();
+
+    const keys = ledgerEntries().map((e) => e.idempotency_key);
+    expect(keys).toContain(
+      "subscription:sub_1:2026-10-01T00:00:00.000Z:drip:1"
+    );
+    expect(keys).toContain(
+      "subscription:sub_1:2027-10-01T00:00:00.000Z:drip:1"
+    );
+    expect(ledgerEntries()).toHaveLength(2);
+  });
 });
 
 describe("handlePolarRefund", () => {
@@ -422,6 +462,42 @@ describe("handlePolarRefund", () => {
     await handlePolarRefund(refund);
     await handlePolarRefund(refund);
     expect(ledgerEntries()).toHaveLength(2);
+  });
+
+  it("annual refund reverses every invoice-linked drip grant", async () => {
+    await fulfillPolarSubscriptionEvent(
+      subscription({
+        productId: "polar_prod_annual",
+        currentPeriodEnd: new Date("2027-10-01T00:00:00Z"),
+        metadata: { user_id: "user-1", plan_id: "plan-annual" },
+      })
+    );
+    await runCreditDrip(new Date("2026-11-02T00:00:00Z"));
+    await runCreditDrip(new Date("2026-12-02T00:00:00Z"));
+    expect(ledgerEntries()).toHaveLength(3);
+
+    // Every drip grant is linked back to the term invoice.
+    const invoice = fake.table("invoices")[0];
+    for (const e of ledgerEntries()) {
+      expect(e.metadata.invoice_id).toBe(invoice.id);
+    }
+
+    invoice.polar_order_id = "order_annual";
+    const refund = {
+      id: "refund_annual",
+      orderId: "order_annual",
+      status: "succeeded",
+      dispute: null,
+      metadata: {},
+    } as unknown as Refund;
+    await handlePolarRefund(refund);
+
+    const reversal = ledgerEntries().find(
+      (e) => e.idempotency_key === "refund:refund_annual"
+    )!;
+    // 3 drips × 2000 — all reversed, not just drip 1.
+    expect(reversal.amount).toBe(-6000);
+    expect(fake.table("invoices")[0].status).toBe("refunded");
   });
 });
 
