@@ -15,6 +15,46 @@ export interface CreemRefundObject {
 }
 
 /**
+ * Total credits granted against one invoice. A dripped annual plan is
+ * 1:N with the ledger (up to 12 purchase rows share the same
+ * metadata.invoice_id), so summing the linked grants is required — the
+ * single credit_ledger_entry_id FK alone finds at most drip 1.
+ */
+async function sumGrantedCreditsForInvoice(
+  service: ReturnType<typeof createServiceClient>,
+  invoice: { id: string; credit_ledger_entry_id: string | null }
+): Promise<number> {
+  const { data: grants } = await service
+    .from("credit_ledger")
+    .select("id, amount")
+    .filter("metadata->>invoice_id", "eq", invoice.id)
+    .in("entry_type", ["purchase", "allocation"]);
+
+  const seen = new Set<string>();
+  let total = 0;
+  for (const g of grants ?? []) {
+    seen.add(g.id as string);
+    total += Math.max(0, Number(g.amount));
+  }
+
+  // Older invoices predate metadata invoice stamps — fall back to the
+  // single grant FK for those, deduped against the metadata-linked set.
+  if (
+    invoice.credit_ledger_entry_id &&
+    !seen.has(invoice.credit_ledger_entry_id)
+  ) {
+    const { data: grant } = await service
+      .from("credit_ledger")
+      .select("amount")
+      .eq("id", invoice.credit_ledger_entry_id)
+      .maybeSingle();
+    total += Math.max(0, Number(grant?.amount ?? 0));
+  }
+
+  return total;
+}
+
+/**
  * Reverses the credits granted by a refunded/charged-back order.
  *
  * The ledger is append-only: we never delete the grant, we add a negative
@@ -51,15 +91,7 @@ export async function handlePolarRefund(refund: Refund): Promise<void> {
     return;
   }
 
-  let grantedCredits = 0;
-  if (invoice.credit_ledger_entry_id) {
-    const { data: grant } = await service
-      .from("credit_ledger")
-      .select("amount")
-      .eq("id", invoice.credit_ledger_entry_id)
-      .maybeSingle();
-    grantedCredits = Math.max(0, Number(grant?.amount ?? 0));
-  }
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
 
   const { data: ledgerRows } = await service
     .from("credit_ledger")
@@ -153,26 +185,37 @@ export async function handleCreemRefund(
     return;
   }
 
-  const { data: invoice } = await service
+  const { data: orderInvoice } = await service
     .from("invoices")
     .select("id, user_id, credit_ledger_entry_id, plan_id")
     .eq("creem_order_id", orderId)
     .maybeSingle();
+
+  // Renewal-period invoices created from subscription.paid carry no order
+  // id — fall back to the subscription the refund's transaction points at.
+  // Known limitation: after multiple annual terms, a delayed refund for an
+  // older term can resolve to the newer term's invoice here. Acceptable for
+  // launch (annual plans are new); a term-scoped refund reference is the
+  // proper fix later.
+  let invoice = orderInvoice;
+  if (!invoice && refund.transaction?.subscription) {
+    const { data: subInvoice } = await service
+      .from("invoices")
+      .select("id, user_id, credit_ledger_entry_id, plan_id")
+      .eq("creem_subscription_id", refund.transaction.subscription)
+      .eq("status", "paid")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    invoice = subInvoice;
+  }
 
   if (!invoice) {
     console.error(`[handleCreemRefund] no invoice for creem order ${orderId}`);
     return;
   }
 
-  let grantedCredits = 0;
-  if (invoice.credit_ledger_entry_id) {
-    const { data: grant } = await service
-      .from("credit_ledger")
-      .select("amount")
-      .eq("id", invoice.credit_ledger_entry_id)
-      .maybeSingle();
-    grantedCredits = Math.max(0, Number(grant?.amount ?? 0));
-  }
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
 
   const { data: ledgerRows } = await service
     .from("credit_ledger")

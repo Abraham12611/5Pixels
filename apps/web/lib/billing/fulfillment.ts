@@ -12,6 +12,7 @@ interface PlanRow {
   type: string;
   credits_grant: number;
   price_cents: number;
+  credit_drip_months: number;
   dodo_product_id: string | null;
 }
 
@@ -88,7 +89,9 @@ async function getPlanById(planId: string): Promise<PlanRow | null> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("plans")
-    .select("id, slug, name, type, credits_grant, price_cents, metadata")
+    .select(
+      "id, slug, name, type, credits_grant, price_cents, credit_drip_months, metadata"
+    )
     .eq("id", planId)
     .maybeSingle();
 
@@ -104,6 +107,7 @@ async function getPlanById(planId: string): Promise<PlanRow | null> {
     type: data.type as string,
     credits_grant: Number(data.credits_grant),
     price_cents: Number(data.price_cents),
+    credit_drip_months: Number(data.credit_drip_months ?? 1),
     dodo_product_id:
       (data.metadata as { dodo_product_id?: string })?.dodo_product_id ?? null,
   };
@@ -115,7 +119,9 @@ async function getPlanByDodoProductId(
   const service = createServiceClient();
   const { data, error } = await service
     .from("plans")
-    .select("id, slug, name, type, credits_grant, price_cents, metadata")
+    .select(
+      "id, slug, name, type, credits_grant, price_cents, credit_drip_months, metadata"
+    )
     .filter("metadata->>dodo_product_id", "eq", dodoProductId)
     .maybeSingle();
 
@@ -135,6 +141,7 @@ async function getPlanByDodoProductId(
     type: data.type as string,
     credits_grant: Number(data.credits_grant),
     price_cents: Number(data.price_cents),
+    credit_drip_months: Number(data.credit_drip_months ?? 1),
     dodo_product_id: dodoProductId,
   };
 }
@@ -220,6 +227,12 @@ async function upsertSubscription(
   const status = mapSubscriptionStatus(info.status);
 
   if (existing) {
+    // Same new-term drip reset as the Creem/Polar paths — see
+    // fulfillment-creem.ts for the rationale.
+    const isNewDripTerm =
+      (plan?.credit_drip_months ?? 1) > 1 &&
+      existing.currentPeriodStart !== null &&
+      existing.currentPeriodStart !== info.previousBillingDate;
     const { error } = await service
       .from("subscriptions")
       .update({
@@ -231,6 +244,13 @@ async function upsertSubscription(
         cancel_at_period_end: info.cancelAtNextBillingDate,
         trial: info.trialPeriodDays > 0,
         dodo_customer_id: dodoCustomerId,
+        ...(isNewDripTerm
+          ? {
+              drips_granted: 0,
+              drip_anchor_at: info.previousBillingDate,
+              next_drip_at: info.previousBillingDate,
+            }
+          : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
