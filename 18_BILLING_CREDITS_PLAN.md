@@ -62,9 +62,9 @@ older weekly-expiry/no-rollover sketches elsewhere in this doc's history).
 
 Rules:
 - Only users with **no prior paid invoice or active subscription** can purchase.
-- After the 7-day period, unused credits **expire**. No rollover.
+- Weekly-pass credits **never expire** — the 7-day period only governs the pass's plan benefits (markup rate, premium access), not the balance.
 - One purchase per user, ever.
-- Implemented as Dodo **one-time payment** products.
+- Implemented as Creem **one-time payment** products.
 
 ### 2.2 Monthly Core Plans (auto-renewing)
 | Plan | Price | Credits / month | Markup | Tier role |
@@ -76,9 +76,9 @@ Rules:
 
 Rules:
 - Auto-renew monthly unless cancelled.
-- Credits **reset at period start** (no rollover in V1; consider rollover later).
-- Cancel at period end.
-- Implemented as Dodo **subscription** products.
+- Each period **grants** new credits; unused credits persist indefinitely (see "Canonical credit policy").
+- Cancel at period end — grants stop, the balance remains.
+- Implemented as Creem **subscription** products.
 
 ### 2.3 Extra Credits (one-time top-ups)
 | Field | Value |
@@ -299,7 +299,7 @@ Events to handle:
 - `subscription.active`
   - Mark subscription as active; set period dates.
 - `subscription.renewed`
-  - Create `invoice`; add monthly credits; reset expiry.
+  - Create `invoice`; add the period's credit grant. For dripped (annual) plans, also reset the drip schedule for the new term.
 - `subscription.cancelled` / `subscription.expired`
   - Update subscription status and `ended_at`.
 - `payment.failed`

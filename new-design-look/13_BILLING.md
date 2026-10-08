@@ -50,7 +50,7 @@ Prefer: **Preset, Look, Transformation, Original, Result, Collection, Category, 
 
 Avoid exposing: **prompt, system prompt, seed, CFG, checkpoint, LoRA, inference, scheduler, provider, model routing, technical generation pipeline.**
 
-> **Credit-policy note (canonical):** credits never expire while the account is active, and balances accumulate past a single period's grant. Mock copy in this file that says `Resets …`, `credits left`, or implies a per-period cap is superseded — see `18_BILLING_CREDITS_PLAN.md`, "Canonical credit policy". Render reset/reset-date positions as next-grant language (`+N credits each month`, `Next grant …`) and show the raw balance, never `X of Y left` where Y is the period grant.
+> **Credit-policy note (canonical):** credits never expire while the account is active, and balances accumulate past a single period's grant — see `18_BILLING_CREDITS_PLAN.md`, "Canonical credit policy". This file's mock copy has been updated to match: raw balances (never `X of Y left` where Y is the period grant), next-grant language (`+N credits each month`, `Next grant …`) instead of resets, and the period grant treated as meter display scale only.
 
 ## Global authenticated desktop navigation
 
@@ -91,9 +91,9 @@ short line `Upgrade for more credits and premium looks.`
 lime `Upgrade`.
 
 Credits card:
-`18 credits left`
+`18 credits`
 five-pixel segmented meter;
-small reset/expiry explanation using placeholder policy language if not finalized;
+small line `Credits never expire.`;
 utility `Buy credits`.
 
 Usage summary:
@@ -134,9 +134,9 @@ Current plan:
 utility `Manage plan`.
 
 Credits:
-`248 of 300 credits left`
-`Resets Oct 1`
-five-pixel meter.
+`248 credits`
+`+300 each month · next grant Oct 1`
+five-pixel meter (grant is display scale only — the balance can exceed it).
 Actions:
 `Buy credits`
 `View usage`.
@@ -152,7 +152,7 @@ Do not show a giant Upgrade banner. The user is already paying; emphasize manage
 ### Must preserve / emphasize
 
 - Paid state changes hierarchy from upsell to management.
-- Credit reset information is easy to find.
+- Next-grant timing is easy to find — never framed as a balance reset.
 
 
 ---
@@ -205,9 +205,9 @@ Header:
 right-side date-range control `This billing cycle`.
 
 Large balance card:
-`248 credits left`
-`Resets Oct 1`
-five-pixel segmented meter
+`248 credits`
+`+300 each month · next grant Oct 1`
+five-pixel segmented meter (grant is display scale only — the balance can exceed it)
 utility `Buy credits`.
 
 Below, four metric tiles:
@@ -222,7 +222,7 @@ Use compact icons and subdued charcoal. Credits, not dollars, are the main accou
 
 ### Must preserve / emphasize
 
-- Balance and reset date are explicit.
+- Balance and next-grant date are explicit — never framed as a reset.
 - Summary can be understood without charts.
 - Released credits have their own metric.
 
@@ -373,8 +373,8 @@ Use large calm empty-state cards inspired by Higgsfield's settings pages, transl
 Generate the paid Billing overview with low credits.
 
 Credit card:
-`18 credits left`
-amber warning icon and small line `You may run out before your next reset.`
+`18 credits`
+amber warning icon and small line `Running low — top up anytime. Your credits never expire.`
 five-pixel meter mostly empty.
 stronger `Buy credits` action.
 
@@ -397,7 +397,7 @@ Plan remains `Pro`; do not aggressively push Upgrade if a top-up is the more rel
 Generate Billing overview at zero credits.
 
 Credit card:
-`0 credits left`
+`0 credits`
 `Add credits to keep generating.`
 empty five-pixel meter.
 lime `Buy credits`

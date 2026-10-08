@@ -257,7 +257,8 @@ export default async function BillingPlanPage() {
               </p>
               <p className="text-text-secondary mt-1 text-sm">
                 Your plan stays active until then — and your credits never
-                expire.
+                expire. After it ends, grants stop and your remaining
+                credits spend at the standard rate.
               </p>
             </div>
             <PortalForm label="Restart plan" variant="secondary" />

@@ -103,12 +103,12 @@ export default async function BillingPage() {
   );
   const meterMax = activePlan?.creditsGrant ?? null;
   const buyCreditsHref = "/app/billing/credits";
-  // Credits never expire and can exceed a single period's grant — the grant
-  // cadence tells the user what's coming, never what the balance caps at.
-  const grantCadence =
-    activePlan?.type === "weekly" || activePlan?.type === "weekly_trial"
-      ? "week"
-      : "month";
+  // Credits never expire and can exceed a single period's grant. Only a
+  // renewing subscription promises another grant — weekly passes are
+  // one-time, and a subscription set to cancel won't grant again either.
+  const isRecurringPlan =
+    (activePlan?.type === "monthly" || activePlan?.type === "annual") &&
+    billing.activeSubscription?.cancel_at_period_end !== true;
 
   const usageMetrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -165,8 +165,8 @@ export default async function BillingPage() {
                   ? "You're out of credits — top up to keep generating."
                   : isLow
                     ? "Running low — top up anytime. Your credits never expire."
-                    : planName && meterMax
-                      ? `Credits never expire — +${meterMax.toLocaleString()} more each ${grantCadence}${
+                    : planName && meterMax && isRecurringPlan
+                      ? `Credits never expire — +${meterMax.toLocaleString()} more each month${
                           renews ? `, next grant ${renews}` : ""
                         }.`
                       : "Your credits never expire."}

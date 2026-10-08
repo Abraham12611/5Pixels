@@ -44,13 +44,22 @@ export default async function BillingCreditsPage() {
     redirect("/login?next=/app/billing/credits");
   }
 
-  const [summary, activity, activePlan, profile, plans] = await Promise.all([
-    getCreditPeriodSummary(),
-    getCreditActivity(),
-    getActivePlan(),
-    getMyProfile(),
-    getPlansForPurchase(),
-  ]);
+  const [summary, activity, activePlan, profile, plans, activeSub] =
+    await Promise.all([
+      getCreditPeriodSummary(),
+      getCreditActivity(),
+      getActivePlan(),
+      getMyProfile(),
+      getPlansForPurchase(),
+      supabase
+        .from("subscriptions")
+        .select("cancel_at_period_end")
+        .eq("user_id", user.id)
+        .in("status", ["active", "past_due"])
+        .order("current_period_end", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const name =
     profile?.display_name ??
@@ -61,11 +70,12 @@ export default async function BillingCreditsPage() {
   const balance = summary?.balance ?? 0;
   const meterMax = activePlan?.creditsGrant ?? null;
   const isOut = balance <= 0;
-  // Credits never expire and can exceed a single period's grant.
-  const grantCadence =
-    activePlan?.type === "weekly" || activePlan?.type === "weekly_trial"
-      ? "week"
-      : "month";
+  // Credits never expire and can exceed a single period's grant. Only a
+  // renewing subscription promises another grant — weekly passes are
+  // one-time, and a subscription set to cancel won't grant again either.
+  const isRecurringPlan =
+    (activePlan?.type === "monthly" || activePlan?.type === "annual") &&
+    activeSub.data?.cancel_at_period_end !== true;
 
   // Basis for the "≈ up to N transformations" line on every top-up option:
   // the cheapest active transformation in the catalog.
@@ -129,8 +139,8 @@ export default async function BillingCreditsPage() {
               >
                 {isOut
                   ? "You're out of credits — top up to keep generating."
-                  : activePlan && meterMax
-                    ? `Credits never expire — +${meterMax.toLocaleString()} more each ${grantCadence}.`
+                  : activePlan && meterMax && isRecurringPlan
+                    ? `Credits never expire — +${meterMax.toLocaleString()} more each month.`
                     : "Your credits never expire."}
               </p>
               <div className="mt-5">
