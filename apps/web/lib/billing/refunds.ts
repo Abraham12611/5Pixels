@@ -194,6 +194,10 @@ export async function handleCreemRefund(
 
   // Renewal-period invoices created from subscription.paid carry no order
   // id — fall back to the subscription the refund's transaction points at.
+  // Known limitation: after multiple annual terms, a delayed refund for an
+  // older term can resolve to the newer term's invoice here. Acceptable for
+  // launch (annual plans are new); a term-scoped refund reference is the
+  // proper fix later.
   let invoice = orderInvoice;
   if (!invoice && refund.transaction?.subscription) {
     const { data: subInvoice } = await service

@@ -400,6 +400,68 @@ describe("runCreditDrip", () => {
     );
     expect(ledgerEntries()).toHaveLength(2);
   });
+
+  it("grants the year-2 drip even when a prior-term legacy key exists", async () => {
+    // Year 1 was dripped under the pre-scoping key format
+    // (`subscription:{id}:drip:{i}`), then the subscription renewed. The
+    // legacy row must NOT suppress the new term's scoped grant.
+    await fulfillPolarSubscriptionEvent(
+      subscription({
+        productId: "polar_prod_annual",
+        currentPeriodEnd: new Date("2027-10-01T00:00:00Z"),
+        metadata: { user_id: "user-1", plan_id: "plan-annual" },
+      })
+    );
+    const ledger = fake.table("credit_ledger");
+    const drip1 = ledger.find((e) =>
+      String(e.idempotency_key).includes(":drip:1")
+    );
+    if (!drip1) throw new Error("expected a drip:1 ledger entry");
+    drip1.idempotency_key = "subscription:sub_1:drip:1";
+    drip1.created_at = "2026-10-01T01:00:00.000Z";
+
+    // Year-2 term state, as the renewal reset produces it.
+    fake.table("subscriptions")[0].drips_granted = 0;
+    fake.table("subscriptions")[0].drip_anchor_at =
+      "2027-10-01T00:00:00.000Z";
+    fake.table("subscriptions")[0].next_drip_at = "2027-10-01T00:00:00.000Z";
+
+    await runCreditDrip(new Date("2027-11-02T00:00:00Z"));
+
+    const keys = ledger.map((e) => e.idempotency_key);
+    expect(keys).toContain("subscription:sub_1:drip:1");
+    expect(keys).toContain(
+      "subscription:sub_1:2027-10-01T00:00:00.000Z:drip:1"
+    );
+    expect(ledger).toHaveLength(2);
+  });
+
+  it("treats a same-term legacy key as already granted", async () => {
+    // A drip granted under the legacy format inside the CURRENT term
+    // (e.g. the scoping change shipped mid-term) still counts — no
+    // double-grant for the same drip index.
+    await fulfillPolarSubscriptionEvent(
+      subscription({
+        productId: "polar_prod_annual",
+        currentPeriodEnd: new Date("2027-10-01T00:00:00Z"),
+        metadata: { user_id: "user-1", plan_id: "plan-annual" },
+      })
+    );
+    const ledger = fake.table("credit_ledger");
+    const drip1 = ledger.find((e) =>
+      String(e.idempotency_key).includes(":drip:1")
+    );
+    if (!drip1) throw new Error("expected a drip:1 ledger entry");
+    drip1.idempotency_key = "subscription:sub_1:drip:1";
+    drip1.created_at = "2026-10-01T01:00:00.000Z";
+
+    fake.table("subscriptions")[0].drips_granted = 0;
+    fake.table("subscriptions")[0].next_drip_at = "2026-10-01T00:00:00.000Z";
+
+    await runCreditDrip(new Date("2026-10-02T00:00:00Z"));
+
+    expect(ledger).toHaveLength(1);
+  });
 });
 
 describe("handlePolarRefund", () => {
