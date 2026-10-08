@@ -623,10 +623,15 @@ export async function fulfillPolarOneTimeOrder(order: Order) {
     order.totalAmount
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   await recordOfferConversion(
     mapping.userId,
@@ -745,10 +750,15 @@ export async function fulfillPolarSubscriptionOrder(order: Order) {
   );
 
   const service = createServiceClient();
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   console.log(
     `[fulfillPolarSubscriptionOrder] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.currentPeriodEnd}`
@@ -842,10 +852,15 @@ export async function fulfillPolarSubscriptionEvent(
     invoiceAmount
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   if (isNew || subscription.status === "active") {
     await service

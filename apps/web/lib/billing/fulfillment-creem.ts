@@ -704,10 +704,15 @@ async function fulfillSubscriptionCharge(input: {
   );
 
   const service = createServiceClient();
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   console.log(
     `[fulfillSubscriptionCharge] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.currentPeriodEnd}`
@@ -832,10 +837,15 @@ export async function fulfillCreemCheckoutCompleted(
     amountCents
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   await recordOfferConversion(mapping.userId, metadata, order.id, amountCents);
 
