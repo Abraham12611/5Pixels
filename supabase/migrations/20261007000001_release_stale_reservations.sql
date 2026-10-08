@@ -29,7 +29,7 @@ BEGIN
     SET entry_type = 'reservation_released',
         metadata = metadata || jsonb_build_object(
           'released_at', NOW()::text,
-          'backfill', '20261005000001'
+          'backfill', '20261007000001'
         )
     WHERE generation_id = r.generation_id
       AND entry_type = 'reservation';
@@ -51,7 +51,7 @@ BEGIN
         r.generation_id,
         'refund:' || r.generation_id::text,
         jsonb_build_object(
-          'backfill', '20261005000001',
+          'backfill', '20261007000001',
           'reason', 'terminal_generation_without_refund'
         )
       );
