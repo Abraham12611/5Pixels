@@ -86,9 +86,13 @@ export default async function WeeklyPassPage() {
           </p>
           <ul className="mx-auto mt-5 max-w-sm space-y-3">
             {[
-              `≈ up to ${Math.floor(
-                cheapestPlan.credits_grant / creditsPerTransformation
-              ).toLocaleString()} transformations on the Starter pass`,
+              ...(creditsPerTransformation
+                ? [
+                    `≈ up to ${Math.floor(
+                      cheapestPlan.credits_grant / creditsPerTransformation
+                    ).toLocaleString()} transformations on the Starter pass`,
+                  ]
+                : []),
               "Every Filter and Poster in the catalog",
               "HD downloads included",
               "Credits land instantly — and the pass never renews",
@@ -146,11 +150,13 @@ export default async function WeeklyPassPage() {
                     : "text-text-secondary"
                 }`}
               >
-                {plan.credits_grant.toLocaleString()} credits · ≈ up to{" "}
-                {Math.floor(
-                  plan.credits_grant / creditsPerTransformation
-                ).toLocaleString()}{" "}
-                transformations · one week
+                {plan.credits_grant.toLocaleString()} credits
+                {creditsPerTransformation
+                  ? ` · ≈ up to ${Math.floor(
+                      plan.credits_grant / creditsPerTransformation
+                    ).toLocaleString()} transformations`
+                  : ""}{" "}
+                · one week
               </p>
               <div className="mt-4 flex items-center justify-between gap-3">
                 <p

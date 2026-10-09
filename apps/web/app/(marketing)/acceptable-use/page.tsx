@@ -143,7 +143,7 @@ export default function AcceptableUsePage() {
             <>
               <p>
                 User-supplied text inputs are screened by automated moderation
-                systems — including the Creem Moderation API — before a
+                systems before a
                 transformation is generated. Inputs that are flagged or denied
                 are refused and never reach our AI providers.
               </p>

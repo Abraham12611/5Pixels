@@ -31,17 +31,8 @@ const FAQ_ITEMS: { q: string; a: ReactNode }[] = [
     q: "Who processes my payment?",
     a: (
       <>
-        Checkout is handled by Creem, our merchant of record — they process
-        payment, issue your receipt, and handle sales tax. The{" "}
-        <a
-          href="https://creem.io/terms"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-lime-400 hover:underline"
-        >
-          Creem Buyer Terms
-        </a>{" "}
-        apply to your purchase.
+        You buy directly from 5Pixels — checkout is handled securely by Bachs,
+        our payment processor, which collects payment and issues your receipt.
       </>
     ),
   },

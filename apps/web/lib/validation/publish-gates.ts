@@ -26,7 +26,6 @@ export const PUBLISH_GATES = {
   MISSING_PRIMARY_MODEL: "Primary AI model is required.",
   INVALID_FIELD_SCHEMA: (fieldKey: string, detail: string) =>
     `Field '${fieldKey}' has an invalid schema: ${detail}`,
-  INVALID_CREDIT_COST: "Credit cost must be greater than 0.",
   INVALID_SAFETY_CONFIG: (field: string) =>
     `Safety config must explicitly set '${field}' to a boolean value.`,
   INVALID_POSTER_LAYOUT:
@@ -174,16 +173,9 @@ export function validatePublishGates(
     }
   }
 
-  // Credit cost.
-  const creditCost =
-    typeof version.credit_cost === "number" ? version.credit_cost : Number.NaN;
-  if (!Number.isFinite(creditCost) || creditCost <= 0) {
-    failures.push({
-      code: "INVALID_CREDIT_COST",
-      message: PUBLISH_GATES.INVALID_CREDIT_COST,
-      field: "version.credit_cost",
-    });
-  }
+  // Credit cost is no longer gated: generation pricing is derived from
+  // provider pricing snapshots server-side, never from an admin-entered
+  // number. product_versions.credit_cost survives only as a display hint.
 
   // Safety config must explicitly contain the three required booleans.
   const safety = version.safety_config ?? {};

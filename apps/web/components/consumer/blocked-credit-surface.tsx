@@ -18,6 +18,7 @@ import { SaveLine } from "@/components/promo/save-line";
 import { OfferBadge } from "@/components/promo/offer-badge";
 import { ReferralCard } from "@/components/promo/referral-card";
 import { CreditTopUp } from "@/components/consumer/credit-top-up";
+import type { CreditPack } from "@/lib/billing/credit-packs";
 import { recordOfferEvent } from "@/lib/offers/actions";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -26,10 +27,8 @@ import type { PlanForPurchase } from "@/lib/db/plans";
 import type { BlockedSegment, ResumePlan } from "@/lib/billing/segments";
 
 interface TopUpInfo {
-  planId: string;
-  checkoutReady: boolean;
-  creditsPerTransformation: number;
-  creditsPerDollar: number;
+  packs: CreditPack[];
+  creditsPerTransformation: number | null;
 }
 
 type View = "main" | "topup" | "offer";
@@ -347,10 +346,8 @@ export function BlockedCreditSurface({
           )}
           {topUp ? (
             <CreditTopUp
-              planId={topUp.planId}
-              checkoutReady={topUp.checkoutReady}
+              packs={topUp.packs}
               creditsPerTransformation={topUp.creditsPerTransformation}
-              creditsPerDollar={topUp.creditsPerDollar}
             />
           ) : (
             <Button asChild variant="brand" className="w-full">
@@ -684,10 +681,8 @@ export function BlockedCreditSurface({
                 </p>
               </div>
               <CreditTopUp
-                planId={topUp.planId}
-                checkoutReady={topUp.checkoutReady}
+                packs={topUp.packs}
                 creditsPerTransformation={topUp.creditsPerTransformation}
-                creditsPerDollar={topUp.creditsPerDollar}
               />
             </div>
           ) : null)}
@@ -749,15 +744,13 @@ export function BlockedCreditSurface({
       <div>
         <h2 className="text-cream-50 text-lg font-semibold">Buy credits</h2>
         <p className="text-text-secondary mt-1 text-sm">
-          One-time — {topUp ? `${topUp.creditsPerDollar.toLocaleString()} credits per $1` : "credits"}, never expire.
+          One-time packs — credits never expire.
         </p>
       </div>
       {topUp ? (
         <CreditTopUp
-          planId={topUp.planId}
-          checkoutReady={topUp.checkoutReady}
+          packs={topUp.packs}
           creditsPerTransformation={topUp.creditsPerTransformation}
-          creditsPerDollar={topUp.creditsPerDollar}
         />
       ) : (
         <Button asChild variant="brand" className="w-full">

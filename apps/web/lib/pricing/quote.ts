@@ -110,6 +110,7 @@ export async function createGenerationQuote(
   const envelopeMaxUsd = primaryQuote.maximumCostUsd;
   const allowedEndpointIds = [input.endpoint];
   let fallbackSnapshotId: string | null = null;
+  let fallbackSnapshotExpiry: string | null = null;
   let eligibleFallback: string | null = null;
 
   if (input.fallbackEndpoint) {
@@ -130,6 +131,7 @@ export async function createGenerationQuote(
       ) {
         allowedEndpointIds.push(input.fallbackEndpoint);
         fallbackSnapshotId = fallbackSnapshot.id;
+        fallbackSnapshotExpiry = fallbackSnapshot.expiresAt;
         eligibleFallback = input.fallbackEndpoint;
       }
     }
@@ -142,7 +144,15 @@ export async function createGenerationQuote(
 
   const reserveCredits = creditsForProviderCost(envelopeMaxUsd);
   const expectedCredits = creditsForProviderCost(primaryQuote.expectedCostUsd);
-  const expiresAt = new Date(Date.now() + policy.quoteTtlSeconds * 1000);
+  // A quote must never outlive the pricing that authorized it: expiry is the
+  // earliest of the quote TTL and every snapshot it pins.
+  const expiresAt = new Date(
+    Math.min(
+      Date.now() + policy.quoteTtlSeconds * 1000,
+      Date.parse(primarySnapshot.expiresAt),
+      ...(fallbackSnapshotExpiry ? [Date.parse(fallbackSnapshotExpiry)] : [])
+    )
+  );
 
   const { data, error } = await service
     .from("generation_quotes")

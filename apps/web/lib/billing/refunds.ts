@@ -2,7 +2,29 @@
 
 import { createServiceClient } from "@/lib/supabase/service";
 import { reverseReferrerShareForRefund } from "@/lib/growsurf/sync";
-import type { Refund } from "@polar-sh/sdk/models/components/refund.js";
+
+export interface WhopRefundObject {
+  id?: string;
+  status?: string;
+  /** Whop links refunds/disputes back via the payment id (pay_*). */
+  payment?: { id?: string } | string | null;
+  total?: number;
+  currency?: string;
+  reason?: string | null;
+}
+
+export interface BachsRefundObject {
+  refund_id?: string;
+  /** Disputes reuse this shape via dispute_id → refund_id mapping. */
+  dispute_id?: string;
+  /** Bachs links refunds/disputes back via the charge id (ch_*). */
+  charge_id?: string | null;
+  status?: string;
+  requested_amount?: string;
+  refunded_amount?: string | null;
+  currency?: string;
+  reason?: string | null;
+}
 
 export interface CreemRefundObject {
   id?: string;
@@ -52,109 +74,6 @@ async function sumGrantedCreditsForInvoice(
   }
 
   return total;
-}
-
-/**
- * Reverses the credits granted by a refunded/charged-back order.
- *
- * The ledger is append-only: we never delete the grant, we add a negative
- * `debit` entry capped at the user's current available balance so
- * get_available_balance (a plain SUM over all ledger entries — reservations
- * are negative and already reduce it) is never pushed below zero. Any shortfall — credits already spent — is recorded in
- * the reversal entry's metadata as `unrecovered_credits` instead of being
- * clawed back.
- */
-export async function handlePolarRefund(refund: Refund): Promise<void> {
-  const service = createServiceClient();
-  const idempotencyKey = `refund:${refund.id}`;
-
-  const { data: existing } = await service
-    .from("credit_ledger")
-    .select("id")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  if (existing) {
-    console.log(`[handlePolarRefund] already processed refund ${refund.id}`);
-    return;
-  }
-
-  const { data: invoice } = await service
-    .from("invoices")
-    .select("id, user_id, credit_ledger_entry_id, plan_id")
-    .eq("polar_order_id", refund.orderId)
-    .maybeSingle();
-
-  if (!invoice) {
-    console.error(
-      `[handlePolarRefund] no invoice for polar order ${refund.orderId}`
-    );
-    return;
-  }
-
-  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
-
-  const { data: ledgerRows } = await service
-    .from("credit_ledger")
-    .select("amount")
-    .eq("user_id", invoice.user_id);
-
-  const availableBalance = (ledgerRows ?? []).reduce(
-    (sum, row) => sum + Number(row.amount),
-    0
-  );
-
-  const reversal = Math.min(grantedCredits, Math.max(0, availableBalance));
-  const unrecovered = grantedCredits - reversal;
-
-  const { error: ledgerError } = await service.from("credit_ledger").insert({
-    user_id: invoice.user_id,
-    entry_type: "debit",
-    amount: -reversal,
-    currency_unit: "credits",
-    idempotency_key: idempotencyKey,
-    metadata: {
-      reason: refund.dispute ? "chargeback" : "refund",
-      polar_refund_id: refund.id,
-      polar_order_id: refund.orderId,
-      invoice_id: invoice.id,
-      granted_credits: grantedCredits,
-      reversed_credits: reversal,
-      unrecovered_credits: unrecovered,
-    },
-  });
-
-  if (ledgerError) {
-    throw new Error(
-      `Failed to insert refund ledger entry: ${ledgerError.message}`
-    );
-  }
-
-  await service
-    .from("invoices")
-    .update({ status: "refunded" })
-    .eq("id", invoice.id);
-
-  // Referral clawback (03 §4): if this purchase qualified a referrer
-  // bonus, cancel its pending GrowSurf hold or reverse the granted
-  // credits — capped at the referrer's available balance, same rule as
-  // the buyer reversal above. Best-effort: never fail the refund over it.
-  try {
-    await reverseReferrerShareForRefund({
-      buyerUserId: invoice.user_id,
-      orderId: refund.orderId,
-      refundId: refund.id,
-    });
-  } catch (err) {
-    console.error(
-      `[handlePolarRefund] referral reversal failed:`,
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-
-  console.log(
-    `[handlePolarRefund] reversed ${reversal}/${grantedCredits} credits for order ${refund.orderId}` +
-      (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
-  );
 }
 
 /**
@@ -273,6 +192,214 @@ export async function handleCreemRefund(
 
   console.log(
     `[handleCreemRefund] reversed ${reversal}/${grantedCredits} credits for order ${orderId}` +
+      (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
+  );
+}
+
+/**
+ * Whop counterpart — refund.created / dispute.created carry `payment`
+ * (pay_*) which joins invoices.whop_payment_id. Same capped-reversal +
+ * referral-clawback semantics as the Creem path.
+ */
+export async function handleWhopRefund(
+  refund: WhopRefundObject,
+  isDispute = false
+): Promise<void> {
+  const paymentId =
+    typeof refund.payment === "string"
+      ? refund.payment
+      : (refund.payment?.id ?? null);
+  if (!refund.id || !paymentId) {
+    console.error("[handleWhopRefund] refund missing id or payment");
+    return;
+  }
+
+  const service = createServiceClient();
+  const idempotencyKey = `refund:${refund.id}`;
+
+  const { data: existing } = await service
+    .from("credit_ledger")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing) {
+    console.log(`[handleWhopRefund] already processed refund ${refund.id}`);
+    return;
+  }
+
+  const { data: invoice } = await service
+    .from("invoices")
+    .select("id, user_id, credit_ledger_entry_id, plan_id")
+    .eq("whop_payment_id", paymentId)
+    .maybeSingle();
+
+  if (!invoice) {
+    console.error(`[handleWhopRefund] no invoice for whop payment ${paymentId}`);
+    return;
+  }
+
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
+
+  const { data: ledgerRows } = await service
+    .from("credit_ledger")
+    .select("amount")
+    .eq("user_id", invoice.user_id)
+    .neq("entry_type", "reservation");
+
+  const availableBalance = (ledgerRows ?? []).reduce(
+    (sum, row) => sum + Number(row.amount),
+    0
+  );
+
+  const reversal = Math.min(grantedCredits, Math.max(0, availableBalance));
+  const unrecovered = grantedCredits - reversal;
+
+  const { error: ledgerError } = await service.from("credit_ledger").insert({
+    user_id: invoice.user_id,
+    entry_type: "debit",
+    amount: -reversal,
+    currency_unit: "credits",
+    idempotency_key: idempotencyKey,
+    metadata: {
+      reason: isDispute ? "chargeback" : "refund",
+      whop_refund_id: refund.id,
+      whop_payment_id: paymentId,
+      invoice_id: invoice.id,
+      granted_credits: grantedCredits,
+      reversed_credits: reversal,
+      unrecovered_credits: unrecovered,
+    },
+  });
+
+  if (ledgerError) {
+    throw new Error(
+      `Failed to insert refund ledger entry: ${ledgerError.message}`
+    );
+  }
+
+  await service
+    .from("invoices")
+    .update({ status: "refunded" })
+    .eq("id", invoice.id);
+
+  try {
+    await reverseReferrerShareForRefund({
+      buyerUserId: invoice.user_id,
+      orderId: paymentId,
+      refundId: refund.id,
+    });
+  } catch (err) {
+    console.error(
+      `[handleWhopRefund] referral reversal failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
+  console.log(
+    `[handleWhopRefund] reversed ${reversal}/${grantedCredits} credits for payment ${paymentId}` +
+      (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
+  );
+}
+
+/**
+ * Bachs counterpart — refund.paid / dispute.created carry `charge_id`
+ * (ch_*) which joins invoices.bachs_charge_id. Same capped-reversal +
+ * referral-clawback semantics as the Whop path.
+ */
+export async function handleBachsRefund(
+  refund: BachsRefundObject,
+  isDispute = false
+): Promise<void> {
+  const refundId = refund.refund_id;
+  const chargeId = refund.charge_id;
+  if (!refundId || !chargeId) {
+    console.error("[handleBachsRefund] refund missing refund_id or charge_id");
+    return;
+  }
+
+  const service = createServiceClient();
+  const idempotencyKey = `refund:${refundId}`;
+
+  const { data: existing } = await service
+    .from("credit_ledger")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing) {
+    console.log(`[handleBachsRefund] already processed refund ${refundId}`);
+    return;
+  }
+
+  const { data: invoice } = await service
+    .from("invoices")
+    .select("id, user_id, credit_ledger_entry_id, plan_id")
+    .eq("bachs_charge_id", chargeId)
+    .maybeSingle();
+
+  if (!invoice) {
+    console.error(`[handleBachsRefund] no invoice for bachs charge ${chargeId}`);
+    return;
+  }
+
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
+
+  const { data: ledgerRows } = await service
+    .from("credit_ledger")
+    .select("amount")
+    .eq("user_id", invoice.user_id)
+    .neq("entry_type", "reservation");
+
+  const availableBalance = (ledgerRows ?? []).reduce(
+    (sum, row) => sum + Number(row.amount),
+    0
+  );
+
+  const reversal = Math.min(grantedCredits, Math.max(0, availableBalance));
+  const unrecovered = grantedCredits - reversal;
+
+  const { error: ledgerError } = await service.from("credit_ledger").insert({
+    user_id: invoice.user_id,
+    entry_type: "debit",
+    amount: -reversal,
+    currency_unit: "credits",
+    idempotency_key: idempotencyKey,
+    metadata: {
+      reason: isDispute ? "chargeback" : "refund",
+      bachs_refund_id: refundId,
+      bachs_charge_id: chargeId,
+      invoice_id: invoice.id,
+      granted_credits: grantedCredits,
+      reversed_credits: reversal,
+      unrecovered_credits: unrecovered,
+    },
+  });
+
+  if (ledgerError) {
+    throw new Error(
+      `Failed to insert refund ledger entry: ${ledgerError.message}`
+    );
+  }
+
+  await service
+    .from("invoices")
+    .update({ status: "refunded" })
+    .eq("id", invoice.id);
+
+  try {
+    await reverseReferrerShareForRefund({
+      buyerUserId: invoice.user_id,
+      orderId: chargeId,
+      refundId,
+    });
+  } catch (err) {
+    console.error(
+      `[handleBachsRefund] referral reversal failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
+  console.log(
+    `[handleBachsRefund] reversed ${reversal}/${grantedCredits} credits for charge ${chargeId}` +
       (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
   );
 }

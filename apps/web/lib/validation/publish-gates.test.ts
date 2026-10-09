@@ -140,29 +140,11 @@ describe("validatePublishGates", () => {
     ).toBe(true);
   });
 
-  it("rejects credit cost of zero", () => {
+  it("does not gate on credit_cost — pricing is snapshot-derived", () => {
+    // credit_cost is a vestigial display hint; admin no longer enters prices.
     const version = { ...validVersion(), credit_cost: 0 };
     const result = validatePublishGates(validProduct(), version, []);
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failures");
-    expect(result.failures.some((f) => f.code === "INVALID_CREDIT_COST")).toBe(
-      true
-    );
-  });
-
-  it("rejects a numeric-string credit cost (Postgres NUMERIC arrives as a string)", () => {
-    // Regression: edit pages must coerce with coerceCreditCost — Postgres
-    // NUMERIC deserializes to a string at runtime despite the TS type.
-    const version = {
-      ...validVersion(),
-      credit_cost: "1.0000" as unknown as number,
-    };
-    const result = validatePublishGates(validProduct(), version, []);
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected failures");
-    expect(result.failures.some((f) => f.code === "INVALID_CREDIT_COST")).toBe(
-      true
-    );
+    expect(result.ok).toBe(true);
   });
 
   it("rejects missing safety config booleans", () => {

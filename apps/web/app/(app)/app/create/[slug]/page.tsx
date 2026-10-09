@@ -4,14 +4,13 @@ import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
 import { getPublicProductBySlug } from "@/lib/db/explore";
 import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
 import { getMyReferralCode } from "@/lib/referrals/rewards";
 import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
-import { getActivePricingPolicy } from "@/lib/pricing/policy";
 import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
 import { CreateGenerationForm } from "./create-form";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -33,7 +32,7 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, generationCount, plans, cheapest, pricingPolicy, referralCode] =
+  const [balance, generationCount, plans, cheapest, referralCode] =
     await Promise.all([
     user ? getUserCreditBalance() : Promise.resolve(0),
     user
@@ -45,7 +44,6 @@ export default async function CreatePage({
       : Promise.resolve(0),
     getPlansForPurchase(),
     getCheapestGenerationCredits(),
-    getActivePricingPolicy(createServiceClient()),
     user ? getMyReferralCode() : Promise.resolve(null),
   ]);
 
@@ -63,17 +61,16 @@ export default async function CreatePage({
     (blocked.segment === "new_user" || blocked.segment === "free_history")
       ? await getOrAssignCampaignForUser(user!.id)
       : null;
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
-  const topUp = extraCreditPlan
-    ? {
-        planId: extraCreditPlan.id,
-        checkoutReady: extraCreditPlan.checkout_ready,
-        creditsPerTransformation: cheapest,
-        creditsPerDollar: Math.floor(
-          (pricingPolicy?.topUpBudgetRatio ?? 0) * 1000
-        ),
-      }
-    : null;
+  const creditPacks = creditPackOptions(plans);
+  const topUp =
+    creditPacks.length > 0
+      ? {
+          packs: creditPacks,
+          // Cheapest currently-quotable generation; null omits the
+          // "≈ N transformations" claim rather than inventing a price.
+          creditsPerTransformation: cheapest,
+        }
+      : null;
 
   // Adjust flow (?from=<generationId>): restore the source photo and the
   // options used for that run. Everything is re-validated at submit time —

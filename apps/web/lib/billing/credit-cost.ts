@@ -102,10 +102,10 @@ export async function estimateGenerationCost(
 
 /**
  * Hint for top-up/paywall copy: credits for the cheapest generation currently
- * quotable. Uses the lowest flat-rate fresh snapshot; falls back to the
- * nano-banana flat rate ($0.08 → 80 credits) when nothing is fresh.
+ * quotable, from the lowest flat-rate fresh snapshot. Returns null when no
+ * fresh pricing exists — callers must omit the claim rather than invent one.
  */
-export async function getCheapestGenerationCredits(): Promise<number> {
+export async function getCheapestGenerationCredits(): Promise<number | null> {
   const service = createServiceClient();
   const { data } = await service
     .from("provider_pricing_snapshots")
@@ -125,6 +125,5 @@ export async function getCheapestGenerationCredits(): Promise<number> {
     }
   }
 
-  if (!Number.isFinite(min)) return 80;
-  return creditsForProviderCost(min);
+  return Number.isFinite(min) ? creditsForProviderCost(min) : null;
 }

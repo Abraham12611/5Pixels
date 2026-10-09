@@ -4,9 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getActivePlan } from "@/lib/billing/entitlements";
 import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
-import { getActivePricingPolicy } from "@/lib/pricing/policy";
-import { createServiceClient } from "@/lib/supabase/service";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
@@ -81,15 +80,10 @@ export default async function BillingCreditsPage() {
     activeSub.data?.cancel_at_period_end !== true;
 
   // Basis for the "≈ up to N transformations" line on every top-up option:
-  // the cheapest currently-quotable generation (fresh pricing snapshots).
-  const [creditsPerTransformation, pricingPolicy] = await Promise.all([
-    getCheapestGenerationCredits(),
-    getActivePricingPolicy(createServiceClient()),
-  ]);
-  const creditsPerDollar = Math.floor(
-    (pricingPolicy?.topUpBudgetRatio ?? 0) * 1000
-  );
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
+  // the cheapest currently-quotable generation (fresh pricing snapshots) —
+  // null when no endpoint is quotable, in which case the claim is omitted.
+  const creditsPerTransformation = await getCheapestGenerationCredits();
+  const creditPacks = creditPackOptions(plans);
 
   const metrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -167,18 +161,16 @@ export default async function BillingCreditsPage() {
           </div>
         </SettingCard>
 
-        {/* Buy credits — any amount or a pack; every option says what it buys */}
-        {extraCreditPlan && (
+        {/* Buy credits — fixed packs; every option says what it buys */}
+        {creditPacks.length > 0 && (
           <div id="buy" className="scroll-mt-24">
             <SettingCard
               title="Buy credits"
-              description={`Pick any amount or a pack — ${creditsPerDollar.toLocaleString()} credits per $1. Top-up credits never expire, and a failed transformation releases its credits back automatically.`}
+              description="Pick a pack — top-up credits never expire, and a failed transformation releases its credits back automatically."
             >
               <CreditTopUp
-                planId={extraCreditPlan.id}
-                checkoutReady={extraCreditPlan.checkout_ready}
+                packs={creditPacks}
                 creditsPerTransformation={creditsPerTransformation}
-                creditsPerDollar={creditsPerDollar}
               />
             </SettingCard>
           </div>

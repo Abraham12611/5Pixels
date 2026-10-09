@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS public.pricing_policies (
   metadata JSONB DEFAULT '{}'
 );
 
+-- The denomination is permanent, not tunable: 1 credit = $0.001 of provider
+-- cost. credits_for_provider_cost hard-codes the same constant — the column
+-- exists only so a row is self-describing, so pin it to the invariant.
+ALTER TABLE public.pricing_policies
+  DROP CONSTRAINT IF EXISTS pricing_policies_fixed_capacity,
+  ADD CONSTRAINT pricing_policies_fixed_capacity
+    CHECK (credit_capacity_usd = 0.001);
+
 ALTER TABLE public.pricing_policies ENABLE ROW LEVEL SECURITY;
 -- Financial policy is internal; only the service role reads it.
 REVOKE ALL ON public.pricing_policies FROM PUBLIC, anon, authenticated;
@@ -161,12 +169,10 @@ CREATE INDEX IF NOT EXISTS idx_generation_quotes_user
 
 ALTER TABLE public.generation_quotes ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS generation_quotes_owner_read ON public.generation_quotes;
-CREATE POLICY generation_quotes_owner_read ON public.generation_quotes
-  FOR SELECT TO authenticated
-  USING (user_id = (SELECT auth.uid()));
-
-REVOKE INSERT, UPDATE, DELETE ON public.generation_quotes FROM authenticated;
+-- Quotes carry supplier routing and wholesale economics (provider, endpoint
+-- ids, raw USD costs, snapshot lineage). No client may read them — the server
+-- action owns the whole flow and returns only credits/status.
+REVOKE ALL ON public.generation_quotes FROM PUBLIC, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 5. generations — pin the quote
@@ -515,10 +521,18 @@ BEGIN
 
   v_reserve := COALESCE(v_record.credit_cost, 0);
 
-  -- Settle from the pinned quote's snapshot payload.
+  -- Settle from the snapshot of the endpoint that ACTUALLY ran — the
+  -- fallback's own pricing, never the primary's when fallback executed.
   SELECT s.payload INTO v_quote
   FROM public.generation_quotes q
-  JOIN public.provider_pricing_snapshots s ON s.id = q.pricing_snapshot_id
+  JOIN public.provider_pricing_snapshots s
+    ON s.id = CASE
+      WHEN q.fallback_snapshot_id IS NOT NULL
+           AND v_record.provider_endpoint IS NOT NULL
+           AND v_record.provider_endpoint = q.fallback_endpoint_id
+      THEN q.fallback_snapshot_id
+      ELSE q.pricing_snapshot_id
+    END
   WHERE q.id = v_record.quote_id;
 
   IF FOUND AND v_quote.payload IS NOT NULL THEN
@@ -526,14 +540,17 @@ BEGIN
     v_unit_price := (v_quote.payload->>'unit_price')::NUMERIC(12,8);
     v_max_seconds := COALESCE((v_quote.payload->>'max_seconds')::NUMERIC(12,4), 15);
 
-    v_actual_quantity := CASE
-      WHEN v_pricing_type = 'flat_per_request' THEN 1::NUMERIC(12,4)
-      WHEN v_pricing_type = 'per_megapixel' THEN
-        COALESCE(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1000000, 1)
-      WHEN v_pricing_type = 'per_second' THEN
-        LEAST(COALESCE(p_compute_seconds, v_max_seconds), v_max_seconds)
-      ELSE 1::NUMERIC(12,4)
-    END;
+    -- Unknown pricing types fail closed — never silently bill 1 unit.
+    IF v_pricing_type = 'flat_per_request' THEN
+      v_actual_quantity := 1::NUMERIC(12,4);
+    ELSIF v_pricing_type = 'per_megapixel' THEN
+      v_actual_quantity := COALESCE(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1000000, 1);
+    ELSIF v_pricing_type = 'per_second' THEN
+      v_actual_quantity := LEAST(COALESCE(p_compute_seconds, v_max_seconds), v_max_seconds);
+    ELSE
+      RAISE EXCEPTION 'Unsupported pricing type in pinned snapshot: %', v_pricing_type
+        USING ERRCODE = 'P0001';
+    END IF;
 
     v_actual_cost_usd := v_unit_price * v_actual_quantity;
     v_actual_credit_cost := LEAST(

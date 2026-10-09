@@ -33,9 +33,13 @@ export function quoteFal(
   switch (payload.pricing_type) {
     case "flat_per_request": {
       return {
-        kind: "exact",
+        kind: "bounded",
         expectedCostUsd: unitPrice,
-        maximumCostUsd: unitPrice,
+        // Slack is the supplier-price shock buffer: if the provider repriced
+        // between snapshot and execution, the reservation already covers it
+        // instead of relying on the circuit breaker. Settlement still debits
+        // only the actual cost — the customer never pays the buffer.
+        maximumCostUsd: unitPrice * policy.quoteMaxSlackFactor,
         components: { unit_price: unitPrice, quantity: 1 },
       };
     }

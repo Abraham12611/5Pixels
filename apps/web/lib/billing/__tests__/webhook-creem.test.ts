@@ -133,6 +133,21 @@ describe("creem webhook route", () => {
     expect(fake.table("profiles")[0].creem_customer_id).toBe("cust_1");
   });
 
+  it("grants the checkout-pinned credits, not a policy re-derivation", async () => {
+    // The checkout quoted 9,999 credits under an older policy; fulfillment
+    // must honor the purchase, not today's top_up_budget_ratio.
+    const event = checkoutCompletedEvent();
+    event.object.metadata = {
+      ...event.object.metadata,
+      credits: "9999",
+      pricing_policy_version: "0",
+    } as typeof event.object.metadata;
+    const body = JSON.stringify(event);
+    const res = await post(body, sign(body));
+    expect(res.status).toBe(200);
+    expect(fake.table("credit_ledger")[0].amount).toBe(9999);
+  });
+
   it("rejects an invalid signature with 401 and writes nothing", async () => {
     const body = JSON.stringify(checkoutCompletedEvent());
     const res = await post(body, "deadbeef");

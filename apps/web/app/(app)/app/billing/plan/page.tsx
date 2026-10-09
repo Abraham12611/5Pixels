@@ -3,9 +3,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getBillingData } from "@/lib/db/billing";
 import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
-import { getActivePricingPolicy } from "@/lib/pricing/policy";
-import { createServiceClient } from "@/lib/supabase/service";
 import { getPlansForPurchase, type PlanForPurchase } from "@/lib/db/plans";
+import { creditPackOptions } from "@/lib/billing/credit-packs";
 import {
   canPurchaseWeeklyPass,
   getActivePlan,
@@ -141,7 +140,7 @@ export default async function BillingPlanPage() {
   const monthlyPlans = plans.filter((p) => p.type === "monthly");
   const annualPlans = plans.filter((p) => p.type === "annual");
   const weeklyPlans = plans.filter((p) => p.type === "weekly_trial");
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
+  const creditPacks = creditPackOptions(plans);
 
   const subscription = billing.activeSubscription;
   const subPlan = Array.isArray(subscription?.plan)
@@ -182,14 +181,8 @@ export default async function BillingPlanPage() {
   }
 
   // Cheapest quotable transformation — basis for the "≈ N transformations"
-  // line on every top-up option.
-  const [creditsPerTransformation, pricingPolicy] = await Promise.all([
-    getCheapestGenerationCredits(),
-    getActivePricingPolicy(createServiceClient()),
-  ]);
-  const creditsPerDollar = Math.floor(
-    (pricingPolicy?.topUpBudgetRatio ?? 0) * 1000
-  );
+  // line on every top-up option (null when nothing is quotable).
+  const creditsPerTransformation = await getCheapestGenerationCredits();
 
   // Monthly subscribers get the quiet "switch to annual" nudge (Plane Finder
   // pattern) instead of a paywall — routed through the billing portal, never
@@ -523,17 +516,15 @@ export default async function BillingPlanPage() {
 
         {/* Extra credits top-up — active subscribers see it inline here;
             everyone else lands on /app/billing/credits */}
-        {hasActiveSubscription && extraCreditPlan && (
+        {hasActiveSubscription && creditPacks.length > 0 && (
           <div id="top-up" className="scroll-mt-24">
             <SettingCard
               title="Top up credits"
-              description={`One-time top-up — ${creditsPerDollar.toLocaleString()} credits per $1, minimum $10. They land instantly and never expire.`}
+              description="One-time packs — they land instantly and never expire."
             >
               <CreditTopUp
-                planId={extraCreditPlan.id}
-                checkoutReady={extraCreditPlan.checkout_ready}
+                packs={creditPacks}
                 creditsPerTransformation={creditsPerTransformation}
-                creditsPerDollar={creditsPerDollar}
               />
             </SettingCard>
           </div>
