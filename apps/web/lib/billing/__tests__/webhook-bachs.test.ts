@@ -18,8 +18,8 @@ vi.mock("@/lib/offers/conversions", () => ({
 }));
 
 const { mockGetBachsSubscription } = vi.hoisted(() => ({
-  mockGetBachsSubscription: vi.fn(async () => ({
-    id: "sub_1",
+  mockGetBachsSubscription: vi.fn(async (id: string) => ({
+    id,
     product: { id: "prod_monthly_bachs" },
     items: [{ price: { product_id: "prod_monthly_bachs" } }],
     current_period_start: "2026-10-01T00:00:00.000Z",
