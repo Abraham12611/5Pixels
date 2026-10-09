@@ -304,11 +304,13 @@ export async function reverseReferrerShareForRefund(input: {
     .maybeSingle();
   if (existing) return;
 
+  // Full ledger sum — open reservations are negative and already reduce
+  // available, so a clawback can't touch credits committed to in-flight
+  // generations.
   const { data: ledgerRows } = await service
     .from("credit_ledger")
     .select("amount")
-    .eq("user_id", referrerId)
-    .neq("entry_type", "reservation");
+    .eq("user_id", referrerId);
   const available = (ledgerRows ?? []).reduce(
     (sum, r) => sum + Number(r.amount),
     0

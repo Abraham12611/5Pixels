@@ -326,6 +326,16 @@ async function upsertSubscription(
   const status = mapSubscriptionStatus(info.status);
 
   if (existing) {
+    // A renewed annual term arrives as a different current_period_start on
+    // the same provider subscription. Reset the drip counters for the new
+    // term — otherwise drips_granted stays 12 and year two pays but never
+    // receives credits. Drip idempotency keys are term-scoped (see
+    // drip.ts), so re-granting drip 1 under the new anchor cannot collide
+    // with last year's grants.
+    const isNewDripTerm =
+      (plan?.credit_drip_months ?? 1) > 1 &&
+      existing.currentPeriodStart !== null &&
+      existing.currentPeriodStart !== info.currentPeriodStart;
     const { error } = await service
       .from("subscriptions")
       .update({
@@ -338,6 +348,13 @@ async function upsertSubscription(
         trial: info.isTrial,
         ended_at: info.endedAt,
         creem_customer_id: creemCustomerId,
+        ...(isNewDripTerm
+          ? {
+              drips_granted: 0,
+              drip_anchor_at: info.currentPeriodStart,
+              next_drip_at: info.currentPeriodStart,
+            }
+          : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
@@ -704,10 +721,15 @@ async function fulfillSubscriptionCharge(input: {
   );
 
   const service = createServiceClient();
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
     .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   console.log(
     `[fulfillSubscriptionCharge] granted ${plan.credits_grant} credits to user ${mapping.userId} for period ${info.currentPeriodEnd}`
@@ -782,46 +804,65 @@ export async function fulfillCreemCheckoutCompleted(
     return;
   }
 
-  if (await findInvoiceByOrderId(order.id)) {
-    console.log("[fulfillCreemCheckoutCompleted] already processed");
-    return;
-  }
-
+  // Reconcile, don't return: an existing invoice may be a partial
+  // fulfillment (invoice written, grant or link failed). The credit grant
+  // below is idempotent on `purchase:order:{id}`, so always run it and
+  // re-link the ledger entry — retries then resume the missing steps.
   const service = createServiceClient();
-  const { data: invoice, error: invoiceError } = await service
-    .from("invoices")
-    .insert({
-      user_id: mapping.userId,
-      plan_id: plan.id,
-      amount_cents: amountCents,
-      currency,
-      status: "paid",
-      creem_order_id: order.id,
-      creem_checkout_id: checkout.id ?? null,
-      metadata,
-    })
-    .select("id")
-    .single();
+  let invoiceId: string;
 
-  if (invoiceError || !invoice) {
-    throw new Error(
-      `Failed to insert invoice: ${invoiceError?.message ?? "unknown"}`
-    );
+  const existingInvoice = await findInvoiceByOrderId(order.id);
+  if (existingInvoice) {
+    invoiceId = existingInvoice.id;
+  } else {
+    const { data: invoice, error: invoiceError } = await service
+      .from("invoices")
+      .insert({
+        user_id: mapping.userId,
+        plan_id: plan.id,
+        amount_cents: amountCents,
+        currency,
+        status: "paid",
+        creem_order_id: order.id,
+        creem_checkout_id: checkout.id ?? null,
+        metadata,
+      })
+      .select("id")
+      .single();
+
+    if (invoiceError || !invoice) {
+      // A concurrent webhook delivery may have inserted the same order
+      // between the check and this insert — reconcile instead of failing.
+      const raced = await findInvoiceByOrderId(order.id);
+      if (!raced) {
+        throw new Error(
+          `Failed to insert invoice: ${invoiceError?.message ?? "unknown"}`
+        );
+      }
+      invoiceId = raced.id;
+    } else {
+      invoiceId = invoice.id;
+    }
   }
 
   const ledgerEntryId = await ensureCreditsForBillingPeriod(
     mapping.userId,
     plan,
     undefined,
-    invoice.id,
+    invoiceId,
     `purchase:order:${order.id}`,
     amountCents
   );
 
-  await service
+  const { error: linkError } = await service
     .from("invoices")
     .update({ credit_ledger_entry_id: ledgerEntryId })
-    .eq("id", invoice.id);
+    .eq("id", invoiceId);
+  if (linkError) {
+    throw new Error(
+      `Failed to link invoice ${invoiceId} to ledger entry: ${linkError.message}`
+    );
+  }
 
   await recordOfferConversion(mapping.userId, metadata, order.id, amountCents);
 

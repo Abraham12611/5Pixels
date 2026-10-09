@@ -108,6 +108,9 @@ export async function getCreditActivity(
       "id, entry_type, amount, created_at, generation_id, metadata, generation:generation_id(product:product_id(name))"
     )
     .eq("user_id", user.id)
+    // Released holds are bookkeeping rows: the paired +refund already tells
+    // the customer their credits came back — showing both would double-count.
+    .neq("entry_type", "reservation_released")
     .order("created_at", { ascending: false })
     .limit(limit);
 

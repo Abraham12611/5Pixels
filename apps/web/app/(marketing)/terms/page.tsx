@@ -222,13 +222,13 @@ export default function TermsPage() {
               <ul>
                 <li>
                   <strong>Plan credits</strong> are granted at the start of each
-                  billing period and remain available while your subscription is
-                  active and for the period described in the plan.
+                  billing period and do not expire while your account remains
+                  active — including after a subscription ends.
                 </li>
                 <li>
                   <strong>One-time pass credits</strong> (such as a weekly pass)
-                  are granted once, do not renew, and are usable for the period
-                  shown at purchase.
+                  are granted once, do not renew, and do not expire while your
+                  account remains active.
                 </li>
                 <li>
                   <strong>Top-up credits</strong> are added to your balance
