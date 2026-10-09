@@ -35,6 +35,21 @@ describe("MarketingHeader", () => {
     expect(screen.queryByText("Try 5Pixels")).not.toBeInTheDocument();
   });
 
+  it("shows a promo pill linking to pricing for never-paid users", () => {
+    render(
+      <MarketingHeader isAuthenticated promoLabel="Save 50% today" />
+    );
+    const pill = screen.getByTestId("promo-pill");
+    expect(pill).toHaveAttribute("href", "/pricing");
+    expect(pill).toHaveTextContent("Save 50% today");
+  });
+
+  it("hides the promo pill for paid users (no label)", () => {
+    render(<MarketingHeader isAuthenticated promoLabel={null} />);
+    expect(screen.queryByTestId("promo-pill")).not.toBeInTheDocument();
+    expect(screen.getByText("Open app")).toBeInTheDocument();
+  });
+
   it("opens the search palette from the header button", () => {
     render(
       <MarketingHeader

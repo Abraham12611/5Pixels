@@ -60,10 +60,11 @@ interface CreditMeterProps {
   /** Current available balance. */
   balance: number;
   /**
-   * Reference capacity for the meter (e.g. plan credit grant). When null, a
-   * fixed display scale of 10 credits per segment is used so the meter still
-   * communicates low/medium/high at a glance. The exact number is always
-   * rendered beside the meter — the meter is a secondary signal only.
+   * Display scale for the meter (typically the plan's per-period grant).
+   * It is only a scale — credits never expire, so a balance larger than
+   * `max` simply reads as a full meter. When null, a fixed scale of 10
+   * credits per segment is used. The exact number is always rendered
+   * beside the meter — the meter is a secondary signal only.
    */
   max?: number | null;
   tone?: CreditMeterTone;
@@ -97,9 +98,7 @@ export function CreditMeter({
   return (
     <span
       role="img"
-      aria-label={`${balance} ${balance === 1 ? "credit" : "credits"}${
-        max ? ` of ${max}` : ""
-      }`}
+      aria-label={`${balance} ${balance === 1 ? "credit" : "credits"}`}
       className={cn("inline-flex items-end gap-[3px]", className)}
     >
       {Array.from({ length: SEGMENTS }, (_, i) => {

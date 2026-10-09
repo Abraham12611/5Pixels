@@ -13,6 +13,7 @@ import {
 import { getSignedReferenceAssets } from "@/lib/generation/reference-assets";
 import { resolveOutputSize } from "@/lib/generation/output-size";
 import { pollGenerationStatus } from "@/lib/generation/poll";
+import { extractUserText, screenUserText } from "@/lib/moderation/creem";
 import { isValidLabEndpoint, isValidLabOutputSize } from "@/lib/lab/validate";
 import type { OutputSizeOption } from "@/types/catalog";
 import type { ProviderStrategy } from "@/lib/ai/provider-routing";
@@ -152,6 +153,34 @@ export async function runLabGeneration(
   const recipe = await getLabRecipe(input.productId, input.productVersionId);
   if (!recipe) {
     return { error: "Preset is not available for testing." };
+  }
+
+  // Creem moderation — every path that reaches the model must screen
+  // first, including the lab. Overrides are free text that lands directly
+  // in the compiled prompt; options contribute user text; the fallback
+  // descriptor keeps image-only runs calling the API too.
+  const labText = [
+    input.instructionOverride,
+    input.negativeOverride,
+    ...extractUserText(input.options),
+  ]
+    .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+    .join("\n");
+  const labScreening = await screenUserText(
+    labText || "user photo transformation",
+    `lab_${ctx.userId}:product_${input.productId}`
+  );
+  if (labScreening.kind === "blocked") {
+    return {
+      error:
+        "That text can't be used — it violates our content policy. Please revise it and try again.",
+    };
+  }
+  if (labScreening.kind === "unavailable") {
+    return {
+      error:
+        "We couldn't verify your input right now. Please try again in a moment.",
+    };
   }
 
   const { data: createData, error: createError } = await ctx.supabase.rpc(

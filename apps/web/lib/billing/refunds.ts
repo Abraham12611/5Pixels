@@ -2,7 +2,29 @@
 
 import { createServiceClient } from "@/lib/supabase/service";
 import { reverseReferrerShareForRefund } from "@/lib/growsurf/sync";
-import type { Refund } from "@polar-sh/sdk/models/components/refund.js";
+
+export interface WhopRefundObject {
+  id?: string;
+  status?: string;
+  /** Whop links refunds/disputes back via the payment id (pay_*). */
+  payment?: { id?: string } | string | null;
+  total?: number;
+  currency?: string;
+  reason?: string | null;
+}
+
+export interface BachsRefundObject {
+  refund_id?: string;
+  /** Disputes reuse this shape via dispute_id → refund_id mapping. */
+  dispute_id?: string;
+  /** Bachs links refunds/disputes back via the charge id (ch_*). */
+  charge_id?: string | null;
+  status?: string;
+  requested_amount?: string;
+  refunded_amount?: string | null;
+  currency?: string;
+  reason?: string | null;
+}
 
 export interface CreemRefundObject {
   id?: string;
@@ -15,115 +37,43 @@ export interface CreemRefundObject {
 }
 
 /**
- * Reverses the credits granted by a refunded/charged-back order.
- *
- * The ledger is append-only: we never delete the grant, we add a negative
- * `debit` entry capped at the user's current available balance so
- * get_available_balance (a plain SUM over non-reservation entries) is never
- * pushed below zero. Any shortfall — credits already spent — is recorded in
- * the reversal entry's metadata as `unrecovered_credits` instead of being
- * clawed back.
+ * Total credits granted against one invoice. A dripped annual plan is
+ * 1:N with the ledger (up to 12 purchase rows share the same
+ * metadata.invoice_id), so summing the linked grants is required — the
+ * single credit_ledger_entry_id FK alone finds at most drip 1.
  */
-export async function handlePolarRefund(refund: Refund): Promise<void> {
-  const service = createServiceClient();
-  const idempotencyKey = `refund:${refund.id}`;
-
-  const { data: existing } = await service
+async function sumGrantedCreditsForInvoice(
+  service: ReturnType<typeof createServiceClient>,
+  invoice: { id: string; credit_ledger_entry_id: string | null }
+): Promise<number> {
+  const { data: grants } = await service
     .from("credit_ledger")
-    .select("id")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  if (existing) {
-    console.log(`[handlePolarRefund] already processed refund ${refund.id}`);
-    return;
+    .select("id, amount")
+    .filter("metadata->>invoice_id", "eq", invoice.id)
+    .in("entry_type", ["purchase", "allocation"]);
+
+  const seen = new Set<string>();
+  let total = 0;
+  for (const g of grants ?? []) {
+    seen.add(g.id as string);
+    total += Math.max(0, Number(g.amount));
   }
 
-  const { data: invoice } = await service
-    .from("invoices")
-    .select("id, user_id, credit_ledger_entry_id, plan_id")
-    .eq("polar_order_id", refund.orderId)
-    .maybeSingle();
-
-  if (!invoice) {
-    console.error(
-      `[handlePolarRefund] no invoice for polar order ${refund.orderId}`
-    );
-    return;
-  }
-
-  let grantedCredits = 0;
-  if (invoice.credit_ledger_entry_id) {
+  // Older invoices predate metadata invoice stamps — fall back to the
+  // single grant FK for those, deduped against the metadata-linked set.
+  if (
+    invoice.credit_ledger_entry_id &&
+    !seen.has(invoice.credit_ledger_entry_id)
+  ) {
     const { data: grant } = await service
       .from("credit_ledger")
       .select("amount")
       .eq("id", invoice.credit_ledger_entry_id)
       .maybeSingle();
-    grantedCredits = Math.max(0, Number(grant?.amount ?? 0));
+    total += Math.max(0, Number(grant?.amount ?? 0));
   }
 
-  const { data: ledgerRows } = await service
-    .from("credit_ledger")
-    .select("amount")
-    .eq("user_id", invoice.user_id)
-    .neq("entry_type", "reservation");
-
-  const availableBalance = (ledgerRows ?? []).reduce(
-    (sum, row) => sum + Number(row.amount),
-    0
-  );
-
-  const reversal = Math.min(grantedCredits, Math.max(0, availableBalance));
-  const unrecovered = grantedCredits - reversal;
-
-  const { error: ledgerError } = await service.from("credit_ledger").insert({
-    user_id: invoice.user_id,
-    entry_type: "debit",
-    amount: -reversal,
-    currency_unit: "credits",
-    idempotency_key: idempotencyKey,
-    metadata: {
-      reason: refund.dispute ? "chargeback" : "refund",
-      polar_refund_id: refund.id,
-      polar_order_id: refund.orderId,
-      invoice_id: invoice.id,
-      granted_credits: grantedCredits,
-      reversed_credits: reversal,
-      unrecovered_credits: unrecovered,
-    },
-  });
-
-  if (ledgerError) {
-    throw new Error(
-      `Failed to insert refund ledger entry: ${ledgerError.message}`
-    );
-  }
-
-  await service
-    .from("invoices")
-    .update({ status: "refunded" })
-    .eq("id", invoice.id);
-
-  // Referral clawback (03 §4): if this purchase qualified a referrer
-  // bonus, cancel its pending GrowSurf hold or reverse the granted
-  // credits — capped at the referrer's available balance, same rule as
-  // the buyer reversal above. Best-effort: never fail the refund over it.
-  try {
-    await reverseReferrerShareForRefund({
-      buyerUserId: invoice.user_id,
-      orderId: refund.orderId,
-      refundId: refund.id,
-    });
-  } catch (err) {
-    console.error(
-      `[handlePolarRefund] referral reversal failed:`,
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-
-  console.log(
-    `[handlePolarRefund] reversed ${reversal}/${grantedCredits} credits for order ${refund.orderId}` +
-      (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
-  );
+  return total;
 }
 
 /**
@@ -154,32 +104,42 @@ export async function handleCreemRefund(
     return;
   }
 
-  const { data: invoice } = await service
+  const { data: orderInvoice } = await service
     .from("invoices")
     .select("id, user_id, credit_ledger_entry_id, plan_id")
     .eq("creem_order_id", orderId)
     .maybeSingle();
+
+  // Renewal-period invoices created from subscription.paid carry no order
+  // id — fall back to the subscription the refund's transaction points at.
+  // Known limitation: after multiple annual terms, a delayed refund for an
+  // older term can resolve to the newer term's invoice here. Acceptable for
+  // launch (annual plans are new); a term-scoped refund reference is the
+  // proper fix later.
+  let invoice = orderInvoice;
+  if (!invoice && refund.transaction?.subscription) {
+    const { data: subInvoice } = await service
+      .from("invoices")
+      .select("id, user_id, credit_ledger_entry_id, plan_id")
+      .eq("creem_subscription_id", refund.transaction.subscription)
+      .eq("status", "paid")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    invoice = subInvoice;
+  }
 
   if (!invoice) {
     console.error(`[handleCreemRefund] no invoice for creem order ${orderId}`);
     return;
   }
 
-  let grantedCredits = 0;
-  if (invoice.credit_ledger_entry_id) {
-    const { data: grant } = await service
-      .from("credit_ledger")
-      .select("amount")
-      .eq("id", invoice.credit_ledger_entry_id)
-      .maybeSingle();
-    grantedCredits = Math.max(0, Number(grant?.amount ?? 0));
-  }
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
 
   const { data: ledgerRows } = await service
     .from("credit_ledger")
     .select("amount")
-    .eq("user_id", invoice.user_id)
-    .neq("entry_type", "reservation");
+    .eq("user_id", invoice.user_id);
 
   const availableBalance = (ledgerRows ?? []).reduce(
     (sum, row) => sum + Number(row.amount),
@@ -232,6 +192,214 @@ export async function handleCreemRefund(
 
   console.log(
     `[handleCreemRefund] reversed ${reversal}/${grantedCredits} credits for order ${orderId}` +
+      (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
+  );
+}
+
+/**
+ * Whop counterpart — refund.created / dispute.created carry `payment`
+ * (pay_*) which joins invoices.whop_payment_id. Same capped-reversal +
+ * referral-clawback semantics as the Creem path.
+ */
+export async function handleWhopRefund(
+  refund: WhopRefundObject,
+  isDispute = false
+): Promise<void> {
+  const paymentId =
+    typeof refund.payment === "string"
+      ? refund.payment
+      : (refund.payment?.id ?? null);
+  if (!refund.id || !paymentId) {
+    console.error("[handleWhopRefund] refund missing id or payment");
+    return;
+  }
+
+  const service = createServiceClient();
+  const idempotencyKey = `refund:${refund.id}`;
+
+  const { data: existing } = await service
+    .from("credit_ledger")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing) {
+    console.log(`[handleWhopRefund] already processed refund ${refund.id}`);
+    return;
+  }
+
+  const { data: invoice } = await service
+    .from("invoices")
+    .select("id, user_id, credit_ledger_entry_id, plan_id")
+    .eq("whop_payment_id", paymentId)
+    .maybeSingle();
+
+  if (!invoice) {
+    console.error(`[handleWhopRefund] no invoice for whop payment ${paymentId}`);
+    return;
+  }
+
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
+
+  const { data: ledgerRows } = await service
+    .from("credit_ledger")
+    .select("amount")
+    .eq("user_id", invoice.user_id)
+    .neq("entry_type", "reservation");
+
+  const availableBalance = (ledgerRows ?? []).reduce(
+    (sum, row) => sum + Number(row.amount),
+    0
+  );
+
+  const reversal = Math.min(grantedCredits, Math.max(0, availableBalance));
+  const unrecovered = grantedCredits - reversal;
+
+  const { error: ledgerError } = await service.from("credit_ledger").insert({
+    user_id: invoice.user_id,
+    entry_type: "debit",
+    amount: -reversal,
+    currency_unit: "credits",
+    idempotency_key: idempotencyKey,
+    metadata: {
+      reason: isDispute ? "chargeback" : "refund",
+      whop_refund_id: refund.id,
+      whop_payment_id: paymentId,
+      invoice_id: invoice.id,
+      granted_credits: grantedCredits,
+      reversed_credits: reversal,
+      unrecovered_credits: unrecovered,
+    },
+  });
+
+  if (ledgerError) {
+    throw new Error(
+      `Failed to insert refund ledger entry: ${ledgerError.message}`
+    );
+  }
+
+  await service
+    .from("invoices")
+    .update({ status: "refunded" })
+    .eq("id", invoice.id);
+
+  try {
+    await reverseReferrerShareForRefund({
+      buyerUserId: invoice.user_id,
+      orderId: paymentId,
+      refundId: refund.id,
+    });
+  } catch (err) {
+    console.error(
+      `[handleWhopRefund] referral reversal failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
+  console.log(
+    `[handleWhopRefund] reversed ${reversal}/${grantedCredits} credits for payment ${paymentId}` +
+      (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
+  );
+}
+
+/**
+ * Bachs counterpart — refund.paid / dispute.created carry `charge_id`
+ * (ch_*) which joins invoices.bachs_charge_id. Same capped-reversal +
+ * referral-clawback semantics as the Whop path.
+ */
+export async function handleBachsRefund(
+  refund: BachsRefundObject,
+  isDispute = false
+): Promise<void> {
+  const refundId = refund.refund_id;
+  const chargeId = refund.charge_id;
+  if (!refundId || !chargeId) {
+    console.error("[handleBachsRefund] refund missing refund_id or charge_id");
+    return;
+  }
+
+  const service = createServiceClient();
+  const idempotencyKey = `refund:${refundId}`;
+
+  const { data: existing } = await service
+    .from("credit_ledger")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing) {
+    console.log(`[handleBachsRefund] already processed refund ${refundId}`);
+    return;
+  }
+
+  const { data: invoice } = await service
+    .from("invoices")
+    .select("id, user_id, credit_ledger_entry_id, plan_id")
+    .eq("bachs_charge_id", chargeId)
+    .maybeSingle();
+
+  if (!invoice) {
+    console.error(`[handleBachsRefund] no invoice for bachs charge ${chargeId}`);
+    return;
+  }
+
+  const grantedCredits = await sumGrantedCreditsForInvoice(service, invoice);
+
+  const { data: ledgerRows } = await service
+    .from("credit_ledger")
+    .select("amount")
+    .eq("user_id", invoice.user_id)
+    .neq("entry_type", "reservation");
+
+  const availableBalance = (ledgerRows ?? []).reduce(
+    (sum, row) => sum + Number(row.amount),
+    0
+  );
+
+  const reversal = Math.min(grantedCredits, Math.max(0, availableBalance));
+  const unrecovered = grantedCredits - reversal;
+
+  const { error: ledgerError } = await service.from("credit_ledger").insert({
+    user_id: invoice.user_id,
+    entry_type: "debit",
+    amount: -reversal,
+    currency_unit: "credits",
+    idempotency_key: idempotencyKey,
+    metadata: {
+      reason: isDispute ? "chargeback" : "refund",
+      bachs_refund_id: refundId,
+      bachs_charge_id: chargeId,
+      invoice_id: invoice.id,
+      granted_credits: grantedCredits,
+      reversed_credits: reversal,
+      unrecovered_credits: unrecovered,
+    },
+  });
+
+  if (ledgerError) {
+    throw new Error(
+      `Failed to insert refund ledger entry: ${ledgerError.message}`
+    );
+  }
+
+  await service
+    .from("invoices")
+    .update({ status: "refunded" })
+    .eq("id", invoice.id);
+
+  try {
+    await reverseReferrerShareForRefund({
+      buyerUserId: invoice.user_id,
+      orderId: chargeId,
+      refundId,
+    });
+  } catch (err) {
+    console.error(
+      `[handleBachsRefund] referral reversal failed:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+
+  console.log(
+    `[handleBachsRefund] reversed ${reversal}/${grantedCredits} credits for charge ${chargeId}` +
       (unrecovered > 0 ? ` (${unrecovered} already spent, recorded as loss)` : "")
   );
 }

@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { createDodoClient } from "@/lib/billing/dodo-client";
 import { mapLedgerRow, type CreditActivityEntry } from "@/lib/billing/ledger";
 
 export type { CreditActivityEntry, CreditEntryKind } from "@/lib/billing/ledger";
@@ -26,7 +25,9 @@ export async function getBillingData() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("dodo_customer_id, polar_customer_id, creem_customer_id")
+    .select(
+      "dodo_customer_id, polar_customer_id, creem_customer_id, whop_user_id, bachs_customer_id"
+    )
     .eq("id", user.id)
     .single();
 
@@ -61,7 +62,9 @@ export async function getBillingData() {
     userId: user.id,
     email: user.email ?? null,
     /** True when the user has a customer record with any billing provider. */
-    billingCustomerId: (profile?.creem_customer_id ??
+    billingCustomerId: (profile?.bachs_customer_id ??
+      profile?.whop_user_id ??
+      profile?.creem_customer_id ??
       profile?.polar_customer_id ??
       profile?.dodo_customer_id) as string | undefined,
     activeSubscription: activeSubscription ?? undefined,
@@ -105,6 +108,9 @@ export async function getCreditActivity(
       "id, entry_type, amount, created_at, generation_id, metadata, generation:generation_id(product:product_id(name))"
     )
     .eq("user_id", user.id)
+    // Released holds are bookkeeping rows: the paired +refund already tells
+    // the customer their credits came back — showing both would double-count.
+    .neq("entry_type", "reservation_released")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -243,38 +249,20 @@ export async function getSavedPaymentMethods(): Promise<{
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("dodo_customer_id, polar_customer_id, creem_customer_id")
+    .select(
+      "dodo_customer_id, polar_customer_id, creem_customer_id, whop_user_id, bachs_customer_id"
+    )
     .eq("id", user.id)
     .single();
 
-  const customerId = profile?.dodo_customer_id as string | undefined;
+  // Whop and Bachs manage cards on their own billing portals — there's no
+  // API surface for listing saved methods, so the UI shows a portal link.
   const portalAvailable = Boolean(
-    profile?.creem_customer_id ?? profile?.polar_customer_id ?? customerId
+    profile?.bachs_customer_id ??
+      profile?.whop_user_id ??
+      profile?.creem_customer_id ??
+      profile?.polar_customer_id ??
+      profile?.dodo_customer_id
   );
-  if (!customerId) return { methods: [], portalAvailable };
-
-  try {
-    const client = createDodoClient();
-    const result = await client.customers.retrievePaymentMethods(customerId);
-    const methods = (result.items ?? [])
-      .filter(
-        (item) =>
-          item.payment_method === "card" &&
-          item.card?.last4_digits != null
-      )
-      .map((item) => ({
-        id: item.payment_method_id,
-        brand: item.card?.card_network ?? "Card",
-        last4: item.card?.last4_digits ?? "",
-        expiryMonth: item.card?.expiry_month ?? null,
-        expiryYear: item.card?.expiry_year ?? null,
-      }));
-    return { methods, portalAvailable: true };
-  } catch (err) {
-    console.error(
-      "[getSavedPaymentMethods] failed",
-      err instanceof Error ? err.message : String(err)
-    );
-    return { methods: [], portalAvailable: true };
-  }
+  return { methods: [], portalAvailable };
 }

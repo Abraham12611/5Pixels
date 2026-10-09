@@ -4,7 +4,33 @@
 
 This document defines the architecture for 5Pixels paid plans, credits, and dynamic per-generation pricing. It is written to protect margins across 600+ Fal AI image models while keeping the user-facing model simple: **1 credit = $0.01 USD of retail purchasing power**.
 
-Payment processing is handled by **Dodo Payments**, which acts as the Merchant of Record (MoR) for global tax, compliance, invoicing, and local payment methods.
+Payment processing is handled by **Creem**, which acts as the Merchant of Record (MoR) for global tax, compliance, invoicing, and local payment methods. Polar and Dodo remain behind `PAYMENT_PROVIDER` as rollback providers.
+
+## Canonical credit policy (Oct 2026 — supersedes earlier wording)
+
+This is the single source of truth for credit expiry/rollover semantics. Any
+document, mock, or UI spec that describes expiring credits, period resets,
+forfeiture at period end, or "N of M credits left" meters is superseded by
+this section (notably `new-design-look/13_BILLING.md` "Resets …" mock copy and
+older weekly-expiry/no-rollover sketches elsewhere in this doc's history).
+
+- **Credits never expire** while the account remains active — plan grants,
+  weekly-pass credits, top-ups, referral rewards, retention and promo credits
+  are all fungible and persist until spent. There is no per-source expiry for
+  launch; if source-aware expiry is ever wanted, it requires a dedicated
+  credit-bucket project.
+- **Balances accumulate.** A balance can exceed one period's grant. UI must
+  never present `plan.credits_grant` as the balance's maximum or describe the
+  balance as "X of Y credits left" — show the balance, the plan's per-period
+  grant cadence (`+N credits each month`), and the next grant date separately.
+- **The plan controls purchasing power, not balance size.** Credits are
+  fungible, but the burn rate depends on the user's active plan via
+  `get_user_markup_multiplier()`: a Pro subscriber who cancels keeps every
+  credit but spends them at the default markup; a top-up holder who upgrades
+  to Agency spends old credits at the Agency rate. Treat "1 credit = $0.01"
+  as the purchase exchange rate, never as a fixed consumption guarantee.
+- **Account deletion/termination** forfeits unused credits as described in
+  the Terms; that is an account-state rule, not credit expiry.
 
 ---
 
@@ -36,9 +62,9 @@ Payment processing is handled by **Dodo Payments**, which acts as the Merchant o
 
 Rules:
 - Only users with **no prior paid invoice or active subscription** can purchase.
-- After the 7-day period, unused credits **expire**. No rollover.
+- Weekly-pass credits **never expire** — the 7-day period only governs the pass's plan benefits (markup rate, premium access), not the balance.
 - One purchase per user, ever.
-- Implemented as Dodo **one-time payment** products.
+- Implemented as Creem **one-time payment** products.
 
 ### 2.2 Monthly Core Plans (auto-renewing)
 | Plan | Price | Credits / month | Markup | Tier role |
@@ -50,9 +76,9 @@ Rules:
 
 Rules:
 - Auto-renew monthly unless cancelled.
-- Credits **reset at period start** (no rollover in V1; consider rollover later).
-- Cancel at period end.
-- Implemented as Dodo **subscription** products.
+- Each period **grants** new credits; unused credits persist indefinitely (see "Canonical credit policy").
+- Cancel at period end — grants stop, the balance remains.
+- Implemented as Creem **subscription** products.
 
 ### 2.3 Extra Credits (one-time top-ups)
 | Field | Value |
@@ -273,7 +299,7 @@ Events to handle:
 - `subscription.active`
   - Mark subscription as active; set period dates.
 - `subscription.renewed`
-  - Create `invoice`; add monthly credits; reset expiry.
+  - Create `invoice`; add the period's credit grant. For dripped (annual) plans, also reset the drip schedule for the new term.
 - `subscription.cancelled` / `subscription.expired`
   - Update subscription status and `ended_at`.
 - `payment.failed`

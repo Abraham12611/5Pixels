@@ -111,7 +111,7 @@ Plan may define:
 
 Optional:
 - one-time purchase;
-- do not expire or define expiry clearly;
+- do not expire (canonical rule: credits never expire while the account is active — see `18_BILLING_CREDITS_PLAN.md`, "Canonical credit policy");
 - distinct from recurring allocation.
 
 ---

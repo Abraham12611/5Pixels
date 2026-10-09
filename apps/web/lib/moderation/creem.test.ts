@@ -7,6 +7,8 @@ beforeEach(() => {
   fetchStub.mockReset();
   vi.stubGlobal("fetch", fetchStub);
   vi.stubEnv("CREEM_API_KEY", "creem_test_abc123");
+  // The moderation gate defaults to paused; tests exercise the enabled path.
+  vi.stubEnv("CREEM_MODERATION_ENABLED", "true");
   vi.stubEnv("NODE_ENV", "test");
   delete process.env.CREEM_API_URL;
 });
@@ -45,6 +47,13 @@ describe("extractUserText", () => {
 });
 
 describe("screenUserText", () => {
+  it("allows without calling the API while the gate is off", async () => {
+    vi.stubEnv("CREEM_MODERATION_ENABLED", "false");
+    const outcome = await screenUserText("a beach portrait");
+    expect(outcome).toEqual({ kind: "allow" });
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
   it("posts to the test API when the key is a creem_test_ key", async () => {
     fetchStub.mockResolvedValue(apiResponse({ decision: "allow" }));
     await screenUserText("a beach portrait", "user_1:product_2");
