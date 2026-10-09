@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/credit-drip",
-      "schedule": "0 0 * * *"
-    }
-  ]
-}
