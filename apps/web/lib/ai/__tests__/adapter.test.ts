@@ -140,6 +140,15 @@ describe("createFalAdapter submit", () => {
     expect(lastSubmitBody().aspect_ratio).toBe("3:2");
   });
 
+  it("pins num_images to 1 even when model_config asks for more", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { num_images: 4 },
+    });
+    expect(lastSubmitBody().num_images).toBe(1);
+  });
+
   it("appends preset reference images after the source in image_urls", async () => {
     const provider = createFalAdapter();
     await provider.submit({

@@ -58,7 +58,10 @@ ON CONFLICT (version) DO NOTHING;
 -- Each sync inserts a new row rather than updating; quotes pin snapshot_id so
 -- a generation's economics are reproducible after provider prices change.
 -- payload.pricing_type drives the adapter:
---   flat_per_request | per_megapixel | per_second | unsupported
+--   flat_per_request | per_megapixel | unsupported
+-- Per-second/time billing stays 'unsupported' until a provider-enforced
+-- runtime ceiling exists — quoting off a guessed cap would underbill
+-- silently on overruns.
 -- Unsupported/missing/stale pricing disables the endpoint (fail closed).
 
 CREATE TABLE IF NOT EXISTS public.provider_pricing_snapshots (
@@ -94,15 +97,11 @@ SELECT DISTINCT ON (p.provider, p.endpoint_id)
     'pricing_type', CASE
       WHEN p.unit IN ('images', 'generations') THEN 'flat_per_request'
       WHEN p.unit IN ('megapixel', 'megapixels', 'processed megapixels') THEN 'per_megapixel'
-      WHEN p.unit IN ('compute seconds', 'seconds') THEN 'per_second'
       ELSE 'unsupported'
     END,
     'unit_price', p.unit_price,
     'unit', p.unit,
-    'currency', p.currency,
-    -- Time-billed endpoints are only bounded if a runtime cap exists;
-    -- 15s mirrors the previous worst-case estimate until sync enriches it.
-    'max_seconds', 15
+    'currency', p.currency
   ),
   encode(extensions.digest((p.provider || ':' || p.endpoint_id || ':' || p.unit_price::text || ':' || p.unit)::bytea, 'sha256'), 'hex'),
   'seed-20261009000001'
@@ -473,7 +472,6 @@ DECLARE
   v_reserve NUMERIC(12,4);
   v_pricing_type TEXT;
   v_unit_price NUMERIC(12,8);
-  v_max_seconds NUMERIC(12,4);
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = 'P0001';
@@ -538,15 +536,12 @@ BEGIN
   IF FOUND AND v_quote.payload IS NOT NULL THEN
     v_pricing_type := v_quote.payload->>'pricing_type';
     v_unit_price := (v_quote.payload->>'unit_price')::NUMERIC(12,8);
-    v_max_seconds := COALESCE((v_quote.payload->>'max_seconds')::NUMERIC(12,4), 15);
 
     -- Unknown pricing types fail closed — never silently bill 1 unit.
     IF v_pricing_type = 'flat_per_request' THEN
       v_actual_quantity := 1::NUMERIC(12,4);
     ELSIF v_pricing_type = 'per_megapixel' THEN
       v_actual_quantity := COALESCE(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1000000, 1);
-    ELSIF v_pricing_type = 'per_second' THEN
-      v_actual_quantity := LEAST(COALESCE(p_compute_seconds, v_max_seconds), v_max_seconds);
     ELSE
       RAISE EXCEPTION 'Unsupported pricing type in pinned snapshot: %', v_pricing_type
         USING ERRCODE = 'P0001';
@@ -652,6 +647,17 @@ UPDATE public.plans SET credits_grant = 10909 WHERE slug IN ('monthly-pro', 'ann
 UPDATE public.plans SET credits_grant = 25000 WHERE slug IN ('monthly-studio', 'annual-studio');
 UPDATE public.plans SET credits_grant = 64171 WHERE slug IN ('monthly-agency', 'annual-agency');
 
+-- Credit packs (extra_credit) must agree with the financial policy: a pack's
+-- credits_grant is the immutable pinned purchase amount that fulfillment
+-- trusts, so it is derived here from the active policy — provider budget =
+-- price × top_up_budget_ratio, denominated at $0.001/credit. Pack grants
+-- must be recomputed from the policy whenever the ratio changes, not set by
+-- hand: price $10/$25/$50/$100 → 6,060/15,150/30,300/60,600 credits at 0.606.
+UPDATE public.plans p
+SET credits_grant = FLOOR(p.price_cents / 100.0 * pol.top_up_budget_ratio / 0.001)
+FROM public.pricing_policies pol
+WHERE p.type = 'extra_credit' AND p.price_cents > 0 AND pol.is_active;
+
 -- ---------------------------------------------------------------------------
 -- 11. Pre-launch balance reset
 -- ---------------------------------------------------------------------------
@@ -731,7 +737,6 @@ BEGIN
     v_qty := CASE v_payload->>'pricing_type'
       WHEN 'flat_per_request' THEN 1
       WHEN 'per_megapixel' THEN (v_min_px / 1000000)::NUMERIC(12,4)
-      WHEN 'per_second' THEN COALESCE((v_payload->>'max_seconds')::NUMERIC(12,4), 15)
       ELSE NULL
     END;
 

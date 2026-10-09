@@ -24,7 +24,6 @@ export interface PricingPolicy {
 export type PricingType =
   | "flat_per_request"
   | "per_megapixel"
-  | "per_second"
   | "unsupported";
 
 export interface SnapshotPayload {
@@ -32,8 +31,6 @@ export interface SnapshotPayload {
   unit_price: number;
   unit?: string;
   currency?: string;
-  /** Runtime cap that makes time-billed endpoints bounded. */
-  max_seconds?: number;
 }
 
 /** Server-resolved request envelope — never client-supplied pricing input. */

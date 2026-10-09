@@ -89,28 +89,14 @@ describe("quoteFal adapter", () => {
     expect(q.maximumCostUsd).toBeCloseTo(0.05 * 4.194304 * 1.15);
   });
 
-  it("bounds per-second pricing by the runtime cap", () => {
-    const q = quoteFal(
-      {
-        pricing_type: "per_second",
-        unit_price: 0.01,
-        currency: "USD",
-        max_seconds: 15,
-      },
-      { width: 1024, height: 1024 },
-      SLACK
-    );
-    if (q.kind === "unsafe") throw new Error(q.reason);
-    expect(q.expectedCostUsd).toBeCloseTo(0.15);
-    expect(q.maximumCostUsd).toBeCloseTo(0.1725);
-  });
-
   it.each([
     ["unsupported pricing type", { pricing_type: "unsupported", unit_price: 0.05 }],
     ["unknown pricing type", { pricing_type: "units" as never, unit_price: 0.05 }],
     ["nonpositive price", { pricing_type: "flat_per_request", unit_price: 0 }],
     ["non-USD price", { ...FLAT(), currency: "EUR" }],
-    ["unbounded time billing", { pricing_type: "per_second", unit_price: 0.01 }],
+    // Time billing has no provider-enforced runtime ceiling, so it is
+    // quotable nowhere — even if a snapshot still carries a guessed cap.
+    ["per-second billing", { pricing_type: "per_second" as never, unit_price: 0.01, max_seconds: 15 }],
   ])("refuses %s", (_label, payload) => {
     const q = quoteFal(payload as SnapshotPayload, { width: 1024, height: 1024 }, SLACK);
     expect(q.kind).toBe("unsafe");

@@ -11,11 +11,13 @@ import type {
  * returns `unsafe` — the generation must not run.
  *
  * Supported pricing types (aligned with the units Fal actually advertises):
- *   flat_per_request — $/image or $/generation; exact.
+ *   flat_per_request — $/image or $/generation; quantity is enforced = 1 at
+ *                      submit time (see lib/ai/fal.ts num_images pin).
  *   per_megapixel    — quantity = output px / 1e6; exact for fixed sizes.
- *   per_second       — bounded by the snapshot's max_seconds runtime cap.
- *   unsupported      — units/credits/tokenized tiers until their adapters
- *                      land (e.g. GPT Image token pricing).
+ *   unsupported      — everything else, including per-second billing: a time
+ *                      price is only quotable once the provider job's runtime
+ *                      ceiling is actually enforceable, which no current route
+ *                      can guarantee.
  */
 export function quoteFal(
   payload: SnapshotPayload,
@@ -56,27 +58,6 @@ export function quoteFal(
           unit_price: unitPrice,
           quantity,
           unit: "megapixel",
-        },
-      };
-    }
-
-    case "per_second": {
-      const maxSeconds = Number(payload.max_seconds);
-      if (!Number.isFinite(maxSeconds) || maxSeconds <= 0) {
-        // Unbounded runtime = unbounded cost; never quote.
-        return { kind: "unsafe", reason: "time-billed endpoint has no runtime cap" };
-      }
-      // Expected sits at the runtime cap (we don't know the real runtime at
-      // quote time); slack covers billing above the cap.
-      const expected = unitPrice * maxSeconds;
-      return {
-        kind: "bounded",
-        expectedCostUsd: expected,
-        maximumCostUsd: expected * policy.quoteMaxSlackFactor,
-        components: {
-          unit_price: unitPrice,
-          quantity: maxSeconds,
-          unit: "seconds",
         },
       };
     }

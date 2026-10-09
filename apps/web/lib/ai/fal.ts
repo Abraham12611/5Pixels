@@ -170,6 +170,12 @@ export function createFalAdapter(): ImageProviderAdapter {
 
       const merged = { ...input.modelConfig, ...body };
 
+      // Supported pricing quotes exactly one output per request
+      // (flat_per_request / per_megapixel). A model_config asking for
+      // N images would bill ~N× what was quoted, so unlike other config
+      // values this one does NOT get to win — it is pinned server-side.
+      merged.num_images = 1;
+
       // Endpoints disagree on size fields: flux/gpt-image/qwen honor
       // `image_size` {width,height}, while nano-banana models ignore it and
       // only read `aspect_ratio` + `resolution`. Translate so the chosen size
