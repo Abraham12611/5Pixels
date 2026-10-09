@@ -9,8 +9,8 @@ export interface CreditPack {
 }
 
 /**
- * Fixed credit packs — each `extra_credit` plans row maps to one Whop
- * variant; the checkout POST carries `plan_id` only, never an amount.
+ * Fixed credit packs — each `extra_credit` plans row maps to one provider
+ * product; the checkout POST carries `plan_id` only, never an amount.
  */
 export function creditPackOptions(plans: PlanForPurchase[]): CreditPack[] {
   return plans

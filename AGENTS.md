@@ -105,8 +105,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
-# Billing — Whop is the default provider; set PAYMENT_PROVIDER=creem to roll back
-PAYMENT_PROVIDER=whop
+# Billing — Bachs is the default provider; set PAYMENT_PROVIDER=whop or
+# =creem to roll back. Bachs sandbox first: sk_sandbox_* key +
+# BACHS_ENVIRONMENT=sandbox; production is a key/env swap to sk_live_*.
+PAYMENT_PROVIDER=bachs
+BACHS_API_KEY=
+BACHS_WEBHOOK_SECRET=
+BACHS_ENVIRONMENT=sandbox
 WHOP_API_KEY=
 WHOP_ACCOUNT_ID=
 WHOP_WEBHOOK_SECRET=

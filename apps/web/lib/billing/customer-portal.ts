@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createCreemPortalLink } from "./creem-client";
 import { getWhopMembership } from "./whop-client";
+import { createBachsPortalSession } from "./bachs-client";
 import { getPaymentProvider } from "./payment-provider";
 
 export interface CustomerPortalResult {
@@ -72,8 +73,41 @@ async function createCreemPortalSession(
   return { url: session.customer_portal_link };
 }
 
-// Whop manages billing on its own hosted portal — there is no return-url
-// parameter to forward.
+/**
+ * Bachs portal — mint a short-lived portal session per request and
+ * redirect the customer to its URL (portal.bachs.io). The bachs_customer_id
+ * is stored on the profile at fulfillment time (customer_creation: always).
+ */
+async function createBachsPortalSessionForUser(
+  userId: string
+): Promise<CustomerPortalResult> {
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("bachs_customer_id")
+    .eq("id", userId)
+    .single();
+
+  if (!profile?.bachs_customer_id) {
+    return { error: "You do not have an active billing account to manage." };
+  }
+
+  try {
+    const session = await createBachsPortalSession(
+      profile.bachs_customer_id as string
+    );
+    return { url: session.url };
+  } catch (err) {
+    console.error(
+      "[createBachsPortalSessionForUser] session create failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return { error: "Billing management is temporarily unavailable." };
+  }
+}
+
+// Whop and Bachs manage billing on their own hosted portals — there is no
+// return-url parameter to forward.
 export async function createCustomerPortalSession(): Promise<CustomerPortalResult> {
   const supabase = await createClient();
   const {
@@ -83,8 +117,12 @@ export async function createCustomerPortalSession(): Promise<CustomerPortalResul
     return { error: "Please sign in to continue." };
   }
 
-  if (getPaymentProvider() === "creem") {
+  const provider = getPaymentProvider();
+  if (provider === "creem") {
     return createCreemPortalSession(user.id);
   }
-  return createWhopPortalSession(user.id);
+  if (provider === "whop") {
+    return createWhopPortalSession(user.id);
+  }
+  return createBachsPortalSessionForUser(user.id);
 }

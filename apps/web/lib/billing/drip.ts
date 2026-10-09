@@ -153,7 +153,7 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
   const { data: due, error } = await service
     .from("subscriptions")
     .select(
-      "id, user_id, plan_id, drips_granted, next_drip_at, drip_anchor_at, current_period_start, polar_subscription_id, creem_subscription_id, whop_membership_id, plans(id, credits_grant, credit_drip_months)"
+      "id, user_id, plan_id, drips_granted, next_drip_at, drip_anchor_at, current_period_start, polar_subscription_id, creem_subscription_id, whop_membership_id, bachs_subscription_id, plans(id, credits_grant, credit_drip_months)"
     )
     .eq("status", "active")
     .not("next_drip_at", "is", null)
@@ -169,6 +169,7 @@ export async function runCreditDrip(now: Date = new Date()): Promise<DripRunResu
     const dripsGranted = Number(row.drips_granted ?? 0);
     const dripMonths = Number(plan?.credit_drip_months ?? 1);
     const providerSubscriptionId =
+      (row.bachs_subscription_id as string | null) ??
       (row.whop_membership_id as string | null) ??
       (row.polar_subscription_id as string | null) ??
       (row.creem_subscription_id as string | null);

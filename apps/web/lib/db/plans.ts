@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getPaymentProvider } from "@/lib/billing/payment-provider";
 import { resolveWhopVariantId } from "@/lib/billing/whop-client";
 import { resolveCreemProductId } from "@/lib/billing/creem-client";
+import { resolveBachsProductId } from "@/lib/billing/bachs-client";
 
 export interface PlanForPurchase {
   id: string;
@@ -40,6 +41,8 @@ export async function getPlansForPurchase(): Promise<PlanForPurchase[]> {
     checkout_ready:
       provider === "creem"
         ? Boolean(resolveCreemProductId(plan.metadata))
-        : Boolean(resolveWhopVariantId(plan.metadata, plan.slug)),
+        : provider === "whop"
+          ? Boolean(resolveWhopVariantId(plan.metadata, plan.slug))
+          : Boolean(resolveBachsProductId(plan.metadata, plan.slug)),
   })) as PlanForPurchase[];
 }

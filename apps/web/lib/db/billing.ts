@@ -26,7 +26,7 @@ export async function getBillingData() {
   const { data: profile } = await supabase
     .from("profiles")
     .select(
-      "dodo_customer_id, polar_customer_id, creem_customer_id, whop_user_id"
+      "dodo_customer_id, polar_customer_id, creem_customer_id, whop_user_id, bachs_customer_id"
     )
     .eq("id", user.id)
     .single();
@@ -62,7 +62,8 @@ export async function getBillingData() {
     userId: user.id,
     email: user.email ?? null,
     /** True when the user has a customer record with any billing provider. */
-    billingCustomerId: (profile?.whop_user_id ??
+    billingCustomerId: (profile?.bachs_customer_id ??
+      profile?.whop_user_id ??
       profile?.creem_customer_id ??
       profile?.polar_customer_id ??
       profile?.dodo_customer_id) as string | undefined,
@@ -246,15 +247,16 @@ export async function getSavedPaymentMethods(): Promise<{
   const { data: profile } = await supabase
     .from("profiles")
     .select(
-      "dodo_customer_id, polar_customer_id, creem_customer_id, whop_user_id"
+      "dodo_customer_id, polar_customer_id, creem_customer_id, whop_user_id, bachs_customer_id"
     )
     .eq("id", user.id)
     .single();
 
-  // Whop manages cards on its own billing portal — there's no API surface
-  // for listing saved methods, so the UI shows the portal link only.
+  // Whop and Bachs manage cards on their own billing portals — there's no
+  // API surface for listing saved methods, so the UI shows a portal link.
   const portalAvailable = Boolean(
-    profile?.whop_user_id ??
+    profile?.bachs_customer_id ??
+      profile?.whop_user_id ??
       profile?.creem_customer_id ??
       profile?.polar_customer_id ??
       profile?.dodo_customer_id

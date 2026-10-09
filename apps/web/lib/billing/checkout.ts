@@ -7,6 +7,7 @@ import {
   createCreemPlanCheckoutSession,
 } from "./checkout-creem";
 import { createWhopPlanCheckoutSession } from "./checkout-whop";
+import { createBachsPlanCheckoutSession } from "./checkout-bachs";
 import { createClient } from "@/lib/supabase/server";
 
 export type { CheckoutAttribution, CheckoutResult } from "./checkout-shared";
@@ -16,16 +17,20 @@ export async function createPlanCheckoutSession(
   returnPath = "/app/billing",
   attribution?: CheckoutAttribution
 ): Promise<CheckoutResult> {
-  if (getPaymentProvider() === "creem") {
+  const provider = getPaymentProvider();
+  if (provider === "creem") {
     return createCreemPlanCheckoutSession(planId, returnPath, attribution);
   }
-  return createWhopPlanCheckoutSession(planId, returnPath, attribution);
+  if (provider === "whop") {
+    return createWhopPlanCheckoutSession(planId, returnPath, attribution);
+  }
+  return createBachsPlanCheckoutSession(planId, returnPath, attribution);
 }
 
 /**
  * Fixed credit packs only — `cents` selects the matching extra_credit plan
- * row (server-side price → pack lookup); the Whop checkout charges the
- * pack's fixed price, never a client-supplied amount. Under the Creem
+ * row (server-side price → pack lookup); the Bachs/Whop checkout charges
+ * the pack's fixed price, never a client-supplied amount. Under the Creem
  * rollback path the variable-price checkout is still available.
  */
 export async function createExtraCreditsCheckoutSession(
@@ -33,7 +38,8 @@ export async function createExtraCreditsCheckoutSession(
   returnPath = "/app/billing",
   attribution?: CheckoutAttribution
 ): Promise<CheckoutResult> {
-  if (getPaymentProvider() === "creem") {
+  const provider = getPaymentProvider();
+  if (provider === "creem") {
     return createCreemExtraCreditsCheckoutSession(
       cents,
       returnPath,
@@ -41,7 +47,7 @@ export async function createExtraCreditsCheckoutSession(
     );
   }
 
-  // Whop: resolve the pack plan whose price matches the requested amount.
+  // Bachs/Whop: resolve the pack plan whose price matches the amount.
   const supabase = await createClient();
   const { data: pack } = await supabase
     .from("plans")
@@ -54,5 +60,8 @@ export async function createExtraCreditsCheckoutSession(
   if (!pack) {
     return { error: "Please choose one of the credit packs." };
   }
-  return createWhopPlanCheckoutSession(pack.id, returnPath, attribution);
+  if (provider === "whop") {
+    return createWhopPlanCheckoutSession(pack.id, returnPath, attribution);
+  }
+  return createBachsPlanCheckoutSession(pack.id, returnPath, attribution);
 }
