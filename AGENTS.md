@@ -105,17 +105,16 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
-# Billing — Creem is the default provider; set PAYMENT_PROVIDER=polar|dodo to roll back
-PAYMENT_PROVIDER=creem
-CREEM_API_KEY=
-CREEM_WEBHOOK_SECRET=
-POLAR_ACCESS_TOKEN=
-POLAR_SERVER=sandbox
-POLAR_WEBHOOK_SECRET=
-POLAR_ORGANIZATION_ID=
-DODO_PAYMENTS_API_KEY=
-DODO_PAYMENTS_WEBHOOK_KEY=
-DODO_PAYMENTS_ENVIRONMENT=test_mode
+# Billing — Bachs is the default provider; set PAYMENT_PROVIDER=whop or
+# =creem to roll back. Bachs sandbox first: sk_sandbox_* key +
+# BACHS_ENVIRONMENT=sandbox; production is a key/env swap to sk_live_*.
+PAYMENT_PROVIDER=bachs
+BACHS_API_KEY=
+BACHS_WEBHOOK_SECRET=
+BACHS_ENVIRONMENT=sandbox
+WHOP_API_KEY=
+WHOP_ACCOUNT_ID=
+WHOP_WEBHOOK_SECRET=
 CRON_SECRET=
 
 # GrowSurf (optional — referral program bridge; server only)

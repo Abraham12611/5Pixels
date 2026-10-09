@@ -2,8 +2,9 @@
 
 import { createServiceClient } from "@/lib/supabase/service";
 import { getPaymentProvider } from "@/lib/billing/payment-provider";
-import { resolvePolarProductId } from "@/lib/billing/polar-client";
+import { resolveWhopVariantId } from "@/lib/billing/whop-client";
 import { resolveCreemProductId } from "@/lib/billing/creem-client";
+import { resolveBachsProductId } from "@/lib/billing/bachs-client";
 
 export interface PlanForPurchase {
   id: string;
@@ -40,10 +41,8 @@ export async function getPlansForPurchase(): Promise<PlanForPurchase[]> {
     checkout_ready:
       provider === "creem"
         ? Boolean(resolveCreemProductId(plan.metadata))
-        : provider === "polar"
-          ? Boolean(resolvePolarProductId(plan.metadata))
-          : Boolean(
-              (plan.metadata as { dodo_product_id?: string })?.dodo_product_id
-            ),
+        : provider === "whop"
+          ? Boolean(resolveWhopVariantId(plan.metadata, plan.slug))
+          : Boolean(resolveBachsProductId(plan.metadata, plan.slug)),
   })) as PlanForPurchase[];
 }

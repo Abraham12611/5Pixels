@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getActivePlan } from "@/lib/billing/entitlements";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
 import { SettingCard } from "@/components/consumer/setting-card";
@@ -87,7 +88,7 @@ export default async function BillingCreditsPage() {
     .limit(1)
     .maybeSingle();
   const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
+  const creditPacks = creditPackOptions(plans);
 
   const metrics = [
     { label: "Credits used", value: summary?.creditsUsed ?? 0 },
@@ -165,16 +166,15 @@ export default async function BillingCreditsPage() {
           </div>
         </SettingCard>
 
-        {/* Buy credits — any amount or a pack; every option says what it buys */}
-        {extraCreditPlan && (
+        {/* Buy credits — fixed packs; every option says what it buys */}
+        {creditPacks.length > 0 && (
           <div id="buy" className="scroll-mt-24">
             <SettingCard
               title="Buy credits"
-              description="Pick any amount or a pack — 1 credit for every $0.01. Top-up credits never expire, and a failed transformation releases its credits back automatically."
+              description="Pick a pack — 1 credit for every $0.01. Top-up credits never expire, and a failed transformation releases its credits back automatically."
             >
               <CreditTopUp
-                planId={extraCreditPlan.id}
-                checkoutReady={extraCreditPlan.checkout_ready}
+                packs={creditPacks}
                 creditsPerTransformation={creditsPerTransformation}
               />
             </SettingCard>

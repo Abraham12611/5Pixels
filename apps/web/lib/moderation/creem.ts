@@ -47,6 +47,12 @@ export async function screenUserText(
   text: string,
   externalId?: string
 ): Promise<ScreenOutcome> {
+  // Paused with the Creem billing migration — set CREEM_MODERATION_ENABLED=true
+  // to re-enable. Unset/false means no moderation calls are made at all.
+  if (process.env.CREEM_MODERATION_ENABLED?.trim() !== "true") {
+    return { kind: "allow" };
+  }
+
   const apiKey = process.env.CREEM_API_KEY?.trim();
 
   if (!apiKey) {

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { getPlansForPurchase } from "@/lib/db/plans";
+import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
 import { getMyReferralCode } from "@/lib/referrals/rewards";
 import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
@@ -64,14 +65,15 @@ export default async function CreatePage({
     (blocked.segment === "new_user" || blocked.segment === "free_history")
       ? await getOrAssignCampaignForUser(user!.id)
       : null;
-  const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
-  const topUp = extraCreditPlan
-    ? {
-        planId: extraCreditPlan.id,
-        checkoutReady: extraCreditPlan.checkout_ready,
-        creditsPerTransformation: Number(cheapest?.data?.credit_cost ?? 5) || 5,
-      }
-    : null;
+  const creditPacks = creditPackOptions(plans);
+  const topUp =
+    creditPacks.length > 0
+      ? {
+          packs: creditPacks,
+          creditsPerTransformation:
+            Number(cheapest?.data?.credit_cost ?? 5) || 5,
+        }
+      : null;
 
   // Adjust flow (?from=<generationId>): restore the source photo and the
   // options used for that run. Everything is re-validated at submit time —

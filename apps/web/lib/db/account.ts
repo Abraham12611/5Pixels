@@ -112,6 +112,8 @@ export async function deleteAccount(
       dodo_customer_id: null,
       polar_customer_id: null,
       creem_customer_id: null,
+      whop_user_id: null,
+      bachs_customer_id: null,
       status: "deleted",
       deleted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

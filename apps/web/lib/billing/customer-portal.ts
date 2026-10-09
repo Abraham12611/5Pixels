@@ -1,15 +1,57 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createDodoClient } from "./dodo-client";
-import { createPolarClient } from "./polar-client";
 import { createCreemPortalLink } from "./creem-client";
+import { getWhopMembership } from "./whop-client";
+import { createBachsPortalSession } from "./bachs-client";
 import { getPaymentProvider } from "./payment-provider";
-import { getSiteUrl } from "./site-url";
 
 export interface CustomerPortalResult {
   url?: string;
   error?: string;
+}
+
+/**
+ * Whop's billing portal is hosted on whop.com — each membership carries a
+ * `manage_url` where the buyer cancels/updates cards. We persist it on the
+ * subscription row at fulfillment time; when it's missing (older rows) we
+ * fetch the membership fresh.
+ */
+async function createWhopPortalSession(
+  userId: string
+): Promise<CustomerPortalResult> {
+  const supabase = await createClient();
+  const { data: subscription } = await supabase
+    .from("subscriptions")
+    .select("whop_membership_id, whop_manage_url")
+    .eq("user_id", userId)
+    .not("whop_membership_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!subscription?.whop_membership_id) {
+    return { error: "You do not have an active billing account to manage." };
+  }
+
+  if (subscription.whop_manage_url) {
+    return { url: subscription.whop_manage_url as string };
+  }
+
+  try {
+    const membership = (await getWhopMembership(
+      subscription.whop_membership_id as string
+    )) as { manage_url?: string | null };
+    if (membership.manage_url) {
+      return { url: membership.manage_url };
+    }
+  } catch (err) {
+    console.error(
+      "[createWhopPortalSession] membership fetch failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  return { error: "Billing management is temporarily unavailable." };
 }
 
 async function createCreemPortalSession(
@@ -31,59 +73,42 @@ async function createCreemPortalSession(
   return { url: session.customer_portal_link };
 }
 
-async function createPolarPortalSession(
-  userId: string,
-  returnPath: string
+/**
+ * Bachs portal — mint a short-lived portal session per request and
+ * redirect the customer to its URL (portal.bachs.io). The bachs_customer_id
+ * is stored on the profile at fulfillment time (customer_creation: always).
+ */
+async function createBachsPortalSessionForUser(
+  userId: string
 ): Promise<CustomerPortalResult> {
   const supabase = await createClient();
   const { data: profile } = await supabase
     .from("profiles")
-    .select("polar_customer_id")
+    .select("bachs_customer_id")
     .eq("id", userId)
     .single();
 
-  if (!profile?.polar_customer_id) {
+  if (!profile?.bachs_customer_id) {
     return { error: "You do not have an active billing account to manage." };
   }
 
-  const client = createPolarClient();
-  const session = await client.customerSessions.create({
-    customerId: profile.polar_customer_id,
-    returnUrl: `${getSiteUrl()}${returnPath}`,
-  });
-
-  return { url: session.customerPortalUrl };
-}
-
-async function createDodoPortalSession(
-  userId: string,
-  returnPath: string
-): Promise<CustomerPortalResult> {
-  const supabase = await createClient();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("dodo_customer_id")
-    .eq("id", userId)
-    .single();
-
-  if (!profile?.dodo_customer_id) {
-    return { error: "You do not have an active billing account to manage." };
+  try {
+    const session = await createBachsPortalSession(
+      profile.bachs_customer_id as string
+    );
+    return { url: session.url };
+  } catch (err) {
+    console.error(
+      "[createBachsPortalSessionForUser] session create failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return { error: "Billing management is temporarily unavailable." };
   }
-
-  const client = createDodoClient();
-  const session = await client.customers.customerPortal.create(
-    profile.dodo_customer_id,
-    {
-      return_url: `${getSiteUrl()}${returnPath}`,
-    }
-  );
-
-  return { url: session.link };
 }
 
-export async function createCustomerPortalSession(
-  returnPath = "/app/billing"
-): Promise<CustomerPortalResult> {
+// Whop and Bachs manage billing on their own hosted portals — there is no
+// return-url parameter to forward.
+export async function createCustomerPortalSession(): Promise<CustomerPortalResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -96,8 +121,8 @@ export async function createCustomerPortalSession(
   if (provider === "creem") {
     return createCreemPortalSession(user.id);
   }
-  if (provider === "dodo") {
-    return createDodoPortalSession(user.id, returnPath);
+  if (provider === "whop") {
+    return createWhopPortalSession(user.id);
   }
-  return createPolarPortalSession(user.id, returnPath);
+  return createBachsPortalSessionForUser(user.id);
 }
