@@ -110,7 +110,7 @@ function order(overrides: Partial<Order> = {}): Order {
     metadata: {
       user_id: "user-1",
       plan_id: "plan-extra",
-      credits: "2500",
+      credits: "15150",
       experiment_key: "exp_paywall",
       variant_key: "v1",
     },
@@ -158,17 +158,30 @@ beforeEach(() => {
   });
   fake.seed("profiles", [{ ...USER }]);
   fake.seed("plans", PLANS.map((p) => ({ ...p })));
+  fake.seed("pricing_policies", [
+    {
+      id: "pol-1",
+      version: 1,
+      is_active: true,
+      credit_capacity_usd: 0.001,
+      top_up_budget_ratio: 0.606,
+      quote_max_slack_factor: 1.15,
+      quote_ttl_seconds: 600,
+      snapshot_ttl_hours: 6,
+    },
+  ]);
 });
 
 describe("fulfillPolarOneTimeOrder", () => {
-  it("grants credits matching cents paid for a variable top-up", async () => {
+  it("grants policy-priced credits for a variable top-up", async () => {
+    // $25 × 0.606 budget ratio = $15.15 provider budget → 15,150 credits.
     await fulfillPolarOneTimeOrder(order({ totalAmount: 2500 }));
     const entries = ledgerEntries();
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       user_id: "user-1",
       entry_type: "purchase",
-      amount: 2500,
+      amount: 15150,
       idempotency_key: "purchase:payment:order_1",
     });
     const invoices = fake.table("invoices");
@@ -480,7 +493,7 @@ describe("handlePolarRefund", () => {
     expect(entries).toHaveLength(2);
     expect(entries[1]).toMatchObject({
       entry_type: "debit",
-      amount: -2500,
+      amount: -15150,
       idempotency_key: "refund:refund_1",
     });
     expect(fake.table("invoices")[0].status).toBe("refunded");
@@ -508,7 +521,8 @@ describe("handlePolarRefund", () => {
     const reversal = entries.find(
       (e) => e.idempotency_key === "refund:refund_2"
     )!;
-    expect(reversal.amount).toBe(-500);
+    // Granted 15,150, spent 2,000 → only 13,150 recoverable.
+    expect(reversal.amount).toBe(-13150);
     expect(reversal.metadata.unrecovered_credits).toBe(2000);
   });
 
@@ -699,9 +713,11 @@ describe("checkout gates (polar)", () => {
     expect(res.error).toBeUndefined();
     expect(res.checkoutUrl).toBe("https://sandbox.polar.test/checkout/abc");
     const args = polarCheckoutsCreate.mock.calls[0][0];
+    // $20 × 0.606 = $12.12 provider budget → 12,120 fixed credits.
     expect(args.metadata).toMatchObject({
       user_id: "user-1",
-      credits: "2000",
+      credits: "12120",
+      pricing_policy_version: "1",
     });
   });
 
@@ -741,7 +757,7 @@ describe("checkout gates (polar)", () => {
     expect(args.metadata).toMatchObject({
       user_id: "user-1",
       plan_id: "plan-extra",
-      credits: "2500",
+      credits: "15150",
       experiment_key: "exp_paywall",
       variant_key: "v1",
       ladder_stage: "rungs_1",

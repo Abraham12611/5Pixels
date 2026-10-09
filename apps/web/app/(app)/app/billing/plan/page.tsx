@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getBillingData } from "@/lib/db/billing";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getPlansForPurchase, type PlanForPurchase } from "@/lib/db/plans";
 import {
   canPurchaseWeeklyPass,
@@ -38,7 +41,7 @@ function formatDate(iso: string | null): string | null {
 
 function planBenefits(
   planType: string,
-  markup: number,
+  priceCents: number,
   creditsGrant: number
 ): string[] {
   const benefits = [
@@ -52,10 +55,8 @@ function planBenefits(
   ];
   if (planType === "annual") {
     benefits.push("Pay once a year at a lower monthly rate");
-  } else if (markup <= 2.5) {
-    benefits.push("Lower credit cost per transformation");
-  } else if (markup <= 3.5) {
-    benefits.push("Better credit rates than starter plans");
+  } else if (priceCents > 0 && creditsGrant / (priceCents / 100) >= 400) {
+    benefits.push("More credits per dollar than starter plans");
   }
   return benefits.slice(0, 4);
 }
@@ -63,7 +64,7 @@ function planBenefits(
 /** Cancel-dialog lose-list — only things that actually stop on cancel. */
 function planLoses(
   planType: string,
-  markup: number,
+  priceCents: number,
   creditsGrant: number
 ): string[] {
   const loses = [
@@ -71,8 +72,8 @@ function planLoses(
   ];
   if (planType === "annual") {
     loses.push("Your discounted annual rate — monthly plans cost more");
-  } else if (markup <= 2.5) {
-    loses.push("Your lower credit cost per transformation");
+  } else if (priceCents > 0 && creditsGrant / (priceCents / 100) >= 400) {
+    loses.push("Your higher credits-per-dollar rate");
   }
   return loses;
 }
@@ -180,16 +181,15 @@ export default async function BillingPlanPage() {
     }
   }
 
-  // Cheapest active transformation — basis for the "≈ N transformations" line
-  // on every top-up option.
-  const { data: cheapest } = await supabase
-    .from("product_versions")
-    .select("credit_cost")
-    .eq("state", "active")
-    .order("credit_cost", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  // Cheapest quotable transformation — basis for the "≈ N transformations"
+  // line on every top-up option.
+  const [creditsPerTransformation, pricingPolicy] = await Promise.all([
+    getCheapestGenerationCredits(),
+    getActivePricingPolicy(createServiceClient()),
+  ]);
+  const creditsPerDollar = Math.floor(
+    (pricingPolicy?.topUpBudgetRatio ?? 0) * 1000
+  );
 
   // Monthly subscribers get the quiet "switch to annual" nudge (Plane Finder
   // pattern) instead of a paywall — routed through the billing portal, never
@@ -341,7 +341,7 @@ export default async function BillingPlanPage() {
               <ul className="border-cream-100/10 mt-5 grid gap-2.5 border-t pt-5 sm:grid-cols-2">
                 {planBenefits(
                   planType ?? "monthly",
-                  activePlan.markupMultiplier,
+                  subPlan?.price_cents ?? 0,
                   activePlan.creditsGrant
                 ).map((benefit) => (
                   <li key={benefit} className="flex items-start gap-2.5">
@@ -527,12 +527,13 @@ export default async function BillingPlanPage() {
           <div id="top-up" className="scroll-mt-24">
             <SettingCard
               title="Top up credits"
-              description="One-time top-up — 1 credit for every $0.01, minimum $10. They land instantly and never expire."
+              description={`One-time top-up — ${creditsPerDollar.toLocaleString()} credits per $1, minimum $10. They land instantly and never expire.`}
             >
               <CreditTopUp
                 planId={extraCreditPlan.id}
                 checkoutReady={extraCreditPlan.checkout_ready}
                 creditsPerTransformation={creditsPerTransformation}
+                creditsPerDollar={creditsPerDollar}
               />
             </SettingCard>
           </div>
@@ -575,7 +576,7 @@ export default async function BillingPlanPage() {
             periodEnd={renewal}
             loses={planLoses(
               planType ?? "monthly",
-              activePlan?.markupMultiplier ?? 3,
+              subPlan?.price_cents ?? 0,
               activePlan?.creditsGrant ?? 0
             )}
             credits={RETENTION_CREDITS}

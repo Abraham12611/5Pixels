@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getSignedReferenceAssets } from "./reference-assets";
 import { resolveOutputSize } from "./output-size";
+import { createGenerationQuote } from "@/lib/pricing/quote";
 import type { CreateGenerationInput } from "./types";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
@@ -150,17 +151,34 @@ export async function createAndSubmitGeneration(
     return { error: userFacingError() };
   }
 
+  // Server-authoritative quote: the recipe's endpoint + resolved output size
+  // are priced against a fresh provider snapshot; credits are reserved against
+  // the bounded maximum. No quote → fail closed, never a fallback price.
+  const service = createServiceClient();
+  const quote = await createGenerationQuote(service, {
+    userId: user.id,
+    productId: input.productId,
+    productVersionId: input.productVersionId,
+    options: input.options,
+    outputWidth: outputSize.width,
+    outputHeight: outputSize.height,
+    provider: "fal",
+    endpoint,
+    fallbackEndpoint: getFallbackEndpoint(recipe.provider_strategy),
+  });
+  if (!quote.ok) {
+    return {
+      error: "This preset is temporarily unavailable. Please try again later.",
+    };
+  }
+
   const { data: createData, error: createError } = await supabase.rpc(
     "create_generation",
     {
-      p_product_id: input.productId,
-      p_product_version_id: input.productVersionId,
+      p_quote_id: quote.quoteId,
       p_source_asset_id: input.sourceAssetId,
       p_options: input.options,
       p_idempotency_key: input.idempotencyKey,
-      p_provider_endpoint: endpoint,
-      p_output_width: outputSize.width,
-      p_output_height: outputSize.height,
     }
   );
 
@@ -185,6 +203,9 @@ export async function createAndSubmitGeneration(
     processing_token: string | null;
     balance_after: number;
     credit_cost: number;
+    provider_endpoint: string | null;
+    output_width: number | null;
+    output_height: number | null;
   };
 
   if (!row.processing_token) {
@@ -193,11 +214,18 @@ export async function createAndSubmitGeneration(
 
   await setProcessingTokenCookie(row.generation_id, row.processing_token);
 
+  // Endpoint and dimensions come back from the consumed quote — never from
+  // the client. The fallback is used only when it was quoted inside the
+  // reservation envelope.
+  const submitEndpoint = row.provider_endpoint ?? endpoint;
+  const fallbackEndpoint = quote.eligibleFallbackEndpoint;
+  const submitWidth = row.output_width ?? outputSize.width;
+  const submitHeight = row.output_height ?? outputSize.height;
+
   let failureCode: string | null = null;
   let failureStage: string | null = null;
 
   try {
-    const fallbackEndpoint = getFallbackEndpoint(recipe.provider_strategy);
     const [sourceUrl, references] = await Promise.all([
       import("./upload").then((m) =>
         m.getSignedSourceUrlByAssetId(input.sourceAssetId)
@@ -212,11 +240,11 @@ export async function createAndSubmitGeneration(
 
     const modelConfig: Record<string, unknown> = {
       ...recipe.model_config,
-      width: outputSize.width,
-      height: outputSize.height,
+      width: submitWidth,
+      height: submitHeight,
       image_size: {
-        width: outputSize.width,
-        height: outputSize.height,
+        width: submitWidth,
+        height: submitHeight,
       },
     };
     // "Match photo" maps to aspect_ratio "auto" on endpoints that honor it
@@ -228,11 +256,11 @@ export async function createAndSubmitGeneration(
 
     const provider = createFalAdapter();
     let submitResult;
-    let usedEndpoint = endpoint;
+    let usedEndpoint = submitEndpoint;
 
     try {
       submitResult = await provider.submit({
-        endpoint,
+        endpoint: submitEndpoint,
         prompt,
         negativePrompt: recipe.private_negative_instruction ?? undefined,
         sourceImageUrl: sourceUrl,

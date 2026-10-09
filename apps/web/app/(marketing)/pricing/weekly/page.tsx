@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Check, Sparkle } from "@phosphor-icons/react/dist/ssr";
 import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import {
   canPurchaseWeeklyPass,
@@ -43,15 +43,7 @@ export default async function WeeklyPassPage() {
     .sort((a, b) => a.price_cents - b.price_cents);
   if (weekly.length === 0) redirect("/pricing");
 
-  const service = createServiceClient();
-  const { data: cheapest } = await service
-    .from("product_versions")
-    .select("credit_cost")
-    .eq("state", "active")
-    .order("credit_cost", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  const creditsPerTransformation = await getCheapestGenerationCredits();
 
   const cheapestPlan = weekly[0];
   const pastBuyer = Boolean(user && everPaid);

@@ -88,6 +88,18 @@ beforeEach(() => {
       metadata: { polar_product_id: "polar_prod_extra" },
     },
   ]);
+  fake.seed("pricing_policies", [
+    {
+      id: "pol-1",
+      version: 1,
+      is_active: true,
+      credit_capacity_usd: 0.001,
+      top_up_budget_ratio: 0.606,
+      quote_max_slack_factor: 1.15,
+      quote_ttl_seconds: 600,
+      snapshot_ttl_hours: 6,
+    },
+  ]);
 });
 
 describe("polar webhook route", () => {
@@ -102,7 +114,8 @@ describe("polar webhook route", () => {
     expect(res.status).toBe(200);
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(1);
-    expect(entries[0].amount).toBe(3000);
+    // $30 × 0.606 budget ratio → 18,180 fixed credits.
+    expect(entries[0].amount).toBe(18180);
   });
 
   it("rejects an invalid signature with 401 and writes nothing", async () => {

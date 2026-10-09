@@ -3,6 +3,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getActivePlan } from "@/lib/billing/entitlements";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -78,15 +81,14 @@ export default async function BillingCreditsPage() {
     activeSub.data?.cancel_at_period_end !== true;
 
   // Basis for the "≈ up to N transformations" line on every top-up option:
-  // the cheapest active transformation in the catalog.
-  const { data: cheapest } = await supabase
-    .from("product_versions")
-    .select("credit_cost")
-    .eq("state", "active")
-    .order("credit_cost", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  // the cheapest currently-quotable generation (fresh pricing snapshots).
+  const [creditsPerTransformation, pricingPolicy] = await Promise.all([
+    getCheapestGenerationCredits(),
+    getActivePricingPolicy(createServiceClient()),
+  ]);
+  const creditsPerDollar = Math.floor(
+    (pricingPolicy?.topUpBudgetRatio ?? 0) * 1000
+  );
   const extraCreditPlan = plans.find((p) => p.type === "extra_credit");
 
   const metrics = [
@@ -170,12 +172,13 @@ export default async function BillingCreditsPage() {
           <div id="buy" className="scroll-mt-24">
             <SettingCard
               title="Buy credits"
-              description="Pick any amount or a pack — 1 credit for every $0.01. Top-up credits never expire, and a failed transformation releases its credits back automatically."
+              description={`Pick any amount or a pack — ${creditsPerDollar.toLocaleString()} credits per $1. Top-up credits never expire, and a failed transformation releases its credits back automatically.`}
             >
               <CreditTopUp
                 planId={extraCreditPlan.id}
                 checkoutReady={extraCreditPlan.checkout_ready}
                 creditsPerTransformation={creditsPerTransformation}
+                creditsPerDollar={creditsPerDollar}
               />
             </SettingCard>
           </div>

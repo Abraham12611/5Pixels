@@ -19,23 +19,27 @@ function translation(credits: number, perTransformation: number): string {
 /**
  * Free-range credit top-up — Ballpark-style surface (06 §3.2): choose any
  * amount or a pack, every option carries the plain-English "what it buys"
- * line. 1 credit per $0.01; the amount is priced server-side via
- * Creem `custom_price`, never trusted from the client.
+ * line. Credits per dollar come from the active pricing policy (a share of
+ * the payment becomes provider-cost budget); the amount and grant are priced
+ * server-side via Creem `custom_price`, never trusted from the client.
  */
 export function CreditTopUp({
   planId,
   checkoutReady,
   creditsPerTransformation,
+  creditsPerDollar,
   minimumUsd = 10,
 }: {
   planId: string;
   checkoutReady: boolean;
   /** Cheapest active transformation cost — basis for the "≈ N" line. */
   creditsPerTransformation: number;
+  /** Fixed-credit grant rate from the active pricing policy (≈606). */
+  creditsPerDollar: number;
   minimumUsd?: number;
 }) {
   const [amount, setAmount] = useState(minimumUsd);
-  const credits = Math.floor(amount * 100);
+  const credits = Math.floor(amount * creditsPerDollar);
   const valid = amount >= minimumUsd;
 
   return (
@@ -90,7 +94,7 @@ export function CreditTopUp({
       {/* Pack shortcuts */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PACKS_USD.map((usd) => {
-          const packCredits = usd * 100;
+          const packCredits = usd * creditsPerDollar;
           const popular = usd === 50;
           return (
             <div

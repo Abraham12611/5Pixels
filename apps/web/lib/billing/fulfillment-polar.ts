@@ -1,6 +1,8 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
+import { topUpCreditsForCents } from "@/lib/pricing/types";
 import { createPolarClient } from "./polar-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
@@ -38,10 +40,20 @@ interface SubscriptionInfo {
   metadata: Record<string, unknown>;
 }
 
-function creditCostToCredits(plan: PlanRow, amountCents: number): number {
+async function creditCostToCredits(
+  plan: PlanRow,
+  amountCents: number,
+  service: ReturnType<typeof createServiceClient>
+): Promise<number> {
   if (plan.type === "extra_credit") {
-    // 1 credit = $0.01 of purchasing power.
-    return Math.max(0, Math.floor(amountCents));
+    // Fixed-credit model: cash -> provider budget (policy margin) -> credits.
+    const policy = await getActivePricingPolicy(service);
+    if (!policy) {
+      throw new Error(
+        "No active pricing policy — cannot compute top-up credit grant"
+      );
+    }
+    return topUpCreditsForCents(amountCents, policy);
   }
   return plan.credits_grant;
 }
@@ -419,7 +431,7 @@ async function ensureCreditsForBillingPeriod(
   amountCents: number
 ) {
   const service = createServiceClient();
-  const credits = creditCostToCredits(plan, amountCents);
+  const credits = await creditCostToCredits(plan, amountCents, service);
 
   const { data: existing } = await service
     .from("credit_ledger")

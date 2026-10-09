@@ -13,6 +13,7 @@ import {
 import { getSignedReferenceAssets } from "@/lib/generation/reference-assets";
 import { resolveOutputSize } from "@/lib/generation/output-size";
 import { pollGenerationStatus } from "@/lib/generation/poll";
+import { createGenerationQuote } from "@/lib/pricing/quote";
 import { extractUserText, screenUserText } from "@/lib/moderation/creem";
 import { isValidLabEndpoint, isValidLabOutputSize } from "@/lib/lab/validate";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -183,17 +184,32 @@ export async function runLabGeneration(
     };
   }
 
+  // Lab runs are priced exactly like consumer runs: a server-created quote
+  // against a fresh snapshot, fail-closed. The endpoint is admin-pinned
+  // rather than recipe-derived, which is the point of the lab.
+  const quote = await createGenerationQuote(createServiceClient(), {
+    userId: ctx.userId,
+    productId: input.productId,
+    productVersionId: input.productVersionId,
+    options: input.options,
+    outputWidth: outputSize.width,
+    outputHeight: outputSize.height,
+    provider: "fal",
+    endpoint: input.endpointId,
+  });
+  if (!quote.ok) {
+    return {
+      error: "No verified pricing for this endpoint — cannot run the test.",
+    };
+  }
+
   const { data: createData, error: createError } = await ctx.supabase.rpc(
     "create_generation",
     {
-      p_product_id: input.productId,
-      p_product_version_id: input.productVersionId,
+      p_quote_id: quote.quoteId,
       p_source_asset_id: input.sourceAssetId,
       p_options: input.options,
       p_idempotency_key: `lab:${ctx.userId}:${uuidv4()}`,
-      p_provider_endpoint: input.endpointId,
-      p_output_width: outputSize.width,
-      p_output_height: outputSize.height,
     }
   );
 

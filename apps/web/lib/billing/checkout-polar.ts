@@ -1,6 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
+import { topUpCreditsForCents } from "@/lib/pricing/types";
 import { createPolarClient, resolvePolarProductId } from "./polar-client";
 import { getSiteUrl } from "./site-url";
 import type { CheckoutAttribution, CheckoutResult } from "./checkout-shared";
@@ -9,7 +12,6 @@ import {
   canPurchaseExtraCredits,
   canPurchaseTrial,
   canPurchaseWeeklyPass,
-  getActivePlan,
 } from "./entitlements";
 
 export async function createPolarPlanCheckoutSession(
@@ -135,9 +137,13 @@ export async function createPolarExtraCreditsCheckoutSession(
     return { error: "Your profile is missing an email address." };
   }
 
-  const activePlan = await getActivePlan(user.id);
-  const markup = activePlan?.markupMultiplier ?? plan.markup_multiplier;
-  const credits = Math.floor(cents * 1.0); // 1 credit = $0.01 = 1 cent, no markup on purchase
+  const policy = await getActivePricingPolicy(createServiceClient());
+  if (!policy) {
+    return {
+      error: "Credit pricing is temporarily unavailable. Please try again later.",
+    };
+  }
+  const credits = topUpCreditsForCents(cents, policy);
 
   const client = createPolarClient();
   const checkout = await client.checkouts.create({
@@ -163,7 +169,7 @@ export async function createPolarExtraCreditsCheckoutSession(
       user_id: user.id,
       plan_id: plan.id,
       credits: String(credits),
-      markup_multiplier: String(markup),
+      pricing_policy_version: String(policy.version),
       ...attributionMetadata(attribution),
     },
   });

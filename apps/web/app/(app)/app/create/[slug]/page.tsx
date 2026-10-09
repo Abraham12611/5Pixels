@@ -4,11 +4,14 @@ import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
 import { getPublicProductBySlug } from "@/lib/db/explore";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
 import { getMyReferralCode } from "@/lib/referrals/rewards";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
 import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
 import { CreateGenerationForm } from "./create-form";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -30,7 +33,8 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, generationCount, plans, cheapest, referralCode] = await Promise.all([
+  const [balance, generationCount, plans, cheapest, pricingPolicy, referralCode] =
+    await Promise.all([
     user ? getUserCreditBalance() : Promise.resolve(0),
     user
       ? supabase
@@ -40,13 +44,8 @@ export default async function CreatePage({
           .then((r) => r.count ?? 0)
       : Promise.resolve(0),
     getPlansForPurchase(),
-    supabase
-      .from("product_versions")
-      .select("credit_cost")
-      .eq("state", "active")
-      .order("credit_cost", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
+    getCheapestGenerationCredits(),
+    getActivePricingPolicy(createServiceClient()),
     user ? getMyReferralCode() : Promise.resolve(null),
   ]);
 
@@ -69,7 +68,10 @@ export default async function CreatePage({
     ? {
         planId: extraCreditPlan.id,
         checkoutReady: extraCreditPlan.checkout_ready,
-        creditsPerTransformation: Number(cheapest?.data?.credit_cost ?? 5) || 5,
+        creditsPerTransformation: cheapest,
+        creditsPerDollar: Math.floor(
+          (pricingPolicy?.topUpBudgetRatio ?? 0) * 1000
+        ),
       }
     : null;
 

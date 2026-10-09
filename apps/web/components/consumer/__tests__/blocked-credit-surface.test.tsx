@@ -70,6 +70,7 @@ const topUp = {
   planId: "extra-1",
   checkoutReady: true,
   creditsPerTransformation: 5,
+  creditsPerDollar: 606,
 };
 
 function renderSurface(segment: BlockedSegment, extra = {}) {

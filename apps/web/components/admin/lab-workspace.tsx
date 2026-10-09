@@ -27,6 +27,9 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { quoteFal } from "@/lib/pricing/adapters/fal";
+import { creditsForProviderCost } from "@/lib/pricing/types";
+import type { SnapshotPayload } from "@/lib/pricing/types";
 import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
@@ -56,7 +59,9 @@ interface LabWorkspaceProps {
   models: ProviderModelOption[];
   defaultEndpointId: string | null;
   initialBalance: number;
-  markup: number;
+  /** Fresh pricing snapshots by endpoint id — missing means unquotable. */
+  pricing: Record<string, SnapshotPayload>;
+  slackFactor: number;
   /** The preset's saved private recipe — shown for reference, overridable per run. */
   recipe: { instruction: string; negative: string | null } | null;
 }
@@ -77,19 +82,20 @@ function sizeKey(size: OutputSizeOption): string {
   return `${size.name}:${size.width}:${size.height}:${kind}`;
 }
 
-/** Client-side mirror of the DB credit-cost formula — estimates only. */
+/** Bounded-quote estimate at the fixed $0.001/credit denomination. */
 function estimateCredits(
-  model: ProviderModelOption,
+  payload: SnapshotPayload | undefined,
   size: OutputSizeOption,
-  markup: number
-): number {
-  const quantity =
-    model.unit === "megapixel"
-      ? (size.width * size.height) / 1_000_000
-      : model.unit === "compute seconds" || model.unit === "seconds"
-        ? 15
-        : 1;
-  return Math.ceil(model.unitPrice * quantity * 1.1 * markup * 100 * 100) / 100;
+  slack: number
+): number | null {
+  if (!payload) return null;
+  const quote = quoteFal(
+    payload,
+    { width: size.width, height: size.height },
+    { quoteMaxSlackFactor: slack }
+  );
+  if (quote.kind === "unsafe") return null;
+  return creditsForProviderCost(quote.maximumCostUsd);
 }
 
 export function LabWorkspace({
@@ -97,7 +103,8 @@ export function LabWorkspace({
   models,
   defaultEndpointId,
   initialBalance,
-  markup,
+  pricing,
+  slackFactor,
   recipe,
 }: LabWorkspaceProps) {
   const isPoster = product.type === "poster";
@@ -153,14 +160,19 @@ export function LabWorkspace({
     [models, selected]
   );
 
-  const estimatedTotal = useMemo(
-    () =>
-      selectedModels.reduce(
-        (sum, m) => sum + estimateCredits(m, selectedSize, markup),
-        0
-      ),
-    [selectedModels, selectedSize, markup]
-  );
+  const estimatedTotal = useMemo(() => {
+    let total = 0;
+    for (const m of selectedModels) {
+      const credits = estimateCredits(
+        pricing[m.endpointId],
+        selectedSize,
+        slackFactor
+      );
+      if (credits === null) return null;
+      total += credits;
+    }
+    return total;
+  }, [selectedModels, selectedSize, pricing, slackFactor]);
 
   const busy = phase !== "idle";
   const hasActiveRuns = runs.some((r) => !TERMINAL.has(r.status));
@@ -286,9 +298,9 @@ export function LabWorkspace({
       setError(validation.message);
       return;
     }
-    if (balance < estimatedTotal && estimatedTotal > 0) {
+    if (estimatedTotal !== null && balance < estimatedTotal) {
       setError(
-        `Estimated cost is ~${estimatedTotal.toFixed(2)} credits but your balance is ${balance}. Grant yourself credits on the support page if needed.`
+        `Estimated cost is ~${estimatedTotal.toLocaleString()} credits but your balance is ${Math.round(balance).toLocaleString()}. Grant yourself credits on the support page if needed.`
       );
       return;
     }
@@ -603,11 +615,13 @@ export function LabWorkspace({
             <p className="text-cream-50 text-sm font-medium">
               {selected.size === 0
                 ? "No models selected"
-                : `${selected.size} model${selected.size === 1 ? "" : "s"} · est. ~${estimatedTotal.toFixed(2)} credits total`}
+                : estimatedTotal === null
+                  ? `${selected.size} model${selected.size === 1 ? "" : "s"} · pricing unavailable for some endpoints`
+                  : `${selected.size} model${selected.size === 1 ? "" : "s"} · est. ~${estimatedTotal.toLocaleString()} credits total`}
             </p>
             <p className="text-text-muted mt-0.5 text-xs">
-              Balance: {balance.toFixed(2)} credits · charged per run at each
-              model&apos;s own rate
+              Balance: {Math.round(balance).toLocaleString()} credits · charged
+              per run at each model&apos;s verified rate
             </p>
           </div>
           <Button
@@ -712,7 +726,7 @@ export function LabWorkspace({
                   </p>
                   <p className="text-text-muted mt-1.5 text-xs">
                     {typeof run.creditCost === "number"
-                      ? `${run.creditCost.toFixed(2)} credits`
+                      ? `${Math.round(run.creditCost).toLocaleString()} credits`
                       : "cost pending"}
                     {run.generationId && (
                       <>

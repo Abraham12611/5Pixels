@@ -29,6 +29,7 @@ interface TopUpInfo {
   planId: string;
   checkoutReady: boolean;
   creditsPerTransformation: number;
+  creditsPerDollar: number;
 }
 
 type View = "main" | "topup" | "offer";
@@ -349,6 +350,7 @@ export function BlockedCreditSurface({
               planId={topUp.planId}
               checkoutReady={topUp.checkoutReady}
               creditsPerTransformation={topUp.creditsPerTransformation}
+              creditsPerDollar={topUp.creditsPerDollar}
             />
           ) : (
             <Button asChild variant="brand" className="w-full">
@@ -685,6 +687,7 @@ export function BlockedCreditSurface({
                 planId={topUp.planId}
                 checkoutReady={topUp.checkoutReady}
                 creditsPerTransformation={topUp.creditsPerTransformation}
+                creditsPerDollar={topUp.creditsPerDollar}
               />
             </div>
           ) : null)}
@@ -746,7 +749,7 @@ export function BlockedCreditSurface({
       <div>
         <h2 className="text-cream-50 text-lg font-semibold">Buy credits</h2>
         <p className="text-text-secondary mt-1 text-sm">
-          One-time — 1 credit for every $0.01, never expire.
+          One-time — {topUp ? `${topUp.creditsPerDollar.toLocaleString()} credits per $1` : "credits"}, never expire.
         </p>
       </div>
       {topUp ? (
@@ -754,6 +757,7 @@ export function BlockedCreditSurface({
           planId={topUp.planId}
           checkoutReady={topUp.checkoutReady}
           creditsPerTransformation={topUp.creditsPerTransformation}
+          creditsPerDollar={topUp.creditsPerDollar}
         />
       ) : (
         <Button asChild variant="brand" className="w-full">
