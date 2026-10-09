@@ -70,7 +70,7 @@ export default function CookieNoticePage() {
               </ul>
               <p>
                 <strong>Checkout.</strong> Payments are completed on our
-                merchant of record&rsquo;s checkout (Whop), which may set its
+                payment processor&rsquo;s checkout (Bachs), which may set its
                 own cookies on its domain during checkout; those are governed by
                 its terms and privacy policy.
               </p>

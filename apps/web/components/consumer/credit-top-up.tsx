@@ -17,8 +17,8 @@ function translation(credits: number, perTransformation: number): string {
 }
 
 /**
- * Fixed-pack credit top-up: each pack is a plans row mapped to a Whop
- * variant server-side — the form posts only `plan_id`, never an amount.
+ * Fixed-pack credit top-up: each pack is a plans row mapped to a Bachs
+ * product server-side — the form posts only `plan_id`, never an amount.
  * Every option carries the plain-English "what it buys" line (06 §3.2).
  */
 export function CreditTopUp({

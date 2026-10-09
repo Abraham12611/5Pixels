@@ -47,7 +47,7 @@ describe("CreditTopUp", () => {
     expect(screen.queryByLabelText(/any amount/i)).toBeNull();
   });
 
-  it("disables a pack whose Whop variant is not configured", () => {
+  it("disables a pack whose checkout product is not configured", () => {
     render(
       <CreditTopUp
         {...props}

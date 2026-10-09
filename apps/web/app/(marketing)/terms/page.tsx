@@ -259,21 +259,14 @@ export default function TermsPage() {
           body: (
             <>
               <p>
-                <strong>Merchant of record.</strong> Purchases are processed by
-                Whop, which acts as merchant of record and contractual reseller
-                for purchases made through its checkout. Whop enters into the
-                purchase transaction with you, processes payment, issues
-                receipts and invoices, and handles applicable sales taxes where
-                required. &ldquo;Whop&rdquo; may appear on your payment
-                statement. The{" "}
-                <a
-                  href="https://whop.com/terms"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Whop Terms
-                </a>{" "}
-                also apply to your purchase and are presented at checkout.
+                <strong>Payment processing.</strong> Purchases are made
+                directly with 5Pixels; we are the seller of your plan, pass, or
+                credit pack. Payments are processed on our behalf by Bachs, our
+                payment service provider, which securely collects payment and
+                issues transaction confirmations. We do not store your full
+                payment card details. The charge may appear on your payment
+                statement under 5Pixels or our payment partner&rsquo;s
+                descriptor.
               </p>
               <p>
                 <strong>Subscriptions.</strong> Paid plans grant credits on a
@@ -294,11 +287,9 @@ export default function TermsPage() {
                 blocked before generation return their credits automatically.
                 For purchases of plans, passes, or credit packs, refund requests
                 are assessed individually through our support at{" "}
-                <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> and
-                Whop&rsquo;s processes. Nothing in these Terms limits any
-                refund or withdrawal rights you have under mandatory consumer
-                law. Note that Whop may issue a refund within 60 days of a
-                purchase where needed to resolve a dispute.
+                <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
+                Nothing in these Terms limits any refund or withdrawal rights
+                you have under mandatory consumer law.
               </p>
               <p>
                 <strong>Price changes.</strong> We may change plan pricing or
