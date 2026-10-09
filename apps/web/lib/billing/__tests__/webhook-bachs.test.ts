@@ -17,6 +17,26 @@ vi.mock("@/lib/offers/conversions", () => ({
   recordOfferConversion: vi.fn(async () => null),
 }));
 
+const { mockGetBachsSubscription } = vi.hoisted(() => ({
+  mockGetBachsSubscription: vi.fn(async () => ({
+    id: "sub_1",
+    product: { id: "prod_monthly_bachs" },
+    items: [{ price: { product_id: "prod_monthly_bachs" } }],
+    current_period_start: "2026-10-01T00:00:00.000Z",
+    current_period_end: "2026-11-01T00:00:00.000Z",
+    customer: { customer_id: "cust_1" },
+  })),
+}));
+
+vi.mock("@/lib/billing/bachs-client", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/billing/bachs-client")>();
+  return {
+    ...actual,
+    getBachsSubscription: (id: string) => mockGetBachsSubscription(id),
+  };
+});
+
 import { POST } from "@/app/api/webhooks/bachs/route";
 
 const SECRET = "whsec_bachs_test_secret_0123456789";
@@ -105,6 +125,32 @@ function invoicePaidEvent() {
       period_start: "2026-10-01T00:00:00.000Z",
       period_end: "2026-11-01T00:00:00.000Z",
       metadata: { user_id: "user-1", plan_id: "plan-monthly" },
+    },
+  };
+}
+
+// The real invoice.paid payload: ids are bare top-level fields, there is
+// no product id anywhere, and checkout metadata is not copied over.
+function invoicePaidEventBare() {
+  return {
+    id: "evt_4",
+    type: "invoice.paid",
+    created_at: "2026-10-08T00:00:00.000Z",
+    data: {
+      invoice_id: "inv_bare1",
+      subscription_id: "sub_1",
+      customer_id: "cust_1",
+      customer_email: "u@example.com",
+      charge_id: "ch_sub1",
+      status: "paid",
+      currency: "USD",
+      total: "30.00",
+      amount_paid: "30.00",
+      period_start: "2026-10-01T00:00:00.000Z",
+      period_end: "2026-11-01T00:00:00.000Z",
+      lines: [
+        { description: "Subscription renewal (month)", amount: "30.00" },
+      ],
     },
   };
 }
@@ -244,6 +290,23 @@ describe("bachs webhook route", () => {
     expect(res.status).toBe(200);
     expect(fake.table("credit_ledger")).toHaveLength(1);
     expect(fake.table("subscriptions")).toHaveLength(1);
+  });
+
+  it("invoice.paid racing ahead of subscription.created resolves the plan via the API", async () => {
+    // Production ordering: invoice.paid is processed before the local
+    // subscription row commits, and the invoice itself has no product id.
+    const invBody = JSON.stringify(invoicePaidEventBare());
+    const res = await post(invBody, sign(invBody, now()));
+    expect(res.status).toBe(200);
+
+    expect(mockGetBachsSubscription).toHaveBeenCalledWith("sub_1");
+    expect(fake.table("subscriptions")).toHaveLength(1);
+    expect(fake.table("subscriptions")[0].plan_id).toBe("plan-monthly");
+
+    const entries = fake.table("credit_ledger");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].amount).toBe(5000);
+    expect(fake.table("invoices")[0].bachs_charge_id).toBe("ch_sub1");
   });
 
   it("duplicate invoice.paid deliveries do not double-grant", async () => {

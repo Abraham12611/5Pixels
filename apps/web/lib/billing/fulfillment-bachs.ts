@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import {
   bachsPlanKeyForProductId,
   decimalToCents,
+  getBachsSubscription,
 } from "./bachs-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
@@ -84,13 +85,18 @@ export interface BachsSubscriptionObject {
 
 export interface BachsInvoiceObject {
   invoice_id?: string;
+  id?: string;
   subscription?: { subscription_id?: string | null } | string | null;
+  subscription_id?: string | null;
   customer?: {
     customer_id?: string | null;
     email?: string | null;
     name?: string | null;
   } | null;
+  customer_id?: string | null;
+  customer_email?: string | null;
   charge?: string | { id?: string | null } | null;
+  charge_id?: string | null;
   status?: string;
   currency?: string;
   total?: string;
@@ -426,6 +432,34 @@ async function upsertSubscription(
     .single();
 
   if (error || !data) {
+    // Concurrent webhook deliveries (subscription.created + updated +
+    // invoice.paid arrive together) can all miss the existence check and
+    // race the insert — the unique index on bachs_subscription_id makes
+    // all but one lose. Re-read the winner and update it instead.
+    const raced = await findSubscriptionByBachsId(info.subscriptionId);
+    if (raced) {
+      const { error: updateError } = await service
+        .from("subscriptions")
+        .update({
+          user_id: userId,
+          plan_id: planId ?? undefined,
+          status,
+          current_period_start: info.currentPeriodStart,
+          current_period_end: info.currentPeriodEnd,
+          cancel_at_period_end: info.cancelAtPeriodEnd,
+          trial: info.isTrial,
+          ended_at: info.endedAt,
+          bachs_customer_id: bachsCustomerId || undefined,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", raced.id);
+      if (updateError) {
+        throw new Error(
+          `Failed to update raced subscription: ${updateError.message}`
+        );
+      }
+      return { id: raced.id, isNew: false };
+    }
     throw new Error(
       `Failed to insert subscription: ${error?.message ?? "unknown"}`
     );
@@ -930,22 +964,27 @@ export async function fulfillBachsSubscriptionEvent(
 export async function fulfillBachsInvoicePaid(
   invoice: BachsInvoiceObject
 ): Promise<void> {
-  console.log(`[fulfillBachsInvoicePaid] invoice ${invoice.invoice_id}`);
+  const invoiceId = invoice.invoice_id ?? invoice.id ?? null;
+  console.log(`[fulfillBachsInvoicePaid] invoice ${invoiceId}`);
 
-  const subscriptionId = nestedId(invoice.subscription, "subscription_id");
+  const subscriptionId =
+    nestedId(invoice.subscription, "subscription_id") ??
+    invoice.subscription_id ??
+    "";
   if (!subscriptionId) {
     console.error(
-      `[fulfillBachsInvoicePaid] invoice ${invoice.invoice_id} has no subscription`
+      `[fulfillBachsInvoicePaid] invoice ${invoiceId} has no subscription`
     );
     return;
   }
 
-  const bachsCustomerId = customerId(invoice.customer);
+  const bachsCustomerId =
+    customerId(invoice.customer) ?? invoice.customer_id ?? null;
   const metadata = invoice.metadata ?? {};
 
   let mapping = await resolveUser(
     bachsCustomerId,
-    customerEmail(invoice.customer),
+    customerEmail(invoice.customer) ?? invoice.customer_email ?? null,
     metadata
   );
   if (!mapping) {
@@ -967,16 +1006,47 @@ export async function fulfillBachsInvoicePaid(
   }
   if (bachsCustomerId) await recordCustomer(mapping.userId, bachsCustomerId);
 
-  const chargeId = nestedId(invoice.charge, "charge_id");
+  const chargeId =
+    nestedId(invoice.charge, "charge_id") ?? invoice.charge_id ?? null;
 
   // Subscription fields may be absent on renewal invoices — prefer the
   // local row for period dates/product, falling back to the event.
   const local = await findSubscriptionByBachsId(subscriptionId);
   const localPlan = local?.planId ? await getPlanById(local.planId) : null;
 
+  // Ordering race: invoice.paid is processed concurrently with
+  // customer.subscription.created, so the local row may not be committed
+  // yet — and the invoice object itself carries no product id. Fetch the
+  // subscription from the Bachs API to resolve the product deterministically.
+  let remoteProductId: string | null = null;
+  if (!local) {
+    try {
+      const remote = await getBachsSubscription(subscriptionId);
+      remoteProductId =
+        nestedId(remote.product, "id") ??
+        nestedId(
+          (remote.items as { price?: unknown }[] | undefined)?.[0]?.price,
+          "product_id"
+        );
+      // The remote payload also carries customer/period fields the event
+      // may omit — fill gaps, never overwrite the event's own values.
+      invoice.period_start ??= remote.current_period_start as
+        | string
+        | undefined;
+      invoice.period_end ??= remote.current_period_end as
+        | string
+        | undefined;
+    } catch (err) {
+      console.error(
+        `[fulfillBachsInvoicePaid] subscription fetch failed for ${subscriptionId}:`,
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+
   const info: SubscriptionInfo = {
     subscriptionId,
-    productId: localPlan?.bachs_product_id ?? "",
+    productId: localPlan?.bachs_product_id ?? remoteProductId ?? "",
     currentPeriodStart:
       invoice.period_start ?? local?.currentPeriodStart ?? new Date().toISOString(),
     currentPeriodEnd:
@@ -993,7 +1063,7 @@ export async function fulfillBachsInvoicePaid(
   await fulfillSubscriptionCharge({
     mapping,
     info,
-    bachsInvoiceId: invoice.invoice_id ?? null,
+    bachsInvoiceId: invoiceId,
     chargeId,
     amountCents: decimalToCents(invoice.amount_paid ?? invoice.total),
     currency: info.currency,
