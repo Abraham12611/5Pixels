@@ -77,7 +77,13 @@ function renderWorkspace() {
       models={[MODEL]}
       defaultEndpointId={MODEL.endpointId}
       initialBalance={500}
-      markup={1.5}
+      pricing={{
+        [MODEL.endpointId]: {
+          pricing_type: "flat_per_request",
+          unit_price: 0.08,
+        },
+      }}
+      slackFactor={1.15}
       recipe={null}
     />
   );

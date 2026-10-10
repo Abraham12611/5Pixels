@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
 const getUser = vi.fn();
-const selectMaybeSingle = vi.fn();
 const canPurchaseWeeklyPass = vi.fn();
 const hasEverPaid = vi.fn();
 const getPlansForPurchase = vi.fn();
@@ -24,14 +23,22 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: vi.fn(() => ({
     from: (table: string) => {
-      expect(table).toBe("product_versions");
+      expect(table).toBe("provider_pricing_snapshots");
       return {
         select: () => ({
-          eq: () => ({
+          gt: () => ({
             order: () => ({
-              limit: () => ({
-                maybeSingle: selectMaybeSingle,
-              }),
+              limit: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      payload: {
+                        pricing_type: "flat_per_request",
+                        unit_price: 0.08,
+                      },
+                    },
+                  ],
+                }),
             }),
           }),
         }),
@@ -106,7 +113,7 @@ describe("WeeklyPassPage", () => {
       weeklyPlus,
       weeklyStarter,
     ]);
-    selectMaybeSingle.mockResolvedValue({ data: { credit_cost: 5 } });
+
     canPurchaseWeeklyPass.mockResolvedValue({ allowed: true, reason: "" });
     hasEverPaid.mockResolvedValue(false);
   });

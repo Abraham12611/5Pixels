@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Check, Sparkle } from "@phosphor-icons/react/dist/ssr";
 import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import {
   canPurchaseWeeklyPass,
@@ -43,15 +43,7 @@ export default async function WeeklyPassPage() {
     .sort((a, b) => a.price_cents - b.price_cents);
   if (weekly.length === 0) redirect("/pricing");
 
-  const service = createServiceClient();
-  const { data: cheapest } = await service
-    .from("product_versions")
-    .select("credit_cost")
-    .eq("state", "active")
-    .order("credit_cost", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  const creditsPerTransformation = await getCheapestGenerationCredits();
 
   const cheapestPlan = weekly[0];
   const pastBuyer = Boolean(user && everPaid);
@@ -94,9 +86,13 @@ export default async function WeeklyPassPage() {
           </p>
           <ul className="mx-auto mt-5 max-w-sm space-y-3">
             {[
-              `≈ up to ${Math.floor(
-                cheapestPlan.credits_grant / creditsPerTransformation
-              ).toLocaleString()} transformations on the Starter pass`,
+              ...(creditsPerTransformation
+                ? [
+                    `≈ up to ${Math.floor(
+                      cheapestPlan.credits_grant / creditsPerTransformation
+                    ).toLocaleString()} transformations on the Starter pass`,
+                  ]
+                : []),
               "Every Filter and Poster in the catalog",
               "HD downloads included",
               "Credits land instantly — and the pass never renews",
@@ -154,11 +150,13 @@ export default async function WeeklyPassPage() {
                     : "text-text-secondary"
                 }`}
               >
-                {plan.credits_grant.toLocaleString()} credits · ≈ up to{" "}
-                {Math.floor(
-                  plan.credits_grant / creditsPerTransformation
-                ).toLocaleString()}{" "}
-                transformations · one week
+                {plan.credits_grant.toLocaleString()} credits
+                {creditsPerTransformation
+                  ? ` · ≈ up to ${Math.floor(
+                      plan.credits_grant / creditsPerTransformation
+                    ).toLocaleString()} transformations`
+                  : ""}{" "}
+                · one week
               </p>
               <div className="mt-4 flex items-center justify-between gap-3">
                 <p

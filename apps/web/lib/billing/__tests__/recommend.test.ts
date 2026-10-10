@@ -7,15 +7,15 @@ import {
 } from "../recommend";
 
 const PLANS: FinderPlan[] = [
-  { id: "c", name: "Creator", creditsGrant: 2000, priceCents: 2000, markupMultiplier: 3 },
-  { id: "p", name: "Pro", creditsGrant: 3000, priceCents: 3000, markupMultiplier: 2.5 },
-  { id: "s", name: "Studio", creditsGrant: 5500, priceCents: 5000, markupMultiplier: 2 },
-  { id: "a", name: "Agency", creditsGrant: 12000, priceCents: 10000, markupMultiplier: 1.7 },
+  { id: "c", name: "Creator", creditsGrant: 6000, priceCents: 2000 },
+  { id: "p", name: "Pro", creditsGrant: 12000, priceCents: 3000 },
+  { id: "s", name: "Studio", creditsGrant: 30000, priceCents: 5000 },
+  { id: "a", name: "Agency", creditsGrant: 60000, priceCents: 10000 },
 ];
 
 describe("estimateMonthlyCredits", () => {
-  it("estimates ~3 credits per transformation", () => {
-    expect(estimateMonthlyCredits(50)).toBe(150);
+  it("estimates ~60 credits per transformation", () => {
+    expect(estimateMonthlyCredits(50)).toBe(3000);
     expect(estimateMonthlyCredits(0)).toBe(0);
     expect(estimateMonthlyCredits(-10)).toBe(0);
   });
@@ -30,26 +30,26 @@ describe("recommendPlan", () => {
 
   it("picks the smallest covering plan", () => {
     const plan = recommendPlan(
-      { contentTypes: ["social"], perMonth: 500, priority: null },
+      { contentTypes: ["social"], perMonth: 50, priority: null },
       PLANS
     );
-    expect(plan?.name).toBe("Creator"); // 1500 × 1.15 = 1725 < 2000
+    expect(plan?.name).toBe("Creator"); // 3000 × 1.15 = 3450 < 6000
   });
 
   it("scales up with usage", () => {
     const plan = recommendPlan(
-      { contentTypes: ["social"], perMonth: 900, priority: null },
+      { contentTypes: ["social"], perMonth: 200, priority: null },
       PLANS
     );
-    expect(plan?.name).toBe("Studio"); // 2700 × 1.15 = 3105 > Pro's 3000
+    expect(plan?.name).toBe("Studio"); // 12000 × 1.15 = 13800 > Pro's 12000
   });
 
   it("adds headroom for volume priority", () => {
     const plan = recommendPlan(
-      { contentTypes: ["social"], perMonth: 600, priority: "volume" },
+      { contentTypes: ["social"], perMonth: 120, priority: "volume" },
       PLANS
     );
-    expect(plan?.name).toBe("Pro"); // 1800 × 1.5 = 2700 → Pro
+    expect(plan?.name).toBe("Pro"); // 7200 × 1.5 = 10800 → Pro
   });
 
   it("caps at the largest plan", () => {

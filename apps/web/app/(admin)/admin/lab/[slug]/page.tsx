@@ -7,6 +7,9 @@ import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { getProviderEndpoint } from "@/lib/ai/provider-routing";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getFreshSnapshot } from "@/lib/pricing/snapshots";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
+import type { SnapshotPayload } from "@/lib/pricing/types";
 import { LabWorkspace } from "@/components/admin/lab-workspace";
 import type { ProviderStrategy } from "@/lib/ai/provider-routing";
 
@@ -15,28 +18,32 @@ export default async function AdminTestLabDetailPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  const { supabase, user } = await requireAdmin();
+  await requireAdmin();
   const { slug } = await params;
 
   const product = await getAdminProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, catalog, markupResult] = await Promise.all([
+  const [balance, catalog, policy] = await Promise.all([
     getUserCreditBalance(),
     getProviderModelCatalog(),
-    supabase.rpc("get_user_markup_multiplier", { p_user_id: user.id }),
+    getActivePricingPolicy(createServiceClient()),
   ]);
 
   // The preset's configured primary endpoint is pre-checked in the picker, and
   // its private recipe is shown (admin-only) so tests can override it.
   let defaultEndpointId: string | null = null;
-  let recipe: { instruction: string; negative: string | null } | null = null;
+  let recipe: {
+    instruction: string;
+    negative: string | null;
+    modelConfig: Record<string, unknown>;
+  } | null = null;
   if (product.version_id) {
     const service = createServiceClient();
     const { data: version } = await service
       .from("product_versions")
       .select(
-        "provider_strategy, private_instruction_template, private_negative_instruction"
+        "provider_strategy, private_instruction_template, private_negative_instruction, model_config"
       )
       .eq("id", product.version_id)
       .single();
@@ -47,13 +54,28 @@ export default async function AdminTestLabDetailPage({
         (version?.private_instruction_template as string | null) ?? "",
       negative:
         (version?.private_negative_instruction as string | null) ?? null,
+      modelConfig: (version?.model_config ?? {}) as Record<string, unknown>,
     };
   }
 
   // Presets transform a source photo — only image-to-image endpoints can run.
   const i2iModels = catalog.filter((m) => m.category === "image-to-image");
-  const markup =
-    typeof markupResult.data === "number" ? markupResult.data : Number(markupResult.data) || 1;
+
+  // Fresh pricing payloads per endpoint so the picker can show real
+  // quote-based estimates. Endpoints without a fresh snapshot are simply
+  // absent from the map — the workspace marks them unpriced (runs still
+  // fail closed server-side if selected).
+  const service = createServiceClient();
+  const pricingEntries = await Promise.all(
+    i2iModels.map(async (m) => {
+      const snap = await getFreshSnapshot(service, m.provider, m.endpointId);
+      return [m.endpointId, snap?.payload ?? null] as const;
+    })
+  );
+  const pricing: Record<string, SnapshotPayload> = {};
+  for (const [endpointId, payload] of pricingEntries) {
+    if (payload) pricing[endpointId] = payload;
+  }
 
   return (
     <>
@@ -93,7 +115,8 @@ export default async function AdminTestLabDetailPage({
         models={i2iModels}
         defaultEndpointId={defaultEndpointId}
         initialBalance={balance}
-        markup={markup}
+        pricing={pricing}
+        slackFactor={policy?.quoteMaxSlackFactor ?? 1.15}
         recipe={recipe}
       />
     </>

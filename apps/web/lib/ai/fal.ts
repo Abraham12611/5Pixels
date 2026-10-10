@@ -9,6 +9,7 @@ import {
   type ProviderSubmitResult,
   type ProviderJobStatus,
 } from "./adapter";
+import { falResolutionTier } from "../pricing/resolution-tiers";
 
 const ENDPOINT_PREFIX = "fal-ai/";
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
@@ -93,11 +94,8 @@ function nearestAspectRatio(width: number, height: number): string {
 // Resolution tiers shared by nano-banana-2/pro (1K is also valid on -pro,
 // which lacks 0.5K). Round up so the delivered pixels meet the requested
 // size; extra fields are ignored by endpoints that don't support them.
-function nanoResolutionTier(pixels: number): string {
-  if (pixels <= 1_100_000) return "1K";
-  if (pixels <= 4_500_000) return "2K";
-  return "4K";
-}
+// The map lives in lib/pricing/resolution-tiers.ts so the billed tier is
+// always the tier the quote priced.
 
 function isAllowedImageHost(url: URL): boolean {
   if (url.protocol !== "https:") return false;
@@ -131,7 +129,10 @@ export function createFalAdapter(): ImageProviderAdapter {
   const queue = client.queue as unknown as {
     submit(
       endpointId: string,
-      options: { input?: Record<string, unknown> }
+      options: {
+        input?: Record<string, unknown>;
+        headers?: Record<string, string>;
+      }
     ): Promise<InQueueQueueStatus>;
     status(
       endpointId: string,
@@ -170,11 +171,28 @@ export function createFalAdapter(): ImageProviderAdapter {
 
       const merged = { ...input.modelConfig, ...body };
 
+      // Supported pricing quotes exactly one output per request
+      // (flat_per_request / per_megapixel / resolution_tier). A
+      // model_config asking for N images would bill ~N× what was quoted,
+      // so unlike other config values these do NOT get to win — they are
+      // pinned server-side.
+      merged.num_images = 1;
+      // The nano-banana/gemini family exposes a second quantity control:
+      // `limit_generations` forces a single generation output. Pinning it
+      // only on those routes — other families don't expose the flag and
+      // fal rejects unknown params on strict schemas.
+      if (/^fal-ai\/(nano-banana|gemini-)/.test(input.endpoint)) {
+        merged.limit_generations = true;
+      }
+
       // Endpoints disagree on size fields: flux/gpt-image/qwen honor
       // `image_size` {width,height}, while nano-banana models ignore it and
       // only read `aspect_ratio` + `resolution`. Translate so the chosen size
-      // reaches every endpoint; unknown fields are ignored elsewhere. An
-      // explicit model_config value always wins.
+      // reaches every endpoint; unknown fields are ignored elsewhere.
+      // `aspect_ratio` lets an explicit model_config value win, but
+      // `resolution` is hard-pinned to the output dims: the quote priced the
+      // tier derived from these pixels, so a model_config asking for a higher
+      // tier would bill above the reservation.
       const size = merged.image_size;
       if (size !== null && typeof size === "object") {
         const { width: w, height: h } = size as Record<string, unknown>;
@@ -185,13 +203,19 @@ export function createFalAdapter(): ImageProviderAdapter {
           h > 0
         ) {
           merged.aspect_ratio ??= nearestAspectRatio(w, h);
-          merged.resolution ??= nanoResolutionTier(w * h);
+          merged.resolution = falResolutionTier(w * h);
         }
       }
 
       try {
         const result = await queue.submit(input.endpoint, {
           input: merged,
+          // Fal auto-fallback reroutes to an "equivalent" endpoint when the
+          // requested one is unavailable — that reroute would run OUTSIDE the
+          // quoted financial envelope (a fallback endpoint's price is not the
+          // primary's). Failover belongs to 5Pixels, where it is quoted and
+          // pinned. https://fal.ai/docs/documentation/model-apis/common-parameters
+          headers: { "x-app-fal-disable-fallback": "true" },
         });
 
         if (!result || typeof result.request_id !== "string") {

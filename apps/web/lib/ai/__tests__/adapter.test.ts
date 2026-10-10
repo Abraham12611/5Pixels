@@ -108,6 +108,15 @@ describe("createFalAdapter submit", () => {
     expect(body.image_urls).toEqual([baseInput.sourceImageUrl]);
   });
 
+  it("disables fal's internal fallback — rerouting is ours, priced", async () => {
+    const provider = createFalAdapter();
+    await provider.submit(baseInput);
+    const options = queueStub.submit.mock.calls.at(-1)?.[1] as {
+      headers?: Record<string, string>;
+    };
+    expect(options.headers?.["x-app-fal-disable-fallback"]).toBe("true");
+  });
+
   it("translates image_size into aspect_ratio + resolution for nano-banana", async () => {
     const provider = createFalAdapter();
     await provider.submit({
@@ -138,6 +147,45 @@ describe("createFalAdapter submit", () => {
       },
     });
     expect(lastSubmitBody().aspect_ratio).toBe("3:2");
+  });
+
+  it("pins num_images to 1 even when model_config asks for more", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { num_images: 4 },
+    });
+    expect(lastSubmitBody().num_images).toBe(1);
+  });
+
+  it("pins limit_generations on nano-banana routes — model_config cannot unset it", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { limit_generations: false },
+    });
+    expect(lastSubmitBody().limit_generations).toBe(true);
+  });
+
+  it("does not send limit_generations to non-nano/gemini endpoints", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      endpoint: "fal-ai/flux/dev/image-to-image",
+    });
+    expect(lastSubmitBody().limit_generations).toBeUndefined();
+  });
+
+  it("pins resolution to the quoted tier — model_config cannot upgrade it", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: {
+        image_size: { width: 1024, height: 1024 }, // 1K tier
+        resolution: "4K", // would bill 2× the quote
+      },
+    });
+    expect(lastSubmitBody().resolution).toBe("1K");
   });
 
   it("appends preset reference images after the source in image_urls", async () => {

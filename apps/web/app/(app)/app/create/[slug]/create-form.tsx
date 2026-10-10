@@ -81,7 +81,7 @@ interface CreateGenerationFormProps {
   /** Credit packs + translation basis for the in-place top-up. */
   topUp: {
     packs: CreditPack[];
-    creditsPerTransformation: number;
+    creditsPerTransformation: number | null;
   } | null;
   /** The signed-in user's human referral code — drives /r/<code> share links. */
   referralCode?: string;
@@ -199,6 +199,7 @@ export function CreateGenerationForm({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
   const [authGateOpen, setAuthGateOpen] = useState(false);
+  const [pricingUnavailable, setPricingUnavailable] = useState(false);
 
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -206,7 +207,7 @@ export function CreateGenerationForm({
     ? true
     : estimatedCost !== null && estimatedCost > 0
       ? initialBalance >= estimatedCost
-      : initialBalance >= product.credit_cost;
+      : true;
 
   const outputSizes = useMemo(
     () =>
@@ -375,7 +376,7 @@ export function CreateGenerationForm({
         selectedSize.match_source && sourceDims
           ? { ...selectedSize, ...sourceDims }
           : selectedSize;
-      const { estimatedCredits, providerEndpoint } =
+      const { estimatedCredits, unavailable } =
         await estimateGenerationCost({
           productVersionId: product.version_id,
           outputSize: estimateSize,
@@ -383,13 +384,11 @@ export function CreateGenerationForm({
 
       if (cancelled) return;
 
-      if (providerEndpoint === null) {
-        setEstimatedCost(product.credit_cost);
-        return;
-      }
-
+      // Fail-closed: no verified price means no generation. The static
+      // product credit_cost is no longer a valid price hint.
+      setPricingUnavailable(unavailable);
       setEstimatedCost(
-        estimatedCredits > 0 ? estimatedCredits : product.credit_cost
+        !unavailable && estimatedCredits > 0 ? estimatedCredits : null
       );
     }
 
@@ -397,7 +396,7 @@ export function CreateGenerationForm({
     return () => {
       cancelled = true;
     };
-  }, [product.version_id, product.credit_cost, selectedSize, sourceDims]);
+  }, [product.version_id, selectedSize, sourceDims]);
 
   const handleFileSelected = useCallback((selected: File | null) => {
     setError("");
@@ -493,7 +492,7 @@ export function CreateGenerationForm({
       // storage unavailable — treat as not skipped
     }
 
-    const cost = estimatedCost ?? product.credit_cost;
+    const cost = estimatedCost ?? 0;
     if (
       shouldConfirmCost({
         cost,
@@ -592,12 +591,19 @@ export function CreateGenerationForm({
     }
   };
 
-  const displayCost = estimatedCost ?? product.credit_cost;
+  const displayCost = estimatedCost;
   const stepIndex = submitStepIndex(progress);
   const creditUnit = displayCost === 1 ? "credit" : "credits";
-  const generateLabel = `Generate · ${displayCost} ${creditUnit}`;
+  const generateLabel =
+    displayCost !== null
+      ? `Generate · ${displayCost} ${creditUnit}`
+      : "Generate";
   const generateDisabled =
-    loading || !hasSource || generationPaused || !online;
+    loading ||
+    !hasSource ||
+    generationPaused ||
+    !online ||
+    pricingUnavailable;
   // Every disabled state names its blocker; while submitting, the reason
   // line doubles as honest progress.
   const disabledReason = loading
@@ -608,7 +614,9 @@ export function CreateGenerationForm({
         ? "Generation is paused — try again shortly"
         : !online
           ? "You're offline — reconnect to generate"
-          : undefined;
+          : pricingUnavailable
+            ? "Temporarily unavailable — pricing refresh in progress"
+            : undefined;
 
   const submitError = error ? (
     <div className="bg-error/10 text-error mb-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs">
@@ -844,7 +852,7 @@ export function CreateGenerationForm({
       <CreditConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        cost={displayCost}
+        cost={displayCost ?? 0}
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
@@ -855,7 +863,7 @@ export function CreateGenerationForm({
           segment={blocked.segment}
           offer={offer}
           plans={plans}
-          required={displayCost}
+          required={displayCost ?? 0}
           balance={initialBalance}
           presetName={product.name}
           presetThumbUrl={presetThumb}

@@ -76,6 +76,7 @@ const topUp = {
     },
   ],
   creditsPerTransformation: 5,
+  creditsPerDollar: 606,
 };
 
 function renderSurface(segment: BlockedSegment, extra = {}) {

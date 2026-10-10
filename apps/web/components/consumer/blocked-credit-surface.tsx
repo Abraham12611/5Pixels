@@ -28,7 +28,7 @@ import type { BlockedSegment, ResumePlan } from "@/lib/billing/segments";
 
 interface TopUpInfo {
   packs: CreditPack[];
-  creditsPerTransformation: number;
+  creditsPerTransformation: number | null;
 }
 
 type View = "main" | "topup" | "offer";
@@ -744,7 +744,7 @@ export function BlockedCreditSurface({
       <div>
         <h2 className="text-cream-50 text-lg font-semibold">Buy credits</h2>
         <p className="text-text-secondary mt-1 text-sm">
-          One-time — 1 credit for every $0.01, never expire.
+          One-time packs — credits never expire.
         </p>
       </div>
       {topUp ? (

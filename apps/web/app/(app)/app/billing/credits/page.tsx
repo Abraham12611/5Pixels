@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCreditActivity, getCreditPeriodSummary } from "@/lib/db/billing";
 import { getActivePlan } from "@/lib/billing/entitlements";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getMyProfile } from "@/lib/profile/actions";
@@ -79,15 +80,9 @@ export default async function BillingCreditsPage() {
     activeSub.data?.cancel_at_period_end !== true;
 
   // Basis for the "≈ up to N transformations" line on every top-up option:
-  // the cheapest active transformation in the catalog.
-  const { data: cheapest } = await supabase
-    .from("product_versions")
-    .select("credit_cost")
-    .eq("state", "active")
-    .order("credit_cost", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const creditsPerTransformation = Number(cheapest?.credit_cost ?? 5) || 5;
+  // the cheapest currently-quotable generation (fresh pricing snapshots) —
+  // null when no endpoint is quotable, in which case the claim is omitted.
+  const creditsPerTransformation = await getCheapestGenerationCredits();
   const creditPacks = creditPackOptions(plans);
 
   const metrics = [
@@ -171,7 +166,7 @@ export default async function BillingCreditsPage() {
           <div id="buy" className="scroll-mt-24">
             <SettingCard
               title="Buy credits"
-              description="Pick a pack — 1 credit for every $0.01. Top-up credits never expire, and a failed transformation releases its credits back automatically."
+              description="Pick a pack — top-up credits never expire, and a failed transformation releases its credits back automatically."
             >
               <CreditTopUp
                 packs={creditPacks}

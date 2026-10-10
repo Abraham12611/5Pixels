@@ -10,6 +10,7 @@ import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
 import { getMyReferralCode } from "@/lib/referrals/rewards";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
 import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
 import { CreateGenerationForm } from "./create-form";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -31,7 +32,8 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, generationCount, plans, cheapest, referralCode] = await Promise.all([
+  const [balance, generationCount, plans, cheapest, referralCode] =
+    await Promise.all([
     user ? getUserCreditBalance() : Promise.resolve(0),
     user
       ? supabase
@@ -41,13 +43,7 @@ export default async function CreatePage({
           .then((r) => r.count ?? 0)
       : Promise.resolve(0),
     getPlansForPurchase(),
-    supabase
-      .from("product_versions")
-      .select("credit_cost")
-      .eq("state", "active")
-      .order("credit_cost", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
+    getCheapestGenerationCredits(),
     user ? getMyReferralCode() : Promise.resolve(null),
   ]);
 
@@ -70,8 +66,9 @@ export default async function CreatePage({
     creditPacks.length > 0
       ? {
           packs: creditPacks,
-          creditsPerTransformation:
-            Number(cheapest?.data?.credit_cost ?? 5) || 5,
+          // Cheapest currently-quotable generation; null omits the
+          // "≈ N transformations" claim rather than inventing a price.
+          creditsPerTransformation: cheapest,
         }
       : null;
 

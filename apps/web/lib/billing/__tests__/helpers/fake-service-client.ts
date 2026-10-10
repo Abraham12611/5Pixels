@@ -52,6 +52,10 @@ class FakeQuery {
           return actual != null && actual <= val;
         case "gte":
           return actual != null && actual >= val;
+        case "gt":
+          return actual != null && actual > val;
+        case "lt":
+          return actual != null && actual < val;
         default:
           throw new Error(`unsupported op ${op}`);
       }
@@ -91,6 +95,12 @@ class FakeQuery {
   }
   lte(col: string, val: any) {
     return this.compare("lte", col, val);
+  }
+  gt(col: string, val: any) {
+    return this.compare("gt", col, val);
+  }
+  lt(col: string, val: any) {
+    return this.compare("lt", col, val);
   }
   order(col: string, opts?: { ascending?: boolean }) {
     this.orderBy = { col, ascending: opts?.ascending !== false };
@@ -220,6 +230,8 @@ export class FakeServiceClient {
   db = new Map<string, Row[]>();
   /** storage.remove() calls recorded as `${bucket}:${key}` for assertions. */
   removedObjects: string[] = [];
+  /** Per-RPC handlers; unhandled RPCs resolve to { data: null }. */
+  rpcHandlers = new Map<string, (args: Row) => any>();
 
   seed(table: string, rows: Row[]) {
     this.db.set(table, rows);
@@ -231,6 +243,11 @@ export class FakeServiceClient {
 
   from(table: string) {
     return new FakeQuery(table, this.db) as any;
+  }
+
+  rpc(fn: string, args: Row) {
+    const handler = this.rpcHandlers.get(fn);
+    return Promise.resolve({ data: handler ? handler(args) : null, error: null });
   }
 
   storage = {

@@ -1,6 +1,8 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
+import { getActivePricingPolicy } from "@/lib/pricing/policy";
+import { topUpCreditsForCents } from "@/lib/pricing/types";
 import {
   creemPlanKeyForProductId,
   getCreemSubscription,
@@ -112,10 +114,27 @@ export interface CreemSubscriptionObject {
   created_at?: string;
 }
 
-function creditCostToCredits(plan: PlanRow, amountCents: number): number {
+async function creditCostToCredits(
+  plan: PlanRow,
+  amountCents: number,
+  service: ReturnType<typeof createServiceClient>,
+  pinnedCredits?: number | null
+): Promise<number> {
   if (plan.type === "extra_credit") {
-    // 1 credit = $0.01 of purchasing power.
-    return Math.max(0, Math.floor(amountCents));
+    // Fulfill the exact grant the checkout quoted — a purchase carries
+    // immutable economics; never reprice it against whatever policy is
+    // active when the webhook arrives.
+    if (pinnedCredits && Number.isInteger(pinnedCredits) && pinnedCredits > 0) {
+      return pinnedCredits;
+    }
+    // Legacy checkouts without a pinned grant fall back to the active policy.
+    const policy = await getActivePricingPolicy(service);
+    if (!policy) {
+      throw new Error(
+        "No active pricing policy — cannot compute top-up credit grant"
+      );
+    }
+    return topUpCreditsForCents(amountCents, policy);
   }
   return plan.credits_grant;
 }
@@ -500,10 +519,16 @@ async function ensureCreditsForBillingPeriod(
   creemSubscriptionId: string | undefined,
   invoiceId: string,
   idempotencyKey: string,
-  amountCents: number
+  amountCents: number,
+  pinnedCredits?: number | null
 ) {
   const service = createServiceClient();
-  const credits = creditCostToCredits(plan, amountCents);
+  const credits = await creditCostToCredits(
+    plan,
+    amountCents,
+    service,
+    pinnedCredits
+  );
 
   const { data: existing } = await service
     .from("credit_ledger")
@@ -851,7 +876,10 @@ export async function fulfillCreemCheckoutCompleted(
     undefined,
     invoiceId,
     `purchase:order:${order.id}`,
-    amountCents
+    amountCents,
+    // Grant the credits the checkout promised (pinned in checkout metadata),
+    // not a re-derivation under today's policy.
+    Number(metadata.credits) || null
   );
 
   const { error: linkError } = await service
