@@ -80,4 +80,19 @@ describe("reserve-until-authoritative-settlement migration", () => {
     expect(reserveSql).toContain("'provider_late'");
     expect(reserveSql).toContain("'provider_unquoted'");
   });
+
+  it("fallback settle is quote-gated and keeps rows discoverable", () => {
+    const settleBody = reserveSql.slice(
+      reserveSql.indexOf("FUNCTION public.settle_unbilled_generations")
+    );
+    // Customer settlement ≠ provider reconciliation: the fallback marks
+    // state only — billing_reconciled_at stays NULL so the late sweep can
+    // still discover a tardy fal event.
+    expect(settleBody).not.toContain("billing_reconciled_at = NOW()");
+    // Pre-#93 rows must never touch the new-denomination ledger.
+    expect(settleBody).toContain("IF v_gen.quote_id IS NOT NULL");
+    // Only unsettled rows are eligible — fallback_timeout rows must not
+    // be re-settled every run.
+    expect(settleBody).toContain("g.billing_reconcile_state IS NULL");
+  });
 });

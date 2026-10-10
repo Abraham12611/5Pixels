@@ -19,6 +19,7 @@ function completedGen(id: string, requestId: string | null, extra = {}) {
     created_at: OLDER,
     completed_at: OLD,
     billing_reconciled_at: null,
+    billing_reconcile_state: null,
     ...extra,
   };
 }
@@ -310,6 +311,69 @@ describe("runBillingReconciliation", () => {
         (a) => a.rule === "billing_reconcile_missing_events"
       )
     ).toBe(true);
+  });
+
+  it("late sweep still checks fallback_timeout rows so events self-correct", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [
+      completedGen("g-fb", "req-fb", {
+        billing_reconcile_state: "fallback_timeout",
+        completed_at: new Date(
+          Date.now() - 80 * 60 * 60 * 1000
+        ).toISOString(),
+      }),
+    ]);
+
+    const rpcCalls: Record<string, unknown>[] = [];
+    fake.rpcHandlers.set("reconcile_billing_event", (args) => {
+      rpcCalls.push(args);
+      return "settled";
+    });
+
+    const summary = await runBillingReconciliation(
+      fake as never,
+      stubFetch([eventFor("req-fb", 0.09)])
+    );
+
+    expect(summary.lateScanned).toBe(1);
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0]!.p_request_id).toBe("req-fb");
+  });
+
+  it("still runs the SLA fallback when the billing key is missing", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [completedGen("g1", "req-1")]);
+    delete process.env.FAL_KEY;
+
+    let settleCalls = 0;
+    fake.rpcHandlers.set("settle_unbilled_generations", () => {
+      settleCalls += 1;
+      return 1;
+    });
+
+    await expect(
+      runBillingReconciliation(fake as never, stubFetch([]))
+    ).rejects.toThrow(BillingReconcileFatal);
+
+    // The customer's reserve must release on the SLA even with fal dark.
+    expect(settleCalls).toBe(1);
+  });
+
+  it("still runs the SLA fallback when every fal fetch fails", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [completedGen("g1", "req-1")]);
+
+    let settleCalls = 0;
+    fake.rpcHandlers.set("settle_unbilled_generations", () => {
+      settleCalls += 1;
+      return 0;
+    });
+
+    await expect(
+      runBillingReconciliation(fake as never, failingFetch(500))
+    ).rejects.toThrow(BillingReconcileFatal);
+
+    expect(settleCalls).toBe(1);
   });
 
   it("warns about generations awaiting events past the alert age", async () => {

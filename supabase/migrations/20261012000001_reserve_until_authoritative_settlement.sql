@@ -505,8 +505,12 @@ GRANT EXECUTE ON FUNCTION public.reconcile_billing_event(
 -- A fal billing event that never arrives must not hold a customer's reserve
 -- forever or clog the oldest-first sweep. Past the deadline we settle at
 -- the provisional quote-math charge (already recorded on the generation),
--- release the remainder, and mark the row 'fallback_timeout'. If the event
--- ever shows up later it reconciles through the adjustment path above.
+-- release the remainder, and mark the row 'fallback_timeout'.
+--
+-- CUSTOMER settlement ≠ PROVIDER reconciliation: billing_reconciled_at is
+-- deliberately NOT set here. fallback_timeout rows move to the bounded late
+-- sweep, so a billing event that shows up afterwards still reconciles
+-- through the adjustment path above and flips the state to 'provider_late'.
 
 CREATE OR REPLACE FUNCTION public.settle_unbilled_generations(
   p_completed_before TIMESTAMPTZ,
@@ -528,28 +532,34 @@ BEGIN
     WHERE g.status = 'completed'
       AND g.provider_request_id IS NOT NULL
       AND g.billing_reconciled_at IS NULL
+      -- Only rows still awaiting ANY settlement: fallback_timeout rows are
+      -- already customer-settled and live in the late sweep instead.
+      AND g.billing_reconcile_state IS NULL
       AND g.completed_at < p_completed_before
     ORDER BY g.completed_at
     LIMIT p_limit
     FOR UPDATE OF g SKIP LOCKED
   LOOP
     -- Convert any still-open hold into the provisional debit; the remainder
-    -- releases implicitly. Unquoted/legacy rows have no hold to convert.
-    UPDATE public.credit_ledger
-    SET entry_type = 'debit',
-        amount = -COALESCE(v_gen.actual_credit_cost, v_gen.credit_cost),
-        metadata = metadata || jsonb_build_object(
-          'settled_at', NOW()::text,
-          'settlement_mode', 'fallback_timeout',
-          'reason', 'no_provider_billing_event'
-        )
-    WHERE user_id = v_gen.user_id
-      AND generation_id = v_gen.id
-      AND entry_type = 'reservation';
+    -- releases implicitly. Quote-gated like the event path: pre-#93 rows
+    -- carry the old credit denomination and must NEVER touch the new
+    -- ledger — they only get marked for the late/analytics sweep.
+    IF v_gen.quote_id IS NOT NULL THEN
+      UPDATE public.credit_ledger
+      SET entry_type = 'debit',
+          amount = -COALESCE(v_gen.actual_credit_cost, v_gen.credit_cost),
+          metadata = metadata || jsonb_build_object(
+            'settled_at', NOW()::text,
+            'settlement_mode', 'fallback_timeout',
+            'reason', 'no_provider_billing_event'
+          )
+      WHERE user_id = v_gen.user_id
+        AND generation_id = v_gen.id
+        AND entry_type = 'reservation';
+    END IF;
 
     UPDATE public.generations
-    SET billing_reconciled_at = NOW(),
-        billing_reconcile_state = 'fallback_timeout',
+    SET billing_reconcile_state = 'fallback_timeout',
         updated_at = NOW()
     WHERE id = v_gen.id;
 
