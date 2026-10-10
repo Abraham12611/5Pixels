@@ -13,6 +13,10 @@ import {
   getMyReferralCode,
   getReferralStats,
 } from "@/lib/referrals/rewards";
+import {
+  REFERRER_SIGNUP_BONUS,
+  REFEREE_SIGNUP_BONUS,
+} from "@/lib/referrals/reward-amounts";
 import { getSiteUrl } from "@/lib/auth/url";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -363,8 +367,8 @@ export default async function BillingPage() {
         <ReferralCard
           referralUrl={referralCode ? `${getSiteUrl()}/r/${referralCode}` : null}
           referralCode={referralCode}
-          refereeReward="25 credits + their first transformation, free"
-          referrerReward="50 credits + 30% of their first plan's credits"
+          refereeReward={`${REFEREE_SIGNUP_BONUS} credits + their first transformation, free`}
+          referrerReward={`${REFERRER_SIGNUP_BONUS} credits + 30% of their first plan's credits`}
           pendingCount={referralStats?.referredCount ?? 0}
         />
         {referralStats && referralStats.creditsEarned > 0 && (

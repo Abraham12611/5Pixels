@@ -25,8 +25,12 @@ function planBenefits(plan: PlanForPurchase, annual: boolean): string[] {
     "HD downloads",
     "Failed transformations release credits",
   ];
+  const creditsPerDollar =
+    plan.price_cents > 0
+      ? plan.credits_grant / (plan.price_cents / 100)
+      : 0;
   if (annual) benefits.push("Lower credit rate than monthly");
-  else if (plan.markup_multiplier <= 2.5)
+  else if (creditsPerDollar >= 400)
     benefits.push("More credits per dollar");
   return benefits.slice(0, 5);
 }
