@@ -172,10 +172,18 @@ export function createFalAdapter(): ImageProviderAdapter {
       const merged = { ...input.modelConfig, ...body };
 
       // Supported pricing quotes exactly one output per request
-      // (flat_per_request / per_megapixel). A model_config asking for
-      // N images would bill ~N× what was quoted, so unlike other config
-      // values this one does NOT get to win — it is pinned server-side.
+      // (flat_per_request / per_megapixel / resolution_tier). A
+      // model_config asking for N images would bill ~N× what was quoted,
+      // so unlike other config values these do NOT get to win — they are
+      // pinned server-side.
       merged.num_images = 1;
+      // The nano-banana/gemini family exposes a second quantity control:
+      // `limit_generations` forces a single generation output. Pinning it
+      // only on those routes — other families don't expose the flag and
+      // fal rejects unknown params on strict schemas.
+      if (/^fal-ai\/(nano-banana|gemini-)/.test(input.endpoint)) {
+        merged.limit_generations = true;
+      }
 
       // Endpoints disagree on size fields: flux/gpt-image/qwen honor
       // `image_size` {width,height}, while nano-banana models ignore it and

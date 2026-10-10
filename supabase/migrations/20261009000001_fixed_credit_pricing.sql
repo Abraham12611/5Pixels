@@ -184,14 +184,17 @@ WHERE provider = 'fal'
   AND source = 'seed-20261009000001';
 
 -- fal-ai/nano-banana/edit + fal-ai/gemini-25-flash-image/edit (same model,
--- verified against fal.ai model docs): a documented flat $0.039/image —
--- no resolution tiers or surcharged params on these endpoints.
+-- verified against fal.ai model docs): a flat per-image price with no
+-- resolution tiers or surcharged params. The model page advertises $0.039
+-- but also claims "25 runs per $1.00" (= $0.04 effective) and the pricing
+-- feed records $0.0398 — we pin the conservative $0.0398 until Billing
+-- Events settlement can reconcile the true billed amount.
 UPDATE public.provider_pricing_snapshots
 SET payload = jsonb_build_object(
   'pricing_type', 'flat_per_request',
   'currency', 'USD',
   'unit', 'images',
-  'unit_price', 0.039
+  'unit_price', 0.0398
 )
 WHERE provider = 'fal'
   AND endpoint_id IN (

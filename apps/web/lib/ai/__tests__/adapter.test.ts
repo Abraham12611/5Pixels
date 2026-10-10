@@ -158,6 +158,24 @@ describe("createFalAdapter submit", () => {
     expect(lastSubmitBody().num_images).toBe(1);
   });
 
+  it("pins limit_generations on nano-banana routes — model_config cannot unset it", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: { limit_generations: false },
+    });
+    expect(lastSubmitBody().limit_generations).toBe(true);
+  });
+
+  it("does not send limit_generations to non-nano/gemini endpoints", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      endpoint: "fal-ai/flux/dev/image-to-image",
+    });
+    expect(lastSubmitBody().limit_generations).toBeUndefined();
+  });
+
   it("pins resolution to the quoted tier — model_config cannot upgrade it", async () => {
     const provider = createFalAdapter();
     await provider.submit({
