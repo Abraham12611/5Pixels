@@ -5,7 +5,7 @@ import { SUPPORT_EMAIL } from "@/lib/constants";
 const FAQ_ITEMS: { q: string; a: ReactNode }[] = [
   {
     q: "How do credits work?",
-    a: "Every preset shows an exact credit cost before you generate. You spend that many credits per transformation — no hidden usage.",
+    a: "Credits are used when you create with AI. Different presets, resolutions, and quality settings can use different amounts — you'll always see the estimated credit cost before you generate.",
   },
   {
     q: "What happens if a generation fails?",
