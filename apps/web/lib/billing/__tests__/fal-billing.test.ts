@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeServiceClient } from "./helpers/fake-service-client";
 import {
+  BillingReconcileFatal,
   buildBillingEventsUrl,
   parseBillingEvents,
   runBillingReconciliation,
 } from "../fal-billing";
 
 const OLD = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2h ago
+const OLDER = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(); // 4h ago
 
 function completedGen(id: string, requestId: string | null, extra = {}) {
   return {
@@ -14,6 +16,7 @@ function completedGen(id: string, requestId: string | null, extra = {}) {
     provider_request_id: requestId,
     provider_endpoint: "fal-ai/nano-banana-2/edit",
     status: "completed",
+    created_at: OLDER,
     completed_at: OLD,
     billing_reconciled_at: null,
     ...extra,
@@ -32,6 +35,8 @@ function eventFor(requestId: string, costTotal = 0.08) {
     cost_subtotal: 0.08,
     cost_discount: 0,
     cost_total: costTotal,
+    // Provider fields we don't normalize must survive into `raw`.
+    cost_estimate_nano_usd: 45678901,
   };
 }
 
@@ -39,6 +44,14 @@ function stubFetch(events: unknown[]) {
   return vi.fn(async () => ({
     ok: true,
     json: async () => ({ billing_events: events }),
+  })) as unknown as typeof fetch;
+}
+
+function failingFetch(status: number) {
+  return vi.fn(async () => ({
+    ok: false,
+    status,
+    text: async () => "boom",
   })) as unknown as typeof fetch;
 }
 
@@ -66,6 +79,7 @@ describe("parseBillingEvents", () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.cost_total).toBe(0.045);
     expect(events[0]!.request_id).toBe("r1");
+    expect(events[0]!.raw).toMatchObject({ cost_estimate_nano_usd: 45678901 });
   });
 
   it("drops events without a request_id or a valid cost_total", () => {
@@ -113,6 +127,34 @@ describe("runBillingReconciliation", () => {
     expect(rpcCalls).toHaveLength(2);
     expect(rpcCalls[0]!.p_cost_total).toBe(0.08);
     expect(rpcCalls[0]!.p_provider).toBe("fal");
+    // Raw event JSON is preserved verbatim for the audit column.
+    expect(rpcCalls[0]!.p_raw).toMatchObject({
+      request_id: "req-1",
+      cost_estimate_nano_usd: 45678901,
+    });
+  });
+
+  it("anchors the fal start bound before provider execution, not completed_at", async () => {
+    const fake = new FakeServiceClient();
+    const createdAt = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const completedAt = new Date(createdAt.getTime() + 6 * 1000);
+    fake.seed("generations", [
+      completedGen("g1", "req-1", {
+        created_at: createdAt.toISOString(),
+        completed_at: completedAt.toISOString(),
+      }),
+    ]);
+
+    const fetchImpl = stubFetch([eventFor("req-1")]);
+    await runBillingReconciliation(fake as never, fetchImpl);
+
+    const calledUrl = (fetchImpl as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as string;
+    const start = new URL(calledUrl).searchParams.get("start")!;
+    // created_at - 1h safety buffer, guaranteed before fal ran the job.
+    expect(start).toBe(
+      new Date(createdAt.getTime() - 60 * 60 * 1000).toISOString()
+    );
   });
 
   it("skips generations already reconciled, still running, or too fresh", async () => {
@@ -135,19 +177,94 @@ describe("runBillingReconciliation", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("counts fetch failures as errors without sinking the batch", async () => {
+  it("fails loudly with a critical alert when every fetch fails", async () => {
     const fake = new FakeServiceClient();
     fake.seed("generations", [completedGen("g1", "req-1")]);
-    const fetchImpl = vi.fn(async () => ({
-      ok: false,
-      status: 500,
-      text: async () => "boom",
-    })) as unknown as typeof fetch;
+
+    await expect(
+      runBillingReconciliation(fake as never, failingFetch(500))
+    ).rejects.toThrow(BillingReconcileFatal);
+
+    const alerts = fake.table("admin_alerts");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      rule: "billing_reconcile_broken",
+      severity: "critical",
+    });
+  });
+
+  it("fails loudly with a critical alert on a 401/403 auth rejection", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [
+      completedGen("g1", "req-1"),
+      completedGen("g2", "req-2"),
+    ]);
+
+    await expect(
+      runBillingReconciliation(fake as never, failingFetch(403))
+    ).rejects.toThrow(BillingReconcileFatal);
+
+    const alerts = fake.table("admin_alerts");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      rule: "billing_reconcile_broken",
+      severity: "critical",
+    });
+    expect(alerts[0]!.details).toMatchObject({ status: 403 });
+  });
+
+  it("fails loudly when no billing key is configured", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [completedGen("g1", "req-1")]);
+    delete process.env.FAL_KEY;
+
+    await expect(
+      runBillingReconciliation(fake as never, stubFetch([eventFor("req-1")]))
+    ).rejects.toThrow(BillingReconcileFatal);
+
+    expect(fake.table("admin_alerts")[0]).toMatchObject({
+      rule: "billing_reconcile_broken",
+      severity: "critical",
+    });
+  });
+
+  it("continues on a partial fetch failure and raises a warning alert", async () => {
+    const fake = new FakeServiceClient();
+    // 51 candidates → 2 request_id batches; first fetch fails, second works.
+    const rows = Array.from({ length: 51 }, (_, i) =>
+      completedGen(`g${i}`, `req-${i}`, {
+        created_at: new Date(
+          Date.now() - (4 * 60 + i) * 60 * 1000
+        ).toISOString(),
+      })
+    );
+    fake.seed("generations", rows);
+
+    fake.rpcHandlers.set("reconcile_billing_event", () => "settled");
+
+    let call = 0;
+    const fetchImpl = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        return { ok: false, status: 500, text: async () => "boom" };
+      }
+      return {
+        ok: true,
+        json: async () => ({ billing_events: [eventFor("req-0")] }),
+      };
+    }) as unknown as typeof fetch;
 
     const summary = await runBillingReconciliation(fake as never, fetchImpl);
-    expect(summary.scanned).toBe(1);
-    expect(summary.errors).toBe(1);
-    expect(summary.settled).toBe(0);
+
+    expect(summary.scanned).toBe(51);
+    expect(summary.errors).toBe(50);
+    expect(summary.eventsFetched).toBe(1);
+    const alerts = fake.table("admin_alerts");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      rule: "billing_reconcile_partial",
+      severity: "warning",
+    });
   });
 
   it("counts unmatched + duplicate RPC results", async () => {
