@@ -96,22 +96,31 @@ describe("quoteFal adapter", () => {
       SLACK
     );
     if (q.kind === "unsafe") throw new Error(q.reason);
-    // 2048² = exactly 4 mebipixels (1 MP = 2^20 px).
-    expect(q.expectedCostUsd).toBeCloseTo(0.05 * 4);
-    expect(q.maximumCostUsd).toBeCloseTo(0.05 * 4 * 1.15);
+    // 2048² = 4.194304 decimal MP → billed as 5 (fal rounds UP).
+    expect(q.expectedCostUsd).toBeCloseTo(0.05 * 5);
+    expect(q.maximumCostUsd).toBeCloseTo(0.05 * 5 * 1.15);
   });
 
-  it("bills whole megapixels rounded UP — fal's documented rounding", () => {
-    // 1024² = exactly 1 MP; fal's own example prices it at 1 MP, not 1.049.
+  it("bills whole DECIMAL megapixels rounded UP — fal's documented rule", () => {
+    // fal's own example: 3840×2160 = 8.29 MP → billed as 9.
+    const fourK = quoteFal(
+      { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
+      { width: 3840, height: 2160 },
+      SLACK
+    );
+    if (fourK.kind === "unsafe") throw new Error(fourK.reason);
+    expect(fourK.expectedCostUsd).toBeCloseTo(0.45);
+
+    // 1024² = 1.048576 decimal MP → bills as 2, not 1.
     const oneK = quoteFal(
       { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
       { width: 1024, height: 1024 },
       SLACK
     );
     if (oneK.kind === "unsafe") throw new Error(oneK.reason);
-    expect(oneK.expectedCostUsd).toBeCloseTo(0.05);
+    expect(oneK.expectedCostUsd).toBeCloseTo(0.1);
 
-    // 1280×720 = 0.879 MP → rounds up to 1 MP.
+    // 1280×720 = 0.9216 MP → rounds up to 1.
     const sub = quoteFal(
       { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
       { width: 1280, height: 720 },
@@ -119,15 +128,6 @@ describe("quoteFal adapter", () => {
     );
     if (sub.kind === "unsafe") throw new Error(sub.reason);
     expect(sub.expectedCostUsd).toBeCloseTo(0.05);
-
-    // 1920×1080 = 1.977 MP → rounds up to 2 MP (fal's own example).
-    const fhd = quoteFal(
-      { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
-      { width: 1920, height: 1080 },
-      SLACK
-    );
-    if (fhd.kind === "unsafe") throw new Error(fhd.reason);
-    expect(fhd.expectedCostUsd).toBeCloseTo(0.1);
   });
 
   it.each([

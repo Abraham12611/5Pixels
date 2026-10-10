@@ -63,7 +63,10 @@ ON CONFLICT (version) DO NOTHING;
 -- runtime ceiling exists — quoting off a guessed cap would underbill
 -- silently on overruns. A coarse provider unit of 'images'/'generations'
 -- is likewise NOT proof of flatness (tiered models bill per resolution +
--- param surcharges), so it bootstraps as 'unsupported' too: an endpoint
+-- param surcharges), and a coarse 'megapixels' unit is NOT proof that the
+-- billed quantity is known before execution — upscalers bill
+-- source×scale_factor and klein-family edits bill input+output MP.
+-- Coarse feed units therefore ALL bootstrap as 'unsupported': an endpoint
 -- only becomes quotable through a verified structured definition below.
 -- Unsupported/missing/stale pricing disables the endpoint (fail closed).
 
@@ -97,16 +100,7 @@ SELECT DISTINCT ON (p.provider, p.endpoint_id)
   NOW(),
   NOW() + INTERVAL '14 days',
   jsonb_build_object(
-    'pricing_type', CASE
-      -- per-megapixel pricing is self-bounding: output dims are a bounded
-      -- server-controlled input and price scales linearly with them.
-      -- 'processed megapixels' is NOT mapped: that is Fal's input+output-MP
-      -- unit (flux-2-flex/pro edit). The input-image MP is not modeled, so
-      -- quoting it would underbill ~2× — it fails closed until input-MP
-      -- pricing is modeled.
-      WHEN p.unit IN ('megapixel', 'megapixels') THEN 'per_megapixel'
-      ELSE 'unsupported'
-    END,
+    'pricing_type', 'unsupported',
     'unit_price', p.unit_price,
     'unit', p.unit,
     'currency', p.currency
@@ -647,11 +641,10 @@ BEGIN
     IF v_pricing_type = 'flat_per_request' THEN
       v_actual_quantity := 1::NUMERIC(12,4);
     ELSIF v_pricing_type = 'per_megapixel' THEN
-      -- Fal bills whole mebipixels rounded UP (1 MP = 2^20 px = 1024×1024;
-      -- flux pages document "rounded to 1 megapixel" for a 512² output).
-      -- Mirrors lib/pricing/adapters/fal.ts quantity math.
+      -- Fal bills DECIMAL megapixels rounded UP (their docs: 3840×2160 =
+      -- 8.29 MP → billed as 9). Mirrors lib/pricing/adapters/fal.ts.
       v_actual_quantity := COALESCE(
-        CEIL(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1048576), 1);
+        CEIL(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1000000), 1);
     ELSIF v_pricing_type = 'resolution_tier' THEN
       -- The tier and param surcharges were pinned at quote time and the
       -- submit path pins `resolution` to that same tier, so the quoted
@@ -861,7 +854,7 @@ BEGIN
     -- "from ~N credits" label, not a quote).
     v_price := CASE v_payload->>'pricing_type'
       WHEN 'flat_per_request' THEN (v_payload->>'unit_price')::NUMERIC(12,8)
-      WHEN 'per_megapixel' THEN (v_payload->>'unit_price')::NUMERIC(12,8) * CEIL(v_min_px / 1048576)
+      WHEN 'per_megapixel' THEN (v_payload->>'unit_price')::NUMERIC(12,8) * CEIL(v_min_px / 1000000)
       WHEN 'resolution_tier' THEN
         CASE v_payload->>'tier_map'
           WHEN 'fal_resolution' THEN
