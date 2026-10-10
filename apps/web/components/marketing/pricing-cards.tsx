@@ -27,7 +27,7 @@ function planBenefits(plan: PlanForPurchase, annual: boolean): string[] {
   ];
   if (annual) benefits.push("Lower credit rate than monthly");
   else if (plan.markup_multiplier <= 2.5)
-    benefits.push("Lower credit cost per transformation");
+    benefits.push("More credits per dollar");
   return benefits.slice(0, 5);
 }
 

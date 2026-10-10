@@ -28,10 +28,10 @@ interface ComparisonSection {
   defaultOpen?: boolean;
 }
 
-function creditRateLabel(markup: number): string {
+function creditsPerDollarLabel(markup: number): string {
   if (markup >= 3.5) return "Standard";
-  if (markup >= 2.5) return "Reduced";
-  return "Lowest";
+  if (markup >= 2.5) return "Better";
+  return "Best";
 }
 
 function buildSections(monthlyPlans: PlanForPurchase[]): ComparisonSection[] {
@@ -62,10 +62,12 @@ function buildSections(monthlyPlans: PlanForPurchase[]): ComparisonSection[] {
           values: ["—", ...all(true).slice(1)],
         },
         {
-          label: "Credit cost per transformation",
+          label: "Credits per dollar",
           values: [
             "Standard",
-            ...monthlyPlans.map((p) => creditRateLabel(p.markup_multiplier)),
+            ...monthlyPlans.map((p) =>
+              creditsPerDollarLabel(p.markup_multiplier)
+            ),
           ],
         },
         {

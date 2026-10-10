@@ -26,7 +26,7 @@ export function estimateMonthlyCredits(perMonth: number): number {
 /**
  * Recommend the smallest monthly plan that covers estimated usage with
  * headroom. `volume` asks for extra headroom, `quality` prefers at least the
- * mid-tier (lower per-transformation credit cost), `flexibility` picks the
+ * mid-tier (more credits per dollar), `flexibility` picks the
  * smallest plan that still fits.
  */
 export function recommendPlan(
