@@ -799,6 +799,13 @@ HAVING SUM(amount) <> 0;
 -- Recompute it at the new denomination: smallest declared output size against
 -- the endpoint's fresh snapshot. Endpoints without quotable pricing are left
 -- at 0 so they don't advertise a wrong-scale number (fail-closed anyway).
+--
+-- credit_cost is guarded by prevent_active_version_recipe_update (recipe
+-- immutability); this redenomination is the one sanctioned update, so the
+-- trigger is disabled for the duration of the recompute and re-enabled
+-- immediately after.
+
+ALTER TABLE public.product_versions DISABLE TRIGGER prevent_active_version_recipe_update;
 
 DO $$
 DECLARE
@@ -880,3 +887,5 @@ BEGIN
     UPDATE public.product_versions SET credit_cost = v_credits WHERE id = v_ver.id;
   END LOOP;
 END $$;
+
+ALTER TABLE public.product_versions ENABLE TRIGGER prevent_active_version_recipe_update;

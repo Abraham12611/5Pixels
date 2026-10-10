@@ -18,6 +18,7 @@ import {
   recordOnboardingEvent,
 } from "@/lib/onboarding/actions";
 import { claimReferralCode } from "@/lib/referrals/actions";
+import { REFEREE_SIGNUP_BONUS } from "@/lib/referrals/reward-amounts";
 import { normalizeReferralCode } from "@/lib/referrals/codes";
 import { signOut } from "@/app/actions/auth";
 
@@ -530,8 +531,8 @@ export function OnboardingFlow({
                 </h2>
                 <p className="text-text-secondary mx-auto mt-2 max-w-xs text-sm leading-relaxed">
                   {codeState === "applied"
-                    ? "25 credits and a free first transformation — pick any look and it's on them."
-                    : "Claim your gift — 25 credits and your first transformation, on them."}
+                    ? `${REFEREE_SIGNUP_BONUS} credits and a free first transformation — pick any look and it's on them.`
+                    : `Claim your gift — ${REFEREE_SIGNUP_BONUS} credits and your first transformation, on them.`}
                 </p>
                 {codeState !== "applied" && (
                   <>
