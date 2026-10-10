@@ -12,6 +12,11 @@
 --                                   debited above what was reserved), suspend
 --                                   the endpoint, raise a critical alert.
 --   no matching generation        → 'unmatched' (event recorded for audit)
+--   generation without a #93 quote → 'settled_unquoted' (recorded for
+--                                   provider-cost analytics only — pre-#93
+--                                   rows use the old credit denomination and
+--                                   must NOT get new-denomination ledger
+--                                   adjustments)
 --
 -- The customer's FINAL debit is reconciled to the authoritative billed cost:
 --
@@ -179,9 +184,15 @@ BEGIN
   --   billed below estimate → negative delta → positive adjustment (refund)
   --   billed above estimate → positive delta → negative adjustment (charge,
   --                           still capped at the reservation)
-  -- Only applies when a provisional debit actually exists (completed gens);
+  -- Only fixed-credit (quoted) generations are reconciled: pre-#93 rows
+  -- carry the OLD credit denomination (deliberately reset to zero in
+  -- 20261009000001), so writing new-denomination adjustments against them
+  -- would corrupt balances. Unquoted rows are recorded for provider-cost
+  -- analytics only — no ledger write, no actual_credit_cost rewrite.
   -- idempotency_key makes a retried reconcile a no-op.
-  IF v_gen.status = 'completed' AND v_gen.actual_credit_cost IS NOT NULL THEN
+  IF v_gen.quote_id IS NOT NULL
+     AND v_gen.status = 'completed'
+     AND v_gen.actual_credit_cost IS NOT NULL THEN
     v_delta := v_authoritative - v_gen.actual_credit_cost;
     IF v_delta <> 0 THEN
       INSERT INTO public.credit_ledger (
@@ -201,7 +212,12 @@ BEGIN
           'authoritative_credit_cost', v_authoritative
         )
       )
-      ON CONFLICT (idempotency_key) DO NOTHING;
+      -- credit_ledger uniqueness is the partial composite index
+      -- (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL —
+      -- the bare column target would error at runtime.
+      ON CONFLICT (user_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL
+      DO NOTHING;
     END IF;
   END IF;
 
@@ -212,7 +228,9 @@ BEGIN
   SET billing_reconciled_at = NOW(),
       provider_cost_usd = p_cost_total,
       actual_credit_cost = CASE
-        WHEN status = 'completed' AND actual_credit_cost IS NOT NULL
+        WHEN quote_id IS NOT NULL
+             AND status = 'completed'
+             AND actual_credit_cost IS NOT NULL
           THEN v_authoritative
         ELSE actual_credit_cost
       END,

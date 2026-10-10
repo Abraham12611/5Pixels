@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/billing-reconcile",
-      "schedule": "10 */6 * * *"
+      "schedule": "10 6 * * *"
     }
   ]
 }

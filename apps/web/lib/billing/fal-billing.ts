@@ -9,6 +9,8 @@ import { createServiceClient } from "@/lib/supabase/service";
  * the customer's ledger to min(ceil(cost_total/$0.001), reserved) via an
  * auditable adjustment, and when the billed amount exceeds the quoted
  * maximum the RPC absorbs the delta above reserve and suspends the endpoint.
+ * Only quoted (#93+) generations get ledger adjustments — pre-#93 rows use
+ * the old credit denomination and are recorded for analytics only.
  *
  * API: GET https://api.fal.ai/v1/models/billing-events?request_id=a,b,c
  * Requires a fal key with billing:usage:read (BILLING or FULL preset) —
