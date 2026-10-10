@@ -29,6 +29,18 @@ const SCAN_LIMIT = 200;
 /** Billing events post with a lag — don't churn on fresh completions. */
 const MIN_EVENT_AGE_MS = 30 * 60 * 1000;
 /**
+ * Generations holding a reserve past this age with no billing event get a
+ * warning alert — the bill is probably coming but it's worth a look.
+ */
+const ALERT_AGE_MS = 48 * 60 * 60 * 1000;
+/**
+ * Reconciliation deadline: past this, a still-unbilled generation settles
+ * at the provisional quote-math charge ('fallback_timeout'). The reserve
+ * can't be held hostage forever; a late event still self-corrects via the
+ * adjustment path.
+ */
+const SETTLE_SLA_MS = 72 * 60 * 60 * 1000;
+/**
  * fal retains billing events for a 90-day date range; sweep generations up
  * to 85 days old so a multi-week outage/backlog can still self-heal.
  */
@@ -68,6 +80,8 @@ export interface ReconcileSummary {
   unmatched: number;
   duplicates: number;
   pendingBilling: number;
+  fallbackSettled: number;
+  agedPending: number;
   errors: number;
   rounds: number;
 }
@@ -205,6 +219,8 @@ export async function runBillingReconciliation(
     unmatched: 0,
     duplicates: 0,
     pendingBilling: 0,
+    fallbackSettled: 0,
+    agedPending: 0,
     errors: 0,
     rounds: 0,
   };
@@ -396,6 +412,59 @@ export async function runBillingReconciliation(
     // Stop when the backlog is smaller than a page or the round reconciled
     // nothing (remaining rows are all still pending provider billing).
     if (rows.length < SCAN_LIMIT || roundProgress === 0) break;
+  }
+
+  // SLA fallback: generations past the reconciliation deadline with no
+  // billing event settle at the provisional quote-math charge — the reserve
+  // releases and a permanently missing event can't clog the sweep.
+  const { data: settled, error: settleError } = await client.rpc(
+    "settle_unbilled_generations",
+    {
+      p_completed_before: new Date(now - SETTLE_SLA_MS).toISOString(),
+      p_limit: SCAN_LIMIT,
+    }
+  );
+  if (settleError) {
+    console.error(
+      "[billing-reconcile] fallback settle failed",
+      settleError.message
+    );
+    summary.errors += 1;
+  } else {
+    summary.fallbackSettled = typeof settled === "number" ? settled : 0;
+    if (summary.fallbackSettled > 0) {
+      await raiseAlert(
+        client,
+        "warning",
+        "billing_reconcile_missing_events",
+        `${summary.fallbackSettled} generation(s) settled at provisional quote math — no fal billing event within ${SETTLE_SLA_MS / 3600000}h`,
+        { fallbackSettled: summary.fallbackSettled }
+      );
+    }
+  }
+
+  // Aged pending: holds still open past the alert threshold but under the
+  // settlement deadline — fal's event is late; surface it before fallback.
+  const { count: aged, error: agedError } = await client
+    .from("generations")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "completed")
+    .not("provider_request_id", "is", null)
+    .is("billing_reconciled_at", null)
+    .lt("completed_at", new Date(now - ALERT_AGE_MS).toISOString());
+  if (agedError) {
+    console.error("[billing-reconcile] aged scan failed", agedError.message);
+  } else {
+    summary.agedPending = aged ?? 0;
+    if (summary.agedPending > 0) {
+      await raiseAlert(
+        client,
+        "warning",
+        "billing_reconcile_aged_pending",
+        `${summary.agedPending} generation(s) still awaiting a fal billing event after ${ALERT_AGE_MS / 3600000}h`,
+        { agedPending: summary.agedPending }
+      );
+    }
   }
 
   return summary;

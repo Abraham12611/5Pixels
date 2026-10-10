@@ -285,6 +285,55 @@ describe("runBillingReconciliation", () => {
     expect(summary.duplicates).toBe(1);
   });
 
+  it("fallback-settles generations past the missing-event deadline", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [
+      completedGen("g-old", "req-old", {
+        completed_at: new Date(
+          Date.now() - 80 * 60 * 60 * 1000
+        ).toISOString(), // 80h — past the 72h SLA
+      }),
+    ]);
+    fake.rpcHandlers.set("settle_unbilled_generations", (args) => {
+      expect(typeof args.p_completed_before).toBe("string");
+      return 1;
+    });
+
+    const summary = await runBillingReconciliation(
+      fake as never,
+      stubFetch([]) // fal never billed it
+    );
+
+    expect(summary.fallbackSettled).toBe(1);
+    expect(
+      fake.table("admin_alerts").some(
+        (a) => a.rule === "billing_reconcile_missing_events"
+      )
+    ).toBe(true);
+  });
+
+  it("warns about generations awaiting events past the alert age", async () => {
+    const fake = new FakeServiceClient();
+    fake.seed("generations", [
+      completedGen("g-aging", "req-aging", {
+        completed_at: new Date(
+          Date.now() - 50 * 60 * 60 * 1000
+        ).toISOString(), // 50h — over alert age, under SLA deadline
+      }),
+    ]);
+    fake.rpcHandlers.set("settle_unbilled_generations", () => 0);
+
+    const summary = await runBillingReconciliation(fake as never, stubFetch([]));
+
+    expect(summary.agedPending).toBe(1);
+    expect(summary.fallbackSettled).toBe(0);
+    expect(
+      fake.table("admin_alerts").some(
+        (a) => a.rule === "billing_reconcile_aged_pending"
+      )
+    ).toBe(true);
+  });
+
   it("counts RPC errors without sinking the batch", async () => {
     const fake = new FakeServiceClient();
     fake.seed("generations", [completedGen("g1", "req-1")]);
@@ -295,6 +344,7 @@ describe("runBillingReconciliation", () => {
       fake as never,
       stubFetch([eventFor("req-1")])
     );
-    expect(summary.errors).toBe(1);
+    // Both RPCs fail: the event reconcile AND the fallback settle pass.
+    expect(summary.errors).toBe(2);
   });
 });

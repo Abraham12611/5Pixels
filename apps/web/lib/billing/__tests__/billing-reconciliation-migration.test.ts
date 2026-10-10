@@ -44,3 +44,40 @@ describe("billing reconciliation migration", () => {
     expect(sql).toContain("ledger_credit_delta");
   });
 });
+
+const reserveSql = readFileSync(
+  join(
+    __dirname,
+    "../../../../../supabase/migrations/20261012000001_reserve_until_authoritative_settlement.sql"
+  ),
+  "utf-8"
+);
+
+describe("reserve-until-authoritative-settlement migration", () => {
+  it("complete_generation holds the reserve instead of converting to debit", () => {
+    // The whole point of the tranche: completion annotates the open
+    // 'reservation' hold — only reconciliation/fallback converts it.
+    expect(reserveSql).toContain("'hold_for_authoritative'");
+    expect(reserveSql).toContain("provisional_credit_cost");
+  });
+
+  it("reconciliation converts the open reservation at authoritative cost", () => {
+    expect(reserveSql).toContain("entry_type = 'reservation'");
+    expect(reserveSql).toContain("'authoritative'");
+    expect(reserveSql).toMatch(
+      /SET entry_type = 'debit'[\s\S]*?-v_authoritative/
+    );
+  });
+
+  it("has an SLA fallback that settles missing events at provisional cost", () => {
+    expect(reserveSql).toContain("settle_unbilled_generations");
+    expect(reserveSql).toContain("'fallback_timeout'");
+    // SKIP LOCKED so a racing reconciliation can't double-settle
+    expect(reserveSql).toContain("SKIP LOCKED");
+  });
+
+  it("marks late provider events distinctly from clean settlements", () => {
+    expect(reserveSql).toContain("'provider_late'");
+    expect(reserveSql).toContain("'provider_unquoted'");
+  });
+});
