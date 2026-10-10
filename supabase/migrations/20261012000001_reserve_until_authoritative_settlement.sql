@@ -288,6 +288,7 @@ DECLARE
   v_result TEXT;
   v_reserved NUMERIC(12,4);
   v_authoritative NUMERIC(12,4);
+  v_final_charge NUMERIC(12,4);
   v_delta NUMERIC(12,4) := NULL;
 BEGIN
   -- Idempotent: a retried cron run must not double-record an event.
@@ -318,7 +319,7 @@ BEGIN
   -- provider is checked so request_id collisions across future providers
   -- can't attach a fal bill to a non-fal row.
   SELECT g.id, g.user_id, g.status, g.quote_id, g.provider_endpoint,
-         g.credit_cost, g.actual_credit_cost
+         g.credit_cost, g.actual_credit_cost, g.billing_reconcile_state
   INTO v_gen
   FROM public.generations g
   WHERE g.provider_request_id = p_request_id
@@ -354,6 +355,18 @@ BEGIN
   v_authoritative := LEAST(
     public.credits_for_provider_cost(p_cost_total), v_reserved);
 
+  -- After fallback_timeout the customer's charge is FINAL at the
+  -- provisional amount: the reserve already released and may be spent.
+  -- A late event can only move the charge DOWN (refund) — an upward
+  -- difference is absorbed by 5Pixels so the negative-balance window this
+  -- tranche eliminates stays closed. The provider-side truth still gets
+  -- recorded and the overrun breaker still fires below.
+  v_final_charge := CASE
+    WHEN v_gen.billing_reconcile_state = 'fallback_timeout'
+      THEN LEAST(v_authoritative, COALESCE(v_gen.actual_credit_cost, 0))
+    ELSE v_authoritative
+  END;
+
   -- Settle the customer's ledger. Only fixed-credit (quoted) generations —
   -- pre-#93 rows use the old denomination and are analytics-only here.
   IF v_gen.quote_id IS NOT NULL
@@ -364,7 +377,7 @@ BEGIN
     -- authoritative debit; the unreleased remainder frees automatically.
     UPDATE public.credit_ledger
     SET entry_type = 'debit',
-        amount = -v_authoritative,
+        amount = -v_final_charge,
         metadata = metadata || jsonb_build_object(
           'settled_at', NOW()::text,
           'authoritative_credit_cost', v_authoritative,
@@ -378,10 +391,12 @@ BEGIN
 
     IF NOT FOUND THEN
       -- The hold already closed (SLA fallback or the immediate-debit edge):
-      -- move the recorded charge to authoritative via an auditable
+      -- move the recorded charge to the final amount via an auditable
       -- 'adjustment' row — negative delta → customer refund, positive →
-      -- extra charge still capped at the reservation.
-      v_delta := v_authoritative - v_gen.actual_credit_cost;
+      -- extra charge still capped at the reservation. For fallback_timeout
+      -- rows v_final_charge <= the provisional charge, so delta can only
+      -- ever be negative or zero here (refund-only).
+      v_delta := v_final_charge - v_gen.actual_credit_cost;
       IF v_delta <> 0 THEN
         INSERT INTO public.credit_ledger (
           user_id, entry_type, amount, generation_id, idempotency_key, metadata
@@ -425,7 +440,7 @@ BEGIN
         WHEN quote_id IS NOT NULL
              AND status = 'completed'
              AND actual_credit_cost IS NOT NULL
-          THEN v_authoritative
+          THEN v_final_charge
         ELSE actual_credit_cost
       END,
       updated_at = NOW()
@@ -474,6 +489,8 @@ BEGIN
         'absorbed_usd', p_cost_total - v_quote.maximum_cost_usd,
         'reserved_credits', v_reserved,
         'authoritative_credits', v_authoritative,
+        'customer_charge_credits', v_final_charge,
+        'absorbed_late_credits', GREATEST(v_authoritative - v_final_charge, 0),
         'ledger_credit_delta', v_delta,
         'billing_event_id', v_event_id
       )

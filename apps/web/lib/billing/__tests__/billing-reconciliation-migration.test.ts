@@ -65,7 +65,7 @@ describe("reserve-until-authoritative-settlement migration", () => {
     expect(reserveSql).toContain("entry_type = 'reservation'");
     expect(reserveSql).toContain("'authoritative'");
     expect(reserveSql).toMatch(
-      /SET entry_type = 'debit'[\s\S]*?-v_authoritative/
+      /SET entry_type = 'debit'[\s\S]*?-v_final_charge/
     );
   });
 
@@ -94,5 +94,15 @@ describe("reserve-until-authoritative-settlement migration", () => {
     // Only unsettled rows are eligible — fallback_timeout rows must not
     // be re-settled every run.
     expect(settleBody).toContain("g.billing_reconcile_state IS NULL");
+  });
+
+  it("late events can only refund a fallback-settled charge, never raise it", () => {
+    // After fallback_timeout the reserve is released and may be spent —
+    // upward correction would reopen the negative-balance window.
+    expect(reserveSql).toContain(
+      "LEAST(v_authoritative, COALESCE(v_gen.actual_credit_cost, 0))"
+    );
+    expect(reserveSql).toContain("v_final_charge := CASE");
+    expect(reserveSql).toContain("'fallback_timeout'");
   });
 });

@@ -55,6 +55,9 @@ const START_SAFETY_MS = 60 * 60 * 1000;
 const MAX_ROUNDS = 5;
 /** Late sweep (fallback_timeout rows) is bounded and lower priority. */
 const LATE_SCAN_LIMIT = 100;
+// TODO(pre-launch): permanently-missing events can starve the late sweep —
+// the same oldest 100 rows recheck daily. Add a billing_late_checked_at
+// retry timestamp and rotate fairly once event lag is observed in prod.
 
 export class BillingReconcileFatal extends Error {}
 
