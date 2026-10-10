@@ -96,8 +96,38 @@ describe("quoteFal adapter", () => {
       SLACK
     );
     if (q.kind === "unsafe") throw new Error(q.reason);
-    expect(q.expectedCostUsd).toBeCloseTo(0.05 * 4.194304);
-    expect(q.maximumCostUsd).toBeCloseTo(0.05 * 4.194304 * 1.15);
+    // 2048² = exactly 4 mebipixels (1 MP = 2^20 px).
+    expect(q.expectedCostUsd).toBeCloseTo(0.05 * 4);
+    expect(q.maximumCostUsd).toBeCloseTo(0.05 * 4 * 1.15);
+  });
+
+  it("bills whole megapixels rounded UP — fal's documented rounding", () => {
+    // 1024² = exactly 1 MP; fal's own example prices it at 1 MP, not 1.049.
+    const oneK = quoteFal(
+      { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
+      { width: 1024, height: 1024 },
+      SLACK
+    );
+    if (oneK.kind === "unsafe") throw new Error(oneK.reason);
+    expect(oneK.expectedCostUsd).toBeCloseTo(0.05);
+
+    // 1280×720 = 0.879 MP → rounds up to 1 MP.
+    const sub = quoteFal(
+      { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
+      { width: 1280, height: 720 },
+      SLACK
+    );
+    if (sub.kind === "unsafe") throw new Error(sub.reason);
+    expect(sub.expectedCostUsd).toBeCloseTo(0.05);
+
+    // 1920×1080 = 1.977 MP → rounds up to 2 MP (fal's own example).
+    const fhd = quoteFal(
+      { pricing_type: "per_megapixel", unit_price: 0.05, currency: "USD" },
+      { width: 1920, height: 1080 },
+      SLACK
+    );
+    if (fhd.kind === "unsafe") throw new Error(fhd.reason);
+    expect(fhd.expectedCostUsd).toBeCloseTo(0.1);
   });
 
   it.each([
@@ -188,6 +218,39 @@ describe("resolution_tier pricing (nano-banana-2)", () => {
       SLACK
     );
     expect(q.kind).toBe("unsafe");
+  });
+});
+
+describe("resolution_tier pricing (nano-banana-pro shape)", () => {
+  // Verified definition: flat $0.15 at 1K AND 2K, 2× only at 4K.
+  const PRO = () => ({
+    pricing_type: "resolution_tier" as const,
+    currency: "USD",
+    unit_price: 0.15,
+    tier_map: "fal_resolution",
+    tiers: { "1K": 0.15, "2K": 0.15, "4K": 0.3 },
+    modifiers: { enable_web_search: { true: 0.015 } },
+  });
+
+  it("prices 2K at the same rate as 1K", () => {
+    const q = quoteFal(PRO(), { width: 1820, height: 1024 }, SLACK);
+    if (q.kind === "unsafe") throw new Error(q.reason);
+    expect(q.components.tier).toBe("2K");
+    expect(q.expectedCostUsd).toBeCloseTo(0.15);
+  });
+
+  it("doubles the price at 4K", () => {
+    const q = quoteFal(PRO(), { width: 4096, height: 4096 }, SLACK);
+    if (q.kind === "unsafe") throw new Error(q.reason);
+    expect(q.components.tier).toBe("4K");
+    expect(q.expectedCostUsd).toBeCloseTo(0.3);
+  });
+
+  it("bills a sub-1MP output at the 1K rate — the map floors at 1K", () => {
+    const q = quoteFal(PRO(), { width: 512, height: 512 }, SLACK);
+    if (q.kind === "unsafe") throw new Error(q.reason);
+    expect(q.components.tier).toBe("1K");
+    expect(q.expectedCostUsd).toBeCloseTo(0.15);
   });
 });
 

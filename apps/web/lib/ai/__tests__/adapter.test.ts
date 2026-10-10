@@ -108,6 +108,15 @@ describe("createFalAdapter submit", () => {
     expect(body.image_urls).toEqual([baseInput.sourceImageUrl]);
   });
 
+  it("disables fal's internal fallback — rerouting is ours, priced", async () => {
+    const provider = createFalAdapter();
+    await provider.submit(baseInput);
+    const options = queueStub.submit.mock.calls.at(-1)?.[1] as {
+      headers?: Record<string, string>;
+    };
+    expect(options.headers?.["x-app-fal-disable-fallback"]).toBe("true");
+  });
+
   it("translates image_size into aspect_ratio + resolution for nano-banana", async () => {
     const provider = createFalAdapter();
     await provider.submit({

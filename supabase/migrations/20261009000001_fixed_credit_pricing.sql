@@ -100,7 +100,11 @@ SELECT DISTINCT ON (p.provider, p.endpoint_id)
     'pricing_type', CASE
       -- per-megapixel pricing is self-bounding: output dims are a bounded
       -- server-controlled input and price scales linearly with them.
-      WHEN p.unit IN ('megapixel', 'megapixels', 'processed megapixels') THEN 'per_megapixel'
+      -- 'processed megapixels' is NOT mapped: that is Fal's input+output-MP
+      -- unit (flux-2-flex/pro edit). The input-image MP is not modeled, so
+      -- quoting it would underbill ~2× — it fails closed until input-MP
+      -- pricing is modeled.
+      WHEN p.unit IN ('megapixel', 'megapixels') THEN 'per_megapixel'
       ELSE 'unsupported'
     END,
     'unit_price', p.unit_price,
@@ -138,6 +142,68 @@ SET payload = jsonb_build_object(
 )
 WHERE provider = 'fal'
   AND endpoint_id = 'fal-ai/nano-banana-2/edit'
+  AND source = 'seed-20261009000001';
+
+-- fal-ai/nano-banana-pro/edit + fal-ai/gemini-3-pro-image-preview/edit
+-- (same underlying model, verified against fal.ai model docs): $0.15/image
+-- flat at 1K and 2K, 2× at 4K; +$0.015 web search. No documented thinking
+-- surcharge.
+UPDATE public.provider_pricing_snapshots
+SET payload = jsonb_build_object(
+  'pricing_type', 'resolution_tier',
+  'currency', 'USD',
+  'unit', 'images',
+  'unit_price', 0.15,
+  'tier_map', 'fal_resolution',
+  'tiers', '{"1K": 0.15, "2K": 0.15, "4K": 0.30}'::jsonb,
+  'modifiers', '{
+    "enable_web_search": {"true": 0.015},
+    "enable_google_search": {"true": 0.015}
+  }'::jsonb
+)
+WHERE provider = 'fal'
+  AND endpoint_id IN (
+    'fal-ai/nano-banana-pro/edit',
+    'fal-ai/gemini-3-pro-image-preview/edit'
+  )
+  AND source = 'seed-20261009000001';
+
+-- fal-ai/gemini-3.1-flash-image-preview/edit — the same Gemini 3.1 Flash
+-- image model nano-banana-2 wraps; identical pricing shape (verified
+-- against fal.ai model docs).
+UPDATE public.provider_pricing_snapshots
+SET payload = jsonb_build_object(
+  'pricing_type', 'resolution_tier',
+  'currency', 'USD',
+  'unit', 'images',
+  'unit_price', 0.08,
+  'tier_map', 'fal_resolution',
+  'tiers', '{"0.5K": 0.06, "1K": 0.08, "2K": 0.12, "4K": 0.16}'::jsonb,
+  'modifiers', '{
+    "enable_web_search": {"true": 0.015},
+    "enable_google_search": {"true": 0.015},
+    "thinking_level": {"high": 0.002}
+  }'::jsonb
+)
+WHERE provider = 'fal'
+  AND endpoint_id = 'fal-ai/gemini-3.1-flash-image-preview/edit'
+  AND source = 'seed-20261009000001';
+
+-- fal-ai/nano-banana/edit + fal-ai/gemini-25-flash-image/edit (same model,
+-- verified against fal.ai model docs): a documented flat $0.039/image —
+-- no resolution tiers or surcharged params on these endpoints.
+UPDATE public.provider_pricing_snapshots
+SET payload = jsonb_build_object(
+  'pricing_type', 'flat_per_request',
+  'currency', 'USD',
+  'unit', 'images',
+  'unit_price', 0.039
+)
+WHERE provider = 'fal'
+  AND endpoint_id IN (
+    'fal-ai/nano-banana/edit',
+    'fal-ai/gemini-25-flash-image/edit'
+  )
   AND source = 'seed-20261009000001';
 
 -- ---------------------------------------------------------------------------
@@ -581,7 +647,11 @@ BEGIN
     IF v_pricing_type = 'flat_per_request' THEN
       v_actual_quantity := 1::NUMERIC(12,4);
     ELSIF v_pricing_type = 'per_megapixel' THEN
-      v_actual_quantity := COALESCE(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1000000, 1);
+      -- Fal bills whole mebipixels rounded UP (1 MP = 2^20 px = 1024×1024;
+      -- flux pages document "rounded to 1 megapixel" for a 512² output).
+      -- Mirrors lib/pricing/adapters/fal.ts quantity math.
+      v_actual_quantity := COALESCE(
+        CEIL(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1048576), 1);
     ELSIF v_pricing_type = 'resolution_tier' THEN
       -- The tier and param surcharges were pinned at quote time and the
       -- submit path pins `resolution` to that same tier, so the quoted
@@ -791,7 +861,7 @@ BEGIN
     -- "from ~N credits" label, not a quote).
     v_price := CASE v_payload->>'pricing_type'
       WHEN 'flat_per_request' THEN (v_payload->>'unit_price')::NUMERIC(12,8)
-      WHEN 'per_megapixel' THEN (v_payload->>'unit_price')::NUMERIC(12,8) * (v_min_px / 1000000)
+      WHEN 'per_megapixel' THEN (v_payload->>'unit_price')::NUMERIC(12,8) * CEIL(v_min_px / 1048576)
       WHEN 'resolution_tier' THEN
         CASE v_payload->>'tier_map'
           WHEN 'fal_resolution' THEN

@@ -18,7 +18,12 @@ import type {
  *                      a coarse "unit = images" feed row is NEVER proof of
  *                      flatness (tiered models like nano-banana-2 bill per
  *                      resolution tier plus param surcharges).
- *   per_megapixel    — quantity = output px / 1e6; exact for fixed sizes.
+ *   per_megapixel    — quantity = CEIL(output px / 2^20). Fal defines
+ *                      1 megapixel as 1024×1024 px and bills image models by
+ *                      rounding UP to the next whole MP (flux pages: a
+ *                      512×512 output = "0.25 megapixels, rounded to 1",
+ *                      1920×1080 = 2 MP). Decimal-MP math would underquote a
+ *                      sub-MP output by ~14% and a 1.05 MP output by ~48%.
  *   resolution_tier  — price varies by output-resolution tier plus optional
  *                      surcharged request params (e.g. web search, thinking
  *                      level). The snapshot carries a verified tier table;
@@ -60,7 +65,9 @@ export function quoteFal(
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
         return { kind: "unsafe", reason: "invalid unit price" };
       }
-      const quantity = (envelope.width * envelope.height) / 1_000_000;
+      const quantity = Math.ceil(
+        (envelope.width * envelope.height) / 1_048_576
+      );
       const expected = unitPrice * quantity;
       return {
         kind: "bounded",

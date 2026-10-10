@@ -129,7 +129,10 @@ export function createFalAdapter(): ImageProviderAdapter {
   const queue = client.queue as unknown as {
     submit(
       endpointId: string,
-      options: { input?: Record<string, unknown> }
+      options: {
+        input?: Record<string, unknown>;
+        headers?: Record<string, string>;
+      }
     ): Promise<InQueueQueueStatus>;
     status(
       endpointId: string,
@@ -199,6 +202,12 @@ export function createFalAdapter(): ImageProviderAdapter {
       try {
         const result = await queue.submit(input.endpoint, {
           input: merged,
+          // Fal auto-fallback reroutes to an "equivalent" endpoint when the
+          // requested one is unavailable — that reroute would run OUTSIDE the
+          // quoted financial envelope (a fallback endpoint's price is not the
+          // primary's). Failover belongs to 5Pixels, where it is quoted and
+          // pinned. https://fal.ai/docs/documentation/model-apis/common-parameters
+          headers: { "x-app-fal-disable-fallback": "true" },
         });
 
         if (!result || typeof result.request_id !== "string") {
