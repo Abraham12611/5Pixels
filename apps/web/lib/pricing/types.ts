@@ -24,19 +24,40 @@ export interface PricingPolicy {
 export type PricingType =
   | "flat_per_request"
   | "per_megapixel"
+  | "resolution_tier"
   | "unsupported";
 
 export interface SnapshotPayload {
   pricing_type: PricingType;
-  unit_price: number;
+  /** Required for flat_per_request / per_megapixel. */
+  unit_price?: number;
   unit?: string;
   currency?: string;
+  /**
+   * resolution_tier: which named pixel→tier map resolves the output tier
+   * (see resolution-tiers.ts). Required — an unknown map is unquotable.
+   */
+  tier_map?: string;
+  /** resolution_tier: USD price per output tier key ("1K", "2K", "4K"…). */
+  tiers?: Record<string, number>;
+  /**
+   * resolution_tier: surcharged request params — provider param name →
+   * serialized value → USD surcharge (e.g. {"enable_web_search":{"true":0.015}}).
+   * A request value missing from its table fails closed unless it is a
+   * recognized neutral/default.
+   */
+  modifiers?: Record<string, Record<string, number>>;
 }
 
-/** Server-resolved request envelope — never client-supplied pricing input. */
+/**
+ * Server-resolved request envelope — never client-supplied pricing input.
+ * `requestConfig` is the effective provider model_config the submit path
+ * will send, so parameter-priced surcharges are quoted on the real request.
+ */
 export interface QuoteEnvelope {
   width: number;
   height: number;
+  requestConfig?: Record<string, unknown>;
 }
 
 export type ProviderQuote =

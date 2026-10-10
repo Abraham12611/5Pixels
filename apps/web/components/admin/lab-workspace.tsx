@@ -63,7 +63,12 @@ interface LabWorkspaceProps {
   pricing: Record<string, SnapshotPayload>;
   slackFactor: number;
   /** The preset's saved private recipe — shown for reference, overridable per run. */
-  recipe: { instruction: string; negative: string | null } | null;
+  recipe: {
+    instruction: string;
+    negative: string | null;
+    /** Effective provider config — needed to price surcharged params. */
+    modelConfig: Record<string, unknown>;
+  } | null;
 }
 
 function getDefaultSize(sizes: OutputSizeOption[] | undefined): OutputSizeOption {
@@ -86,12 +91,13 @@ function sizeKey(size: OutputSizeOption): string {
 function estimateCredits(
   payload: SnapshotPayload | undefined,
   size: OutputSizeOption,
-  slack: number
+  slack: number,
+  requestConfig?: Record<string, unknown>
 ): number | null {
   if (!payload) return null;
   const quote = quoteFal(
     payload,
-    { width: size.width, height: size.height },
+    { width: size.width, height: size.height, requestConfig },
     { quoteMaxSlackFactor: slack }
   );
   if (quote.kind === "unsafe") return null;
@@ -166,13 +172,14 @@ export function LabWorkspace({
       const credits = estimateCredits(
         pricing[m.endpointId],
         selectedSize,
-        slackFactor
+        slackFactor,
+        recipe?.modelConfig
       );
       if (credits === null) return null;
       total += credits;
     }
     return total;
-  }, [selectedModels, selectedSize, pricing, slackFactor]);
+  }, [selectedModels, selectedSize, pricing, slackFactor, recipe]);
 
   const busy = phase !== "idle";
   const hasActiveRuns = runs.some((r) => !TERMINAL.has(r.status));

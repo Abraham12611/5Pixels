@@ -9,6 +9,7 @@ import {
   type ProviderSubmitResult,
   type ProviderJobStatus,
 } from "./adapter";
+import { falResolutionTier } from "../pricing/resolution-tiers";
 
 const ENDPOINT_PREFIX = "fal-ai/";
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
@@ -93,11 +94,8 @@ function nearestAspectRatio(width: number, height: number): string {
 // Resolution tiers shared by nano-banana-2/pro (1K is also valid on -pro,
 // which lacks 0.5K). Round up so the delivered pixels meet the requested
 // size; extra fields are ignored by endpoints that don't support them.
-function nanoResolutionTier(pixels: number): string {
-  if (pixels <= 1_100_000) return "1K";
-  if (pixels <= 4_500_000) return "2K";
-  return "4K";
-}
+// The map lives in lib/pricing/resolution-tiers.ts so the billed tier is
+// always the tier the quote priced.
 
 function isAllowedImageHost(url: URL): boolean {
   if (url.protocol !== "https:") return false;
@@ -179,8 +177,11 @@ export function createFalAdapter(): ImageProviderAdapter {
       // Endpoints disagree on size fields: flux/gpt-image/qwen honor
       // `image_size` {width,height}, while nano-banana models ignore it and
       // only read `aspect_ratio` + `resolution`. Translate so the chosen size
-      // reaches every endpoint; unknown fields are ignored elsewhere. An
-      // explicit model_config value always wins.
+      // reaches every endpoint; unknown fields are ignored elsewhere.
+      // `aspect_ratio` lets an explicit model_config value win, but
+      // `resolution` is hard-pinned to the output dims: the quote priced the
+      // tier derived from these pixels, so a model_config asking for a higher
+      // tier would bill above the reservation.
       const size = merged.image_size;
       if (size !== null && typeof size === "object") {
         const { width: w, height: h } = size as Record<string, unknown>;
@@ -191,7 +192,7 @@ export function createFalAdapter(): ImageProviderAdapter {
           h > 0
         ) {
           merged.aspect_ratio ??= nearestAspectRatio(w, h);
-          merged.resolution ??= nanoResolutionTier(w * h);
+          merged.resolution = falResolutionTier(w * h);
         }
       }
 

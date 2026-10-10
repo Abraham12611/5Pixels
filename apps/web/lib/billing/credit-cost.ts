@@ -22,23 +22,29 @@ export interface CostEstimateResult {
   unavailable: boolean;
 }
 
-async function getProviderStrategy(
+async function getProviderConfig(
   productVersionId: string
-): Promise<ProviderStrategy | null> {
+): Promise<{
+  strategy: ProviderStrategy;
+  modelConfig: Record<string, unknown>;
+} | null> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("product_versions")
-    .select("provider_strategy")
+    .select("provider_strategy, model_config")
     .eq("id", productVersionId)
     .eq("state", "active")
     .single();
 
   if (error || !data) {
-    console.error("[getProviderStrategy] lookup failed", error?.message);
+    console.error("[getProviderConfig] lookup failed", error?.message);
     return null;
   }
 
-  return data.provider_strategy as unknown as ProviderStrategy;
+  return {
+    strategy: data.provider_strategy as unknown as ProviderStrategy,
+    modelConfig: (data.model_config ?? {}) as Record<string, unknown>,
+  };
 }
 
 /**
@@ -60,12 +66,12 @@ export async function estimateGenerationCost(
     return unavailable;
   }
 
-  const providerStrategy = await getProviderStrategy(input.productVersionId);
-  if (!providerStrategy) {
+  const providerConfig = await getProviderConfig(input.productVersionId);
+  if (!providerConfig) {
     return unavailable;
   }
 
-  const providerEndpoint = getProviderEndpoint(providerStrategy);
+  const providerEndpoint = getProviderEndpoint(providerConfig.strategy);
   if (!providerEndpoint) {
     return unavailable;
   }
@@ -86,7 +92,11 @@ export async function estimateGenerationCost(
 
   const quote = quoteFal(
     snapshot.payload,
-    { width: input.outputSize.width, height: input.outputSize.height },
+    {
+      width: input.outputSize.width,
+      height: input.outputSize.height,
+      requestConfig: providerConfig.modelConfig,
+    },
     { quoteMaxSlackFactor: policy.quoteMaxSlackFactor }
   );
 
@@ -102,8 +112,9 @@ export async function estimateGenerationCost(
 
 /**
  * Hint for top-up/paywall copy: credits for the cheapest generation currently
- * quotable, from the lowest flat-rate fresh snapshot. Returns null when no
- * fresh pricing exists — callers must omit the claim rather than invent one.
+ * quotable — the lowest flat unit price or lowest verified tier price across
+ * fresh snapshots. Returns null when no fresh pricing exists — callers must
+ * omit the claim rather than invent one.
  */
 export async function getCheapestGenerationCredits(): Promise<number | null> {
   const service = createServiceClient();
@@ -116,12 +127,21 @@ export async function getCheapestGenerationCredits(): Promise<number | null> {
 
   let min = Infinity;
   for (const row of data ?? []) {
-    const payload = row.payload as { pricing_type?: string; unit_price?: number };
+    const payload = row.payload as {
+      pricing_type?: string;
+      unit_price?: number;
+      tiers?: Record<string, number>;
+    };
     if (
       payload.pricing_type === "flat_per_request" &&
       Number(payload.unit_price) > 0
     ) {
       min = Math.min(min, Number(payload.unit_price));
+    }
+    if (payload.pricing_type === "resolution_tier" && payload.tiers) {
+      for (const price of Object.values(payload.tiers)) {
+        if (Number(price) > 0) min = Math.min(min, Number(price));
+      }
     }
   }
 

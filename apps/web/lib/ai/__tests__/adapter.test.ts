@@ -149,6 +149,18 @@ describe("createFalAdapter submit", () => {
     expect(lastSubmitBody().num_images).toBe(1);
   });
 
+  it("pins resolution to the quoted tier — model_config cannot upgrade it", async () => {
+    const provider = createFalAdapter();
+    await provider.submit({
+      ...baseInput,
+      modelConfig: {
+        image_size: { width: 1024, height: 1024 }, // 1K tier
+        resolution: "4K", // would bill 2× the quote
+      },
+    });
+    expect(lastSubmitBody().resolution).toBe("1K");
+  });
+
   it("appends preset reference images after the source in image_urls", async () => {
     const provider = createFalAdapter();
     await provider.submit({

@@ -162,6 +162,7 @@ export async function createAndSubmitGeneration(
     options: input.options,
     outputWidth: outputSize.width,
     outputHeight: outputSize.height,
+    requestConfig: recipe.model_config,
     provider: "fal",
     endpoint,
     fallbackEndpoint: getFallbackEndpoint(recipe.provider_strategy),

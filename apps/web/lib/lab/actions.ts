@@ -194,6 +194,7 @@ export async function runLabGeneration(
     options: input.options,
     outputWidth: outputSize.width,
     outputHeight: outputSize.height,
+    requestConfig: recipe.model_config,
     provider: "fal",
     endpoint: input.endpointId,
   });

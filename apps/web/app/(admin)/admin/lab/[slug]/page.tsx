@@ -33,13 +33,17 @@ export default async function AdminTestLabDetailPage({
   // The preset's configured primary endpoint is pre-checked in the picker, and
   // its private recipe is shown (admin-only) so tests can override it.
   let defaultEndpointId: string | null = null;
-  let recipe: { instruction: string; negative: string | null } | null = null;
+  let recipe: {
+    instruction: string;
+    negative: string | null;
+    modelConfig: Record<string, unknown>;
+  } | null = null;
   if (product.version_id) {
     const service = createServiceClient();
     const { data: version } = await service
       .from("product_versions")
       .select(
-        "provider_strategy, private_instruction_template, private_negative_instruction"
+        "provider_strategy, private_instruction_template, private_negative_instruction, model_config"
       )
       .eq("id", product.version_id)
       .single();
@@ -50,6 +54,7 @@ export default async function AdminTestLabDetailPage({
         (version?.private_instruction_template as string | null) ?? "",
       negative:
         (version?.private_negative_instruction as string | null) ?? null,
+      modelConfig: (version?.model_config ?? {}) as Record<string, unknown>,
     };
   }
 

@@ -58,10 +58,13 @@ ON CONFLICT (version) DO NOTHING;
 -- Each sync inserts a new row rather than updating; quotes pin snapshot_id so
 -- a generation's economics are reproducible after provider prices change.
 -- payload.pricing_type drives the adapter:
---   flat_per_request | per_megapixel | unsupported
+--   flat_per_request | per_megapixel | resolution_tier | unsupported
 -- Per-second/time billing stays 'unsupported' until a provider-enforced
 -- runtime ceiling exists — quoting off a guessed cap would underbill
--- silently on overruns.
+-- silently on overruns. A coarse provider unit of 'images'/'generations'
+-- is likewise NOT proof of flatness (tiered models bill per resolution +
+-- param surcharges), so it bootstraps as 'unsupported' too: an endpoint
+-- only becomes quotable through a verified structured definition below.
 -- Unsupported/missing/stale pricing disables the endpoint (fail closed).
 
 CREATE TABLE IF NOT EXISTS public.provider_pricing_snapshots (
@@ -95,7 +98,8 @@ SELECT DISTINCT ON (p.provider, p.endpoint_id)
   NOW() + INTERVAL '14 days',
   jsonb_build_object(
     'pricing_type', CASE
-      WHEN p.unit IN ('images', 'generations') THEN 'flat_per_request'
+      -- per-megapixel pricing is self-bounding: output dims are a bounded
+      -- server-controlled input and price scales linearly with them.
       WHEN p.unit IN ('megapixel', 'megapixels', 'processed megapixels') THEN 'per_megapixel'
       ELSE 'unsupported'
     END,
@@ -108,6 +112,33 @@ SELECT DISTINCT ON (p.provider, p.endpoint_id)
 FROM public.provider_model_pricing p
 WHERE p.is_active = true
 ORDER BY p.provider, p.endpoint_id, p.effective_from DESC;
+
+-- Verified structured pricing definitions. The coarse provider feed is
+-- discovery data, not financial proof of a bounded request cost — an
+-- endpoint becomes quotable only through an explicit definition like this.
+--
+-- fal-ai/nano-banana-2/edit (verified against fal.ai model docs): the
+-- "$0.08/image" catalog price applies to 1K output only — 0.5K = 0.75×,
+-- 2K = 1.5×, 4K = 2× — plus +$0.015 when web/google search is enabled and
+-- +$0.002 for high thinking level. tier_map 'fal_resolution' resolves the
+-- billed tier from output pixels (see lib/pricing/resolution-tiers.ts).
+UPDATE public.provider_pricing_snapshots
+SET payload = jsonb_build_object(
+  'pricing_type', 'resolution_tier',
+  'currency', 'USD',
+  'unit', 'images',
+  'unit_price', 0.08,
+  'tier_map', 'fal_resolution',
+  'tiers', '{"0.5K": 0.06, "1K": 0.08, "2K": 0.12, "4K": 0.16}'::jsonb,
+  'modifiers', '{
+    "enable_web_search": {"true": 0.015},
+    "enable_google_search": {"true": 0.015},
+    "thinking_level": {"high": 0.002}
+  }'::jsonb
+)
+WHERE provider = 'fal'
+  AND endpoint_id = 'fal-ai/nano-banana-2/edit'
+  AND source = 'seed-20261009000001';
 
 -- ---------------------------------------------------------------------------
 -- 3. provider_endpoint_state — per-route circuit breaker
@@ -520,8 +551,17 @@ BEGIN
   v_reserve := COALESCE(v_record.credit_cost, 0);
 
   -- Settle from the snapshot of the endpoint that ACTUALLY ran — the
-  -- fallback's own pricing, never the primary's when fallback executed.
-  SELECT s.payload INTO v_quote
+  -- fallback's own pricing AND the fallback's own pinned components,
+  -- never the primary's when fallback executed.
+  SELECT s.payload,
+         CASE
+           WHEN q.fallback_snapshot_id IS NOT NULL
+                AND v_record.provider_endpoint IS NOT NULL
+                AND v_record.provider_endpoint = q.fallback_endpoint_id
+           THEN q.params->'fallback_components'
+           ELSE q.params->'primary_components'
+         END AS components
+  INTO v_quote
   FROM public.generation_quotes q
   JOIN public.provider_pricing_snapshots s
     ON s.id = CASE
@@ -542,6 +582,17 @@ BEGIN
       v_actual_quantity := 1::NUMERIC(12,4);
     ELSIF v_pricing_type = 'per_megapixel' THEN
       v_actual_quantity := COALESCE(v_output_width::NUMERIC(12,4) * v_output_height::NUMERIC(12,4) / 1000000, 1);
+    ELSIF v_pricing_type = 'resolution_tier' THEN
+      -- The tier and param surcharges were pinned at quote time and the
+      -- submit path pins `resolution` to that same tier, so the quoted
+      -- resolved_price IS the billed unit price. Actual-tier reconciliation
+      -- lands with provider billing-event ingestion (next tranche).
+      v_actual_quantity := 1::NUMERIC(12,4);
+      v_unit_price := (v_quote.components->>'resolved_price')::NUMERIC(12,8);
+      IF v_unit_price IS NULL OR v_unit_price <= 0 THEN
+        RAISE EXCEPTION 'Missing resolved_price in pinned quote components'
+          USING ERRCODE = 'P0001';
+      END IF;
     ELSE
       RAISE EXCEPTION 'Unsupported pricing type in pinned snapshot: %', v_pricing_type
         USING ERRCODE = 'P0001';
@@ -690,7 +741,7 @@ DECLARE
   v_model TEXT;
   v_endpoint TEXT;
   v_payload JSONB;
-  v_qty NUMERIC(12,4);
+  v_price NUMERIC(12,8);
   v_min_px NUMERIC;
   v_credits NUMERIC(12,4);
 BEGIN
@@ -734,20 +785,32 @@ BEGIN
     ) o;
     v_min_px := COALESCE(v_min_px, 1048576); -- 1024×1024
 
-    v_qty := CASE v_payload->>'pricing_type'
-      WHEN 'flat_per_request' THEN 1
-      WHEN 'per_megapixel' THEN (v_min_px / 1000000)::NUMERIC(12,4)
+    -- Per-request price at the smallest declared output size.
+    -- 'fal_resolution' mirrors lib/pricing/resolution-tiers.ts — the hint
+    -- uses the base tier price (param surcharges excluded, it's a
+    -- "from ~N credits" label, not a quote).
+    v_price := CASE v_payload->>'pricing_type'
+      WHEN 'flat_per_request' THEN (v_payload->>'unit_price')::NUMERIC(12,8)
+      WHEN 'per_megapixel' THEN (v_payload->>'unit_price')::NUMERIC(12,8) * (v_min_px / 1000000)
+      WHEN 'resolution_tier' THEN
+        CASE v_payload->>'tier_map'
+          WHEN 'fal_resolution' THEN
+            (v_payload->'tiers'->>(CASE
+              WHEN v_min_px <= 1100000 THEN '1K'
+              WHEN v_min_px <= 4500000 THEN '2K'
+              ELSE '4K'
+            END))::NUMERIC(12,8)
+          ELSE NULL
+        END
       ELSE NULL
     END;
 
-    IF v_qty IS NULL THEN
+    IF v_price IS NULL OR v_price <= 0 THEN
       UPDATE public.product_versions SET credit_cost = 0 WHERE id = v_ver.id;
       CONTINUE;
     END IF;
 
-    v_credits := CEIL(
-      (v_payload->>'unit_price')::NUMERIC(12,8) * v_qty / 0.001
-    )::NUMERIC(12,4);
+    v_credits := CEIL(v_price / 0.001)::NUMERIC(12,4);
     UPDATE public.product_versions SET credit_cost = v_credits WHERE id = v_ver.id;
   END LOOP;
 END $$;

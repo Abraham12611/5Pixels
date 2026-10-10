@@ -13,6 +13,12 @@ export interface CreateQuoteInput {
   options: Record<string, unknown>;
   outputWidth: number;
   outputHeight: number;
+  /**
+   * The effective provider model_config the submit path will send —
+   * required so parameter-priced surcharges (web search, thinking level)
+   * are quoted on the real request, not on a presumed default.
+   */
+  requestConfig?: Record<string, unknown>;
   /** Server-resolved provider endpoints — recipe-derived or lab-pinned. */
   provider: string;
   endpoint: string;
@@ -54,7 +60,7 @@ async function optionsFingerprint(
 
 function quoteEndpoint(
   payload: Parameters<typeof quoteFal>[0],
-  envelope: { width: number; height: number },
+  envelope: Parameters<typeof quoteFal>[1],
   slack: number
 ): ProviderQuote {
   return quoteFal(payload, envelope, { quoteMaxSlackFactor: slack });
@@ -89,7 +95,11 @@ export async function createGenerationQuote(
     return { ok: false, reason: "pricing_unavailable" };
   }
 
-  const envelope = { width: input.outputWidth, height: input.outputHeight };
+  const envelope = {
+    width: input.outputWidth,
+    height: input.outputHeight,
+    requestConfig: input.requestConfig,
+  };
   const primaryQuote = quoteEndpoint(
     primarySnapshot.payload,
     envelope,
@@ -111,6 +121,7 @@ export async function createGenerationQuote(
   const allowedEndpointIds = [input.endpoint];
   let fallbackSnapshotId: string | null = null;
   let fallbackSnapshotExpiry: string | null = null;
+  let fallbackComponents: Record<string, unknown> | null = null;
   let eligibleFallback: string | null = null;
 
   if (input.fallbackEndpoint) {
@@ -132,6 +143,7 @@ export async function createGenerationQuote(
         allowedEndpointIds.push(input.fallbackEndpoint);
         fallbackSnapshotId = fallbackSnapshot.id;
         fallbackSnapshotExpiry = fallbackSnapshot.expiresAt;
+        fallbackComponents = fallbackQuote.components;
         eligibleFallback = input.fallbackEndpoint;
       }
     }
@@ -174,6 +186,7 @@ export async function createGenerationQuote(
         width: input.outputWidth,
         height: input.outputHeight,
         primary_components: primaryQuote.components,
+        fallback_components: fallbackComponents,
       },
       options_fingerprint: fingerprint,
       expires_at: expiresAt.toISOString(),

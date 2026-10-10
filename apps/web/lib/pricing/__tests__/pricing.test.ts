@@ -41,6 +41,17 @@ const FLAT = (): SnapshotPayload => ({
   currency: "USD",
 });
 
+const NANO = (): SnapshotPayload => ({
+  pricing_type: "resolution_tier",
+  currency: "USD",
+  tier_map: "fal_resolution",
+  tiers: { "0.5K": 0.06, "1K": 0.08, "2K": 0.12, "4K": 0.16 },
+  modifiers: {
+    enable_web_search: { true: 0.015 },
+    thinking_level: { high: 0.002 },
+  },
+});
+
 const QUOTE_INPUT = {
   userId: "user-1",
   productId: "prod-1",
@@ -99,6 +110,83 @@ describe("quoteFal adapter", () => {
     ["per-second billing", { pricing_type: "per_second" as never, unit_price: 0.01, max_seconds: 15 }],
   ])("refuses %s", (_label, payload) => {
     const q = quoteFal(payload as SnapshotPayload, { width: 1024, height: 1024 }, SLACK);
+    expect(q.kind).toBe("unsafe");
+  });
+});
+
+describe("resolution_tier pricing (nano-banana-2)", () => {
+  it.each([
+    [1024, 1024, "1K", 0.08],   // 1.0 MP
+    [1820, 1024, "2K", 0.12],   // ~1.9 MP
+    [4096, 4096, "4K", 0.16],   // 16.8 MP
+  ])(
+    "prices %dx%d at the %s tier ($%f)",
+    (width, height, tier, price) => {
+      const q = quoteFal(NANO(), { width, height }, SLACK);
+      if (q.kind === "unsafe") throw new Error(q.reason);
+      expect(q.expectedCostUsd).toBeCloseTo(price);
+      expect(q.maximumCostUsd).toBeCloseTo(price * 1.15);
+      expect(q.components.tier).toBe(tier);
+      expect(q.components.resolved_price).toBeCloseTo(price);
+    }
+  );
+
+  it("adds surcharged request params from the real config", () => {
+    const q = quoteFal(
+      NANO(),
+      {
+        width: 1024,
+        height: 1024,
+        requestConfig: { enable_web_search: true, thinking_level: "high" },
+      },
+      SLACK
+    );
+    if (q.kind === "unsafe") throw new Error(q.reason);
+    // $0.08 + $0.015 + $0.002
+    expect(q.expectedCostUsd).toBeCloseTo(0.097);
+    expect(q.components.resolved_price).toBeCloseTo(0.097);
+  });
+
+  it("treats neutral param values as free", () => {
+    const q = quoteFal(
+      NANO(),
+      {
+        width: 1024,
+        height: 1024,
+        requestConfig: { enable_web_search: false, thinking_level: "low" },
+      },
+      SLACK
+    );
+    if (q.kind === "unsafe") throw new Error(q.reason);
+    expect(q.expectedCostUsd).toBeCloseTo(0.08);
+  });
+
+  it.each([
+    [
+      "unknown tier map",
+      { ...NANO(), tier_map: "made_up" },
+      { width: 1024, height: 1024 },
+    ],
+    [
+      "tier missing from the verified table",
+      { ...NANO(), tiers: { "1K": 0.08 } },
+      { width: 4096, height: 4096 },
+    ],
+    [
+      "unpriced modifier value",
+      NANO(),
+      {
+        width: 1024,
+        height: 1024,
+        requestConfig: { thinking_level: "ultra" },
+      },
+    ],
+  ])("refuses %s", (_label, payload, envelope) => {
+    const q = quoteFal(
+      payload as SnapshotPayload,
+      envelope as { width: number; height: number },
+      SLACK
+    );
     expect(q.kind).toBe("unsafe");
   });
 });
