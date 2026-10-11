@@ -1,12 +1,12 @@
 /**
  * Fixed-value credit pricing (issue #89).
  *
- * 1 credit = $0.001 of provider-cost capacity, forever. Margin is decided at
+ * 1 credit = $0.01 of provider-cost capacity, forever. Margin is decided at
  * credit issuance (plan grant sizes + top-up budget ratio); consumption only
  * ever converts a bounded USD quote into credits at that rate.
  */
 
-export const CREDIT_CAPACITY_USD = 0.001;
+export const CREDIT_CAPACITY_USD = 0.01;
 
 export interface PricingPolicy {
   id: string;

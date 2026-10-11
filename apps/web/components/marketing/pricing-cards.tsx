@@ -30,7 +30,7 @@ function planBenefits(plan: PlanForPurchase, annual: boolean): string[] {
       ? plan.credits_grant / (plan.price_cents / 100)
       : 0;
   if (annual) benefits.push("Lower credit rate than monthly");
-  else if (creditsPerDollar >= 400)
+  else if (creditsPerDollar >= 45)
     benefits.push("More credits per dollar");
   return benefits.slice(0, 5);
 }

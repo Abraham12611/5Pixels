@@ -15,8 +15,8 @@ export interface FinderSelections {
   priority: Priority | null;
 }
 
-/** Presets cost roughly 40–90 credits at $0.001/credit; ~60 blends the mix. */
-const AVG_CREDITS_PER_TRANSFORMATION = 60;
+/** Presets cost roughly 4–9 credits at $0.01/credit; ~6 blends the mix. */
+const AVG_CREDITS_PER_TRANSFORMATION = 6;
 
 export function estimateMonthlyCredits(perMonth: number): number {
   if (!Number.isFinite(perMonth) || perMonth <= 0) return 0;

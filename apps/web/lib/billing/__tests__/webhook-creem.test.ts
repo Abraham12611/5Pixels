@@ -110,7 +110,7 @@ beforeEach(() => {
       id: "pol-1",
       version: 1,
       is_active: true,
-      credit_capacity_usd: 0.001,
+      credit_capacity_usd: 0.01,
       top_up_budget_ratio: 0.606,
       quote_max_slack_factor: 1.15,
       quote_ttl_seconds: 600,
@@ -127,8 +127,8 @@ describe("creem webhook route", () => {
 
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(1);
-    // extra_credit grants policy-priced credits: $30 × 0.606 → 18,180.
-    expect(entries[0].amount).toBe(18180);
+    // extra_credit grants policy-priced credits: $30 × 0.606 → $18.18 → 1,818.
+    expect(entries[0].amount).toBe(1818);
     expect(fake.table("invoices")[0].creem_order_id).toBe("ord_1");
     expect(fake.table("profiles")[0].creem_customer_id).toBe("cust_1");
   });
@@ -264,7 +264,7 @@ describe("creem webhook route", () => {
 
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(2);
-    expect(entries[1].amount).toBe(-18180);
+    expect(entries[1].amount).toBe(-1818);
     expect(entries[1].metadata.reason).toBe("refund");
     expect(fake.table("invoices")[0].status).toBe("refunded");
   });
@@ -301,7 +301,7 @@ describe("creem webhook route", () => {
 
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(2);
-    expect(entries[1].amount).toBe(-18180);
+    expect(entries[1].amount).toBe(-1818);
     expect(entries[1].metadata.reason).toBe("chargeback");
   });
 

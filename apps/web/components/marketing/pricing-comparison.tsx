@@ -51,7 +51,7 @@ function buildSections(monthlyPlans: PlanForPurchase[]): ComparisonSection[] {
         {
           label: "Credits included",
           values: [
-            "100 on signup",
+            "—",
             ...monthlyPlans.map(
               (p) => `${p.credits_grant.toLocaleString()} / month`
             ),
