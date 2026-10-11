@@ -178,6 +178,44 @@ describe("creem webhook route", () => {
     expect(entries[0].amount).toBe(1818);
   });
 
+  it("floors fractional translations so a conversion never over-grants", async () => {
+    // 18,185 v1 credits = $18.185 → 1,818.5 v2 credits. Grants always round
+    // against the customer to protect margin — never 1,819.
+    fake.seed("pricing_policies", [
+      {
+        id: "pol-1",
+        version: 1,
+        is_active: false,
+        credit_capacity_usd: 0.001,
+        top_up_budget_ratio: 0.606,
+        quote_max_slack_factor: 1.15,
+        quote_ttl_seconds: 600,
+        snapshot_ttl_hours: 6,
+      },
+      {
+        id: "pol-2",
+        version: 2,
+        is_active: true,
+        credit_capacity_usd: 0.01,
+        top_up_budget_ratio: 0.606,
+        quote_max_slack_factor: 1.15,
+        quote_ttl_seconds: 600,
+        snapshot_ttl_hours: 6,
+      },
+    ]);
+
+    const event = checkoutCompletedEvent();
+    event.object.metadata = {
+      ...event.object.metadata,
+      credits: "18185",
+      pricing_policy_version: "1",
+    } as typeof event.object.metadata;
+    const body = JSON.stringify(event);
+    const res = await post(body, sign(body));
+    expect(res.status).toBe(200);
+    expect(fake.table("credit_ledger")[0].amount).toBe(1818);
+  });
+
   it("grants the checkout-pinned credits, not a policy re-derivation", async () => {
     // The checkout quoted 9,999 credits under an older policy; fulfillment
     // must honor the purchase, not today's top_up_budget_ratio. The pin

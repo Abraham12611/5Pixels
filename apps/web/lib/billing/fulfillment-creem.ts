@@ -154,9 +154,12 @@ async function translatePinnedCredits(
     // policy rather than grant a literal from an unknown unit.
     return topUpCreditsForCents(amountCents, policy);
   }
+  // Round DOWN — every other grant path rounds against the customer to
+  // protect margin; a cross-denomination translation shouldn't be the one
+  // place that can grant a sliver more capacity than was sold.
   return Math.max(
     1,
-    Math.round((pinnedCredits * pinnedCapacity) / policy.creditCapacityUsd)
+    Math.floor((pinnedCredits * pinnedCapacity) / policy.creditCapacityUsd)
   );
 }
 
