@@ -114,18 +114,71 @@ export interface CreemSubscriptionObject {
   created_at?: string;
 }
 
+/**
+ * A checkout pins its grant under the pricing policy live when it was
+ * created. If a denomination change lands between checkout creation and
+ * webhook delivery, honoring the literal count reprices the purchase —
+ * a v1-pinned 6,060 credits ($0.001 capacity = $6.06 budget) would
+ * silently become $60.60 under v2's $0.01. Translate through the pinned
+ * version's capacity so the customer receives exactly the provider-cost
+ * budget the checkout sold. A pin with no version predates versioning —
+ * reprice under the active policy rather than trust a literal that may
+ * carry an old unit.
+ */
+async function translatePinnedCredits(
+  pinnedCredits: number,
+  pinnedVersion: number | null,
+  amountCents: number,
+  service: ReturnType<typeof createServiceClient>
+): Promise<number> {
+  const policy = await getActivePricingPolicy(service);
+  if (!policy) {
+    throw new Error(
+      "No active pricing policy — cannot settle pinned credit grant"
+    );
+  }
+  if (pinnedVersion == null || !Number.isInteger(pinnedVersion)) {
+    return topUpCreditsForCents(amountCents, policy);
+  }
+  if (pinnedVersion === policy.version) {
+    return pinnedCredits;
+  }
+  const { data: pinned } = await service
+    .from("pricing_policies")
+    .select("credit_capacity_usd")
+    .eq("version", pinnedVersion)
+    .maybeSingle();
+  const pinnedCapacity = Number(pinned?.credit_capacity_usd);
+  if (!Number.isFinite(pinnedCapacity) || pinnedCapacity <= 0) {
+    // Unknown pinned version — cannot translate; reprice under the active
+    // policy rather than grant a literal from an unknown unit.
+    return topUpCreditsForCents(amountCents, policy);
+  }
+  return Math.max(
+    1,
+    Math.round((pinnedCredits * pinnedCapacity) / policy.creditCapacityUsd)
+  );
+}
+
 async function creditCostToCredits(
   plan: PlanRow,
   amountCents: number,
   service: ReturnType<typeof createServiceClient>,
-  pinnedCredits?: number | null
+  pinnedCredits?: number | null,
+  pinnedPolicyVersion?: number | null
 ): Promise<number> {
   if (plan.type === "extra_credit") {
     // Fulfill the exact grant the checkout quoted — a purchase carries
     // immutable economics; never reprice it against whatever policy is
-    // active when the webhook arrives.
+    // active when the webhook arrives. Denomination changes are the one
+    // exception: translate through the pinned policy version.
     if (pinnedCredits && Number.isInteger(pinnedCredits) && pinnedCredits > 0) {
-      return pinnedCredits;
+      return translatePinnedCredits(
+        pinnedCredits,
+        pinnedPolicyVersion ?? null,
+        amountCents,
+        service
+      );
     }
     // Legacy checkouts without a pinned grant fall back to the active policy.
     const policy = await getActivePricingPolicy(service);
@@ -520,14 +573,16 @@ async function ensureCreditsForBillingPeriod(
   invoiceId: string,
   idempotencyKey: string,
   amountCents: number,
-  pinnedCredits?: number | null
+  pinnedCredits?: number | null,
+  pinnedPolicyVersion?: number | null
 ) {
   const service = createServiceClient();
   const credits = await creditCostToCredits(
     plan,
     amountCents,
     service,
-    pinnedCredits
+    pinnedCredits,
+    pinnedPolicyVersion
   );
 
   const { data: existing } = await service
@@ -878,8 +933,10 @@ export async function fulfillCreemCheckoutCompleted(
     `purchase:order:${order.id}`,
     amountCents,
     // Grant the credits the checkout promised (pinned in checkout metadata),
-    // not a re-derivation under today's policy.
-    Number(metadata.credits) || null
+    // translated through the pinned policy version if the denomination
+    // changed between checkout and delivery.
+    Number(metadata.credits) || null,
+    Number(metadata.pricing_policy_version) || null
   );
 
   const { error: linkError } = await service
