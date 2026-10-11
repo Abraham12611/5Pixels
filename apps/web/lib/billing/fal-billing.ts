@@ -6,7 +6,7 @@ import { createServiceClient } from "@/lib/supabase/service";
  * Tranche 1 settled generations from pinned quote components — our own math.
  * This job closes the loop against fal's authoritative per-request billing:
  * fetch cost_total for each provider_request_id, record the event, reconcile
- * the customer's ledger to min(ceil(cost_total/$0.001), reserved) via an
+ * the customer's ledger to min(ceil(cost_total/$0.01), reserved) via an
  * auditable adjustment, and when the billed amount exceeds the quoted
  * maximum the RPC absorbs the delta above reserve and suspends the endpoint.
  * Only quoted (#93+) generations get ledger adjustments — pre-#93 rows use

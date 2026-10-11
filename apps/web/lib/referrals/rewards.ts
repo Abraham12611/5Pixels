@@ -1,5 +1,11 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
+import {
+  REFERRER_SIGNUP_BONUS,
+  REFEREE_SIGNUP_BONUS,
+} from "@/lib/referrals/reward-amounts";
+
+export { REFERRER_SIGNUP_BONUS, REFEREE_SIGNUP_BONUS };
 
 /**
  * Server-only module — NOT "use server": nothing here is invoked as a
@@ -327,9 +333,8 @@ export async function insertGrowSurfMilestoneReward(input: {
  * Referrer signup bonus (07 §6.6): fixed credits when a referred friend
  * completes signup — paid in addition to the 30% first-payment share.
  * Once per referee via the partial unique index + ledger idempotency.
+ * Amount lives in reward-amounts.ts (shared with client-facing copy).
  */
-export const REFERRER_SIGNUP_BONUS = 50;
-
 export async function grantReferrerSignupBonus(
   referrerId: string,
   refereeUserId: string
@@ -382,9 +387,8 @@ export async function grantReferrerSignupBonus(
  * Referee signup bonus (07 §6.6): the referred friend gets a fixed credit
  * grant at claim, alongside the free-transformation unlock. Once per
  * referee via the partial unique index + ledger idempotency.
+ * Amount lives in reward-amounts.ts (shared with client-facing copy).
  */
-export const REFEREE_SIGNUP_BONUS = 25;
-
 export async function grantRefereeSignupBonus(
   refereeUserId: string,
   referrerId: string

@@ -11,7 +11,7 @@ const POLICY_ROW = {
   id: "pol-1",
   version: 1,
   is_active: true,
-  credit_capacity_usd: 0.001,
+  credit_capacity_usd: 0.01,
   top_up_budget_ratio: 0.606,
   quote_max_slack_factor: 1.15,
   quote_ttl_seconds: 600,
@@ -64,18 +64,18 @@ const QUOTE_INPUT = {
 };
 
 describe("credit math", () => {
-  it("converts provider cost at $0.001/credit, ceiling", () => {
-    expect(creditsForProviderCost(0.08)).toBe(80);
-    expect(creditsForProviderCost(0.05268)).toBe(53);
-    expect(creditsForProviderCost(0.0800001)).toBe(81);
+  it("converts provider cost at $0.01/credit, ceiling", () => {
+    expect(creditsForProviderCost(0.08)).toBe(8);
+    expect(creditsForProviderCost(0.05268)).toBe(6);
+    expect(creditsForProviderCost(0.0800001)).toBe(9);
   });
 
   it("prices top-ups through the policy budget ratio", () => {
     const policy = { topUpBudgetRatio: 0.606 };
-    // $25 → $15.15 budget → 15,150 credits; float-safe at every amount.
-    expect(topUpCreditsForCents(2500, policy)).toBe(15150);
-    expect(topUpCreditsForCents(2000, policy)).toBe(12120);
-    expect(topUpCreditsForCents(1000, policy)).toBe(6060);
+    // $25 → $15.15 budget → 1,515 credits; float-safe at every amount.
+    expect(topUpCreditsForCents(2500, policy)).toBe(1515);
+    expect(topUpCreditsForCents(2000, policy)).toBe(1212);
+    expect(topUpCreditsForCents(1000, policy)).toBe(606);
   });
 });
 
@@ -311,18 +311,18 @@ describe("createGenerationQuote", () => {
     return fake.table("generation_quotes");
   }
 
-  it("creates a single-use quote reserving ceil(max × slack / $0.001)", async () => {
+  it("creates a single-use quote reserving ceil(max × slack / $0.01)", async () => {
     const res = await createGenerationQuote(fake as never, QUOTE_INPUT);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    // $0.08 × 1.15 = $0.092 → 92 credits reserved; 80 expected.
-    expect(res.reserveCredits).toBe(92);
-    expect(res.expectedCredits).toBe(80);
+    // $0.08 × 1.15 = $0.092 → 10 credits reserved; 8 expected.
+    expect(res.reserveCredits).toBe(10);
+    expect(res.expectedCredits).toBe(8);
     expect(res.endpoint).toBe("nano-banana-2/edit");
     expect(res.eligibleFallbackEndpoint).toBeNull();
 
     const row = quotes()[0];
-    expect(row.reserve_credits).toBe(92);
+    expect(row.reserve_credits).toBe(10);
     expect(row.maximum_cost_usd).toBeCloseTo(0.092);
     expect(row.pricing_snapshot_id).toBe("snap-nano-banana-2/edit");
     expect(row.policy_version).toBe(1);

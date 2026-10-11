@@ -54,7 +54,7 @@ function planBenefits(
   ];
   if (planType === "annual") {
     benefits.push("Pay once a year at a lower monthly rate");
-  } else if (priceCents > 0 && creditsGrant / (priceCents / 100) >= 400) {
+  } else if (priceCents > 0 && creditsGrant / (priceCents / 100) >= 45) {
     benefits.push("More credits per dollar than starter plans");
   }
   return benefits.slice(0, 4);
@@ -71,7 +71,7 @@ function planLoses(
   ];
   if (planType === "annual") {
     loses.push("Your discounted annual rate — monthly plans cost more");
-  } else if (priceCents > 0 && creditsGrant / (priceCents / 100) >= 400) {
+  } else if (priceCents > 0 && creditsGrant / (priceCents / 100) >= 45) {
     loses.push("Your higher credits-per-dollar rate");
   }
   return loses;

@@ -87,7 +87,7 @@ function sizeKey(size: OutputSizeOption): string {
   return `${size.name}:${size.width}:${size.height}:${kind}`;
 }
 
-/** Bounded-quote estimate at the fixed $0.001/credit denomination. */
+/** Bounded-quote estimate at the fixed $0.01/credit denomination. */
 function estimateCredits(
   payload: SnapshotPayload | undefined,
   size: OutputSizeOption,
