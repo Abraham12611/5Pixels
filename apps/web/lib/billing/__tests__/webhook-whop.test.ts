@@ -8,8 +8,9 @@ vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: () => fake,
 }));
 
-vi.mock("@/lib/growsurf/sync", () => ({
-  awardOrHoldReferrerShare: vi.fn(async () => null),
+vi.mock("@/lib/referrals/rewards", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/referrals/rewards")>()),
+  grantReferrerPaymentShare: vi.fn(async () => null),
   reverseReferrerShareForRefund: vi.fn(async () => null),
 }));
 

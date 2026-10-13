@@ -122,11 +122,6 @@ WHOP_ACCOUNT_ID=
 WHOP_WEBHOOK_SECRET=
 CRON_SECRET=
 
-# GrowSurf (optional — referral program bridge; server only)
-GROWSURF_API_KEY=
-GROWSURF_CAMPAIGN_ID=
-GROWSURF_WEBHOOK_SECRET=
-GROWSURF_REFERRAL_HOLD_DAYS=
 ```
 
 ## Migrations

@@ -3,9 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import {
   REFERRER_SIGNUP_BONUS,
   REFEREE_SIGNUP_BONUS,
+  REFERRER_REWARD_CAP,
 } from "@/lib/referrals/reward-amounts";
+import {
+  grantSubsidyCredits,
+  type SubsidyProgram,
+} from "@/lib/billing/subsidies";
 
-export { REFERRER_SIGNUP_BONUS, REFEREE_SIGNUP_BONUS };
+export { REFERRER_SIGNUP_BONUS, REFEREE_SIGNUP_BONUS, REFERRER_REWARD_CAP };
 
 /**
  * Server-only module — NOT "use server": nothing here is invoked as a
@@ -30,44 +35,101 @@ interface PlanCredits {
 /** Only plan purchases count toward the referral cycle — never top-ups. */
 const SHARE_PLAN_TYPES = new Set(["weekly_trial", "monthly", "annual"]);
 
-async function insertLedgerAllocation(input: {
+/**
+ * Route a reward through the subsidy budget (issue #110): the
+ * grant_subsidy_credits RPC atomically checks the program's monthly cap,
+ * writes the ledger allocation tagged with `subsidy_program`, and
+ * dedupes on the idempotency key. `ok` is false only when the budget is
+ * exhausted — callers roll the pending reward row back or mark it
+ * rejected so the denial is auditable.
+ */
+async function allocateSubsidyReward(input: {
+  program: SubsidyProgram;
   userId: string;
   credits: number;
   idempotencyKey: string;
   metadata: Record<string, unknown>;
-}): Promise<string | null> {
+}): Promise<{ ok: boolean; ledgerId: string | null }> {
   const service = createServiceClient();
-  const { data: existing } = await service
-    .from("credit_ledger")
-    .select("id")
-    .eq("idempotency_key", input.idempotencyKey)
-    .maybeSingle();
-  if (existing) return existing.id as string;
+  const result = await grantSubsidyCredits(service, {
+    userId: input.userId,
+    program: input.program,
+    credits: input.credits,
+    idempotencyKey: input.idempotencyKey,
+    metadata: input.metadata,
+  });
+  return {
+    ok: result.outcome !== "budget_exhausted",
+    ledgerId: result.ledgerId,
+  };
+}
 
-  const { data, error } = await service
-    .from("credit_ledger")
-    .insert({
-      user_id: input.userId,
-      entry_type: "allocation",
-      amount: input.credits,
-      currency_unit: "credits",
-      idempotency_key: input.idempotencyKey,
-      metadata: input.metadata,
-    })
-    .select("id")
-    .single();
-  if (error || !data) {
-    if (error?.message?.includes("duplicate key")) {
-      const { data: dup } = await service
-        .from("credit_ledger")
-        .select("id")
-        .eq("idempotency_key", input.idempotencyKey)
-        .maybeSingle();
-      return (dup?.id as string) ?? null;
-    }
-    throw new Error(error?.message ?? "Ledger insert failed");
+/**
+ * Atomic referrer reward-slot claim (issue #110): the
+ * claim_referrer_reward RPC caps referrer-side rewards at
+ * REFERRER_REWARD_CAP rewarded referees under a per-referrer row lock,
+ * inserting the pending reward row when a claim succeeds. 'capped'
+ * denials are recorded as rejected rows for audit; 'duplicate' means the
+ * source_ref was already processed (webhook redelivery / retry).
+ */
+async function claimReferrerReward(input: {
+  referrerId: string;
+  refereeUserId: string;
+  kind: "referrer_signup_bonus" | "referrer_payment_share";
+  credits: number;
+  sourceRef: string;
+}): Promise<"claimed" | "capped" | "duplicate"> {
+  const service = createServiceClient();
+  const { data, error } = await service.rpc("claim_referrer_reward", {
+    p_referrer_id: input.referrerId,
+    p_referee_id: input.refereeUserId,
+    p_kind: input.kind,
+    p_credits: input.credits,
+    p_source_ref: input.sourceRef,
+  });
+  if (error) {
+    throw new Error(`referrer reward claim failed: ${error.message}`);
   }
-  return data.id as string;
+  return (data as "claimed" | "capped" | "duplicate" | null) ?? "duplicate";
+}
+
+/**
+ * Settle a claimed referrer reward: grant the subsidy credits and mark
+ * the row granted, or mark it rejected when the program budget is
+ * exhausted — the denial stays auditable and never retries.
+ */
+async function settleClaimedReward(input: {
+  sourceRef: string;
+  referrerId: string;
+  credits: number;
+  idempotencyKey: string;
+  metadata: Record<string, unknown>;
+}): Promise<void> {
+  const service = createServiceClient();
+  const { ok, ledgerId } = await allocateSubsidyReward({
+    program: "referral_budget",
+    userId: input.referrerId,
+    credits: input.credits,
+    idempotencyKey: input.idempotencyKey,
+    metadata: input.metadata,
+  });
+  if (!ok) {
+    await service
+      .from("referral_rewards")
+      .update({ status: "rejected" })
+      .eq("source_ref", input.sourceRef)
+      .eq("status", "pending");
+    return;
+  }
+  await service
+    .from("referral_rewards")
+    .update({
+      status: "granted",
+      ledger_entry_id: ledgerId,
+      granted_at: new Date().toISOString(),
+    })
+    .eq("source_ref", input.sourceRef)
+    .eq("status", "pending");
 }
 
 /**
@@ -99,13 +161,16 @@ export async function grantRefereeUnlock(
 
   if (rewardError || !reward) return false; // already granted
 
-  const ledgerId = await insertLedgerAllocation({
+  const { ok, ledgerId } = await allocateSubsidyReward({
+    program: "referral_referee",
     userId: refereeUserId,
     credits: creditCost,
     idempotencyKey: `referral:${sourceRef}`,
     metadata: { reason: "referral_referee_unlock" },
   });
-  if (!ledgerId) {
+  if (!ok || !ledgerId) {
+    // Budget exhausted — release the pending claim so a later attempt
+    // (after the monthly reset) can still honour the unlock promise.
     await service
       .from("referral_rewards")
       .delete()
@@ -149,86 +214,16 @@ export function paymentShareCredits(plan: PlanCredits): number {
   return Math.floor(plan.credits_grant * REFERRER_SHARE);
 }
 
-/** Claims the once-per-referee payment-share slot. Null = already claimed. */
-export async function insertPaymentShareReward(input: {
-  buyerUserId: string;
-  referrerId: string;
-  credits: number;
-  status: "pending" | "pending_hold";
-  holdUntil?: string;
-}): Promise<{ id: string } | null> {
-  const service = createServiceClient();
-  const { data: reward, error } = await service
-    .from("referral_rewards")
-    .insert({
-      source_ref: `payment_share:${input.buyerUserId}`,
-      referrer_user_id: input.referrerId,
-      referee_user_id: input.buyerUserId,
-      kind: "referrer_payment_share",
-      credits: input.credits,
-      status: input.status,
-      hold_until: input.holdUntil ?? null,
-    })
-    .select("id")
-    .maybeSingle();
-  if (error || !reward) return null;
-  return { id: reward.id as string };
-}
-
-/**
- * Grants the credits for a pending/pending_hold reward row and marks it
- * granted. Used by the immediate path (first-party) and by the GrowSurf
- * webhook when a held reward lands (03 §4). Idempotent on the reward id —
- * a row already granted/clawed_back/cancelled is left untouched.
- */
-export async function grantRewardRow(input: {
-  rewardId: string;
-  referrerId: string;
-  refereeUserId: string;
-  credits: number;
-  metadata: Record<string, unknown>;
-  growsurfPrewId?: string;
-}): Promise<boolean> {
-  const service = createServiceClient();
-  const ledgerId = await insertLedgerAllocation({
-    userId: input.referrerId,
-    credits: input.credits,
-    idempotencyKey: `referral:payment_share:${input.refereeUserId}`,
-    metadata: {
-      reason: "referral_payment_share",
-      referee_user_id: input.refereeUserId,
-      share: REFERRER_SHARE,
-      ...input.metadata,
-    },
-  });
-  if (!ledgerId) return false;
-
-  const { data: updated } = await service
-    .from("referral_rewards")
-    .update({
-      status: "granted",
-      ledger_entry_id: ledgerId,
-      granted_at: new Date().toISOString(),
-      hold_until: null,
-      growsurf_prew_id: input.growsurfPrewId ?? undefined,
-    })
-    .eq("id", input.rewardId)
-    .in("status", ["pending", "pending_hold"])
-    .select("id")
-    .maybeSingle();
-
-  return Boolean(updated);
-}
-
 /**
  * Referrer reward (03 §1): when a referred user makes their FIRST payment,
  * the referrer gets 30% of that plan's monthly credit grant, complimentary.
- * Called from Polar fulfillment after the conversion is recorded; the
+ * Called from payment fulfillment after the conversion is recorded; the
  * once-per-referee index + ledger idempotency make retries safe.
  *
- * When GrowSurf's delayed trigger is configured the reward parks in
- * pending_hold instead — lib/growsurf/sync.ts decides the path; this
- * function is the immediate-grant path and the hold fallback.
+ * Issue #110: the claim_referrer_reward RPC enforces REFERRER_REWARD_CAP
+ * under a per-referrer lock — past the cap the referral still attributes
+ * but this referrer earns nothing, and the credits come out of the
+ * monthly `referral_budget` subsidy cap (fail-closed on exhaustion).
  */
 export async function grantReferrerPaymentShare(
   buyerUserId: string,
@@ -245,88 +240,114 @@ export async function grantReferrerPaymentShare(
   const credits = paymentShareCredits(plan);
   if (credits <= 0) return;
 
-  const reward = await insertPaymentShareReward({
-    buyerUserId,
-    referrerId,
-    credits,
-    status: "pending",
-  });
-  if (!reward) return; // already rewarded for this referee
-
-  const granted = await grantRewardRow({
-    rewardId: reward.id,
+  const sourceRef = `payment_share:${buyerUserId}`;
+  const claim = await claimReferrerReward({
     referrerId,
     refereeUserId: buyerUserId,
+    kind: "referrer_payment_share",
     credits,
-    metadata: { plan_id: plan.id, order_id: orderId },
+    sourceRef,
   });
-  if (!granted) {
-    const service = createServiceClient();
-    await service
-      .from("referral_rewards")
-      .delete()
-      .eq("id", reward.id)
-      .eq("status", "pending");
-  }
+  if (claim !== "claimed") return; // capped past 15 or already processed
+
+  await settleClaimedReward({
+    sourceRef,
+    referrerId,
+    credits,
+    idempotencyKey: `referral:payment_share:${buyerUserId}`,
+    metadata: {
+      reason: "referral_payment_share",
+      referee_user_id: buyerUserId,
+      share: REFERRER_SHARE,
+      plan_id: plan.id,
+      order_id: orderId,
+    },
+  });
 }
 
 /**
- * GrowSurf campaign reward (milestone or referee-side): the reward's
- * Program Editor metadata `spx_credits` names the credit amount; the
- * PARTICIPANT_REACHED_A_GOAL webhook calls this. `source_ref` doubles as
- * the DB-level idempotency key alongside `growsurf_prew_id`'s unique
- * index, so manual-approval redeliveries and retries can't double-grant.
- * Pass status 'rejected' to record a fraud-blocked reward for audit.
+ * Refund path (03 §4): called from the refund handlers for the refunded
+ * buyer. A pending/held reward is cancelled before it lands; an already
+ * granted reward is clawed back with the same capped-reversal semantics
+ * used for the buyer (cap at available balance, log the shortfall).
  */
-export async function insertGrowSurfMilestoneReward(input: {
-  participantRewardId: string;
-  earnerUserId: string;
-  isReferrer: boolean;
-  referrerUserId?: string | null;
-  refereeUserId?: string | null;
-  credits: number;
-  campaignRewardId?: string | null;
-  status?: "granted" | "rejected";
-}): Promise<boolean> {
+export async function reverseReferrerShareForRefund(input: {
+  buyerUserId: string;
+  orderId: string;
+  refundId: string;
+}): Promise<void> {
   const service = createServiceClient();
-  const status = input.status ?? "granted";
-  const prewId = input.participantRewardId;
 
-  let ledgerId: string | null = null;
-  if (status === "granted") {
-    ledgerId = await insertLedgerAllocation({
-      userId: input.earnerUserId,
-      credits: input.credits,
-      idempotencyKey: `growsurf_prew:${prewId}`,
-      metadata: {
-        reason: "growsurf_milestone",
-        is_referrer: input.isReferrer,
-        growsurf_reward_id: input.campaignRewardId ?? null,
-      },
-    });
-    if (!ledgerId) return false;
+  const { data: reward } = await service
+    .from("referral_rewards")
+    .select("id, referrer_user_id, referee_user_id, credits, status")
+    .eq("referee_user_id", input.buyerUserId)
+    .eq("kind", "referrer_payment_share")
+    .maybeSingle();
+  if (!reward) return;
+
+  if (reward.status === "pending" || reward.status === "pending_hold") {
+    await service
+      .from("referral_rewards")
+      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
+      .eq("id", reward.id)
+      .in("status", ["pending", "pending_hold"]);
+    return;
   }
 
-  const { data, error } = await service
-    .from("referral_rewards")
-    .insert({
-      source_ref: `gsprew:${prewId}`,
-      growsurf_prew_id: prewId,
-      kind: "growsurf_milestone",
-      status,
-      credits: input.credits,
-      earner_user_id: input.earnerUserId,
-      referrer_user_id: input.referrerUserId ?? null,
-      referee_user_id: input.refereeUserId ?? null,
-      ledger_entry_id: ledgerId,
-      granted_at: status === "granted" ? new Date().toISOString() : null,
-    })
-    .select("id")
-    .maybeSingle();
+  if (reward.status !== "granted") return;
 
-  // Unique violation on source_ref/growsurf_prew_id = redelivery.
-  if (error) return error.message.includes("duplicate key");
-  return Boolean(data);
+  // Already granted — claw back what remains recoverable (03 §4). Same
+  // rule as the buyer reversal: cap at available balance, record the
+  // unrecovered remainder as loss in metadata.
+  const referrerId = reward.referrer_user_id as string;
+  const credits = Number(reward.credits ?? 0);
+  if (credits <= 0) return;
+
+  const idempotencyKey = `referral_clawback:${reward.id}`;
+  const { data: existing } = await service
+    .from("credit_ledger")
+    .select("id")
+    .eq("idempotency_key", idempotencyKey)
+    .maybeSingle();
+  if (existing) return;
+
+  // Full ledger sum — open reservations are negative and already reduce
+  // available, so a clawback can't touch credits committed to in-flight
+  // generations.
+  const { data: ledgerRows } = await service
+    .from("credit_ledger")
+    .select("amount")
+    .eq("user_id", referrerId);
+  const available = (ledgerRows ?? []).reduce(
+    (sum, r) => sum + Number(r.amount),
+    0
+  );
+  const reversal = Math.min(credits, Math.max(0, available));
+
+  await service.from("credit_ledger").insert({
+    user_id: referrerId,
+    entry_type: "debit",
+    amount: -reversal,
+    currency_unit: "credits",
+    idempotency_key: idempotencyKey,
+    metadata: {
+      reason: "referral_clawback",
+      referee_user_id: input.buyerUserId,
+      order_id: input.orderId,
+      refund_id: input.refundId,
+      reward_id: reward.id,
+      granted_credits: credits,
+      reversed_credits: reversal,
+      unrecovered_credits: credits - reversal,
+    },
+  });
+
+  await service
+    .from("referral_rewards")
+    .update({ status: "clawed_back" })
+    .eq("id", reward.id)
+    .eq("status", "granted");
 }
 
 /**
@@ -339,23 +360,22 @@ export async function grantReferrerSignupBonus(
   referrerId: string,
   refereeUserId: string
 ): Promise<void> {
-  const service = createServiceClient();
-  const { data: reward, error } = await service
-    .from("referral_rewards")
-    .insert({
-      source_ref: `signup_bonus:${refereeUserId}`,
-      referrer_user_id: referrerId,
-      referee_user_id: refereeUserId,
-      kind: "referrer_signup_bonus",
-      credits: REFERRER_SIGNUP_BONUS,
-      status: "pending",
-    })
-    .select("id")
-    .maybeSingle();
-  if (error || !reward) return; // already granted
+  // Issue #110: the claim RPC counts this referrer's rewarded referees
+  // under a row lock — past REFERRER_REWARD_CAP it records a rejected
+  // audit row and no credits mint.
+  const sourceRef = `signup_bonus:${refereeUserId}`;
+  const claim = await claimReferrerReward({
+    referrerId,
+    refereeUserId,
+    kind: "referrer_signup_bonus",
+    credits: REFERRER_SIGNUP_BONUS,
+    sourceRef,
+  });
+  if (claim !== "claimed") return; // capped past the limit or duplicate
 
-  const ledgerId = await insertLedgerAllocation({
-    userId: referrerId,
+  await settleClaimedReward({
+    sourceRef,
+    referrerId,
     credits: REFERRER_SIGNUP_BONUS,
     idempotencyKey: `referral:signup_bonus:${refereeUserId}`,
     metadata: {
@@ -363,24 +383,6 @@ export async function grantReferrerSignupBonus(
       referee_user_id: refereeUserId,
     },
   });
-  if (!ledgerId) {
-    await service
-      .from("referral_rewards")
-      .delete()
-      .eq("id", reward.id)
-      .eq("status", "pending");
-    return;
-  }
-
-  await service
-    .from("referral_rewards")
-    .update({
-      status: "granted",
-      ledger_entry_id: ledgerId,
-      granted_at: new Date().toISOString(),
-    })
-    .eq("id", reward.id)
-    .eq("status", "pending");
 }
 
 /**
@@ -408,7 +410,8 @@ export async function grantRefereeSignupBonus(
     .maybeSingle();
   if (error || !reward) return; // already granted
 
-  const ledgerId = await insertLedgerAllocation({
+  const { ok, ledgerId } = await allocateSubsidyReward({
+    program: "referral_referee",
     userId: refereeUserId,
     credits: REFEREE_SIGNUP_BONUS,
     idempotencyKey: `referral:referee_signup_bonus:${refereeUserId}`,
@@ -417,7 +420,7 @@ export async function grantRefereeSignupBonus(
       referrer_user_id: referrerId,
     },
   });
-  if (!ledgerId) {
+  if (!ok || !ledgerId) {
     await service
       .from("referral_rewards")
       .delete()
@@ -587,27 +590,19 @@ export async function getReferralStats(): Promise<ReferralStats | null> {
   if (!user) return null;
 
   const service = createServiceClient();
-  const [{ count }, { data: rewards }, { data: milestoneRewards }] =
-    await Promise.all([
-      service
-        .from("referral_participants")
-        .select("*", { count: "exact", head: true })
-        .eq("referred_by", user.id),
-      service
-        .from("referral_rewards")
-        .select("kind, credits, status")
-        .eq("referrer_user_id", user.id)
-        .eq("kind", "referrer_payment_share"),
-      service
-        .from("referral_rewards")
-        .select("kind, credits, status")
-        .eq("earner_user_id", user.id)
-        .eq("kind", "growsurf_milestone"),
-    ]);
+  const [{ count }, { data: rewards }] = await Promise.all([
+    service
+      .from("referral_participants")
+      .select("*", { count: "exact", head: true })
+      .eq("referred_by", user.id),
+    service
+      .from("referral_rewards")
+      .select("kind, credits, status")
+      .eq("referrer_user_id", user.id)
+      .in("kind", ["referrer_payment_share", "referrer_signup_bonus"]),
+  ]);
 
-  const granted = [...(rewards ?? []), ...(milestoneRewards ?? [])].filter(
-    (r) => r.status === "granted"
-  );
+  const granted = (rewards ?? []).filter((r) => r.status === "granted");
   return {
     referredCount: count ?? 0,
     paidReferrals: granted.length,
