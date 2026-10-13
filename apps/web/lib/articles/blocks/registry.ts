@@ -76,7 +76,7 @@ export const CUSTOM_ARTICLE_BLOCKS: ArticleBlockRegistration[] = [
     group: "5Pixels",
     subtext: "Embed an approved generated image/video",
     aliases: ["generation", "output", "result"],
-    status: "placeholder",
+    status: "implemented",
     implementedIn: "#129",
   },
   {

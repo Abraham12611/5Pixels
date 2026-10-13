@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { validateArticleDocument } from "./document";
+import {
+  collectDocumentAssetIds,
+  prepareDocumentForStorage,
+} from "./document-media";
+import { promoteArticleMedia, revokeArticleMedia } from "./media-lifecycle";
 import { normalizeSlug } from "./slug";
 import type {
   Article,
@@ -50,6 +55,7 @@ function mapRpcError(error: { message?: string; code?: string } | null): {
   else if (m.includes("invalid_slug")) code = "invalid_slug";
   else if (m.includes("invalid_tags")) code = "invalid_tags";
   else if (m.includes("invalid_content")) code = "invalid_content";
+  else if (m.includes("invalid_cover_asset")) code = "invalid_cover_asset";
   else if (m.includes("title_required")) code = "title_required";
   else if (m.includes("content_required")) code = "content_required";
   else if (m.includes("cannot_publish_archived"))
@@ -66,6 +72,37 @@ async function rpcResult(
     return { ok: false, code, error: message };
   }
   return { ok: true, article: (data as Article) ?? undefined };
+}
+
+/**
+ * Media-reference integrity (#129): every asset:// id in a document must be a
+ * media row belonging to THIS article. `requireReady` additionally demands a
+ * verified/published state — used at publish so an article can never go live
+ * pointing at pending uploads, forged ids, or another article's assets.
+ */
+async function checkDocumentAssetRefs(
+  articleId: string,
+  assetIds: string[],
+  requireReady: boolean
+): Promise<string | null> {
+  if (assetIds.length === 0) return null;
+  const supabase = await createClient();
+  let query = supabase
+    .from("article_assets")
+    .select("asset_id")
+    .eq("article_id", articleId)
+    .in("asset_id", assetIds);
+  if (requireReady) query = query.in("state", ["ready", "published"]);
+  const { data, error } = await query;
+  if (error) return "Unable to verify article media references";
+  const found = new Set(((data ?? []) as { asset_id: string }[]).map((r) => r.asset_id));
+  const missing = assetIds.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    return requireReady
+      ? "The article references media that is not ready for publishing — re-check its uploads."
+      : "The document references media that does not belong to this article.";
+  }
+  return null;
 }
 
 export async function createArticleAction(
@@ -102,9 +139,20 @@ export async function saveArticleDraftAction(
   // App-side validation first — the DB still enforces every bound itself.
   let contentJson: unknown = undefined;
   if (input.content !== undefined) {
-    const validation = validateArticleDocument(input.content);
+    // Normalise media references to asset:// BEFORE validation so the
+    // persisted document never carries storage URLs or unvetted remote src.
+    const prepared = prepareDocumentForStorage(input.content);
+    const validation = validateArticleDocument(prepared.document);
     if (!validation.ok) {
       return { ok: false, code: "invalid_content", error: validation.error };
+    }
+    const refError = await checkDocumentAssetRefs(
+      input.articleId,
+      prepared.assetIds,
+      false
+    );
+    if (refError) {
+      return { ok: false, code: "invalid_content", error: refError };
     }
     contentJson = validation.document;
   }
@@ -133,13 +181,50 @@ export async function publishArticleAction(
   expectedEditVersion: number
 ): Promise<ArticleWriteResult> {
   const supabase = await createClient();
+
+  // Gate publish on media-reference integrity: every asset:// ref in the
+  // draft must be a ready/published media row of this article.
+  const { data: draft } = await supabase
+    .from("articles")
+    .select("draft_content")
+    .eq("id", articleId)
+    .single();
+  const refError = await checkDocumentAssetRefs(
+    articleId,
+    collectDocumentAssetIds(
+      Array.isArray(draft?.draft_content)
+        ? (draft.draft_content as Parameters<typeof collectDocumentAssetIds>[0])
+        : []
+    ),
+    true
+  );
+  if (refError) {
+    return { ok: false, code: "invalid_content", error: refError };
+  }
+
   const result = await rpcResult(
     supabase.rpc("publish_article", {
       p_article_id: articleId,
       p_expected_edit_version: expectedEditVersion,
     })
   );
-  if (result.ok) revalidateArticlePaths(result.article);
+  if (!result.ok) return result;
+
+  // Explicit media promotion: copy ready staging objects to the public bucket
+  // and flip the asset rows. If promotion fails, roll the article back to
+  // draft rather than leaving a live page with dead media.
+  try {
+    await promoteArticleMedia(articleId);
+  } catch {
+    await supabase.rpc("unpublish_article", { p_article_id: articleId });
+    return {
+      ok: false,
+      code: "unknown",
+      error: "Publishing failed while promoting media — the article was left as a draft.",
+    };
+  }
+
+  revalidateArticlePaths(result.article);
   return result;
 }
 
@@ -150,7 +235,11 @@ export async function unpublishArticleAction(
   const result = await rpcResult(
     supabase.rpc("unpublish_article", { p_article_id: articleId })
   );
-  if (result.ok) revalidateArticlePaths(result.article);
+  if (result.ok) {
+    // Revoke public serving first (rows flip private), objects deleted after.
+    await revokeArticleMedia(articleId);
+    revalidateArticlePaths(result.article);
+  }
   return result;
 }
 
@@ -161,7 +250,10 @@ export async function archiveArticleAction(
   const result = await rpcResult(
     supabase.rpc("archive_article", { p_article_id: articleId })
   );
-  if (result.ok) revalidateArticlePaths(result.article);
+  if (result.ok) {
+    await revokeArticleMedia(articleId);
+    revalidateArticlePaths(result.article);
+  }
   return result;
 }
 

@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { requireAdminOrOwner } from "@/lib/db/admin";
 import { createClient } from "@/lib/supabase/server";
+import { prepareDocumentForEditing } from "./document-media";
 import type {
   Article,
   ArticleRevision,
@@ -69,7 +70,12 @@ export async function getArticleForEditor(
     console.error("[getArticleForEditor] query failed", error);
     return { data: null, error: GENERIC_ERROR };
   }
-  return { data: (data as Article | null) ?? null };
+  const article = (data as Article | null) ?? null;
+  if (article) {
+    // Expand asset:// references to staff-gated proxy URLs for the editor.
+    article.draft_content = prepareDocumentForEditing(article.draft_content);
+  }
+  return { data: article };
 }
 
 export async function listArticleRevisions(

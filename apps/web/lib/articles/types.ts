@@ -104,6 +104,7 @@ export type ArticleWriteErrorCode =
   | "slug_conflict"
   | "invalid_tags"
   | "invalid_content"
+  | "invalid_cover_asset"
   | "title_required"
   | "content_required"
   | "cannot_publish_archived"
