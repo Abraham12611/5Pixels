@@ -25,6 +25,23 @@ export { REFERRER_SIGNUP_BONUS, REFEREE_SIGNUP_BONUS, REFERRER_REWARD_CAP };
 
 const REFERRER_SHARE = 0.3;
 
+/**
+ * Refund-window hold for the referrer payment share (issue #110): the
+ * reward is claimed as pending_hold at first payment and only settles
+ * after REFERRAL_PAYMENT_SHARE_HOLD_DAYS elapse — a refund inside the
+ * window cancels the reward before any credits exist to claw back.
+ * Env override: REFERRAL_PAYMENT_SHARE_HOLD_DAYS (1–90, 0 disables).
+ */
+const DEFAULT_PAYMENT_SHARE_HOLD_DAYS = 14;
+
+function paymentShareHoldDays(): number {
+  const raw = process.env.REFERRAL_PAYMENT_SHARE_HOLD_DAYS?.trim();
+  if (!raw) return DEFAULT_PAYMENT_SHARE_HOLD_DAYS;
+  const days = Number.parseInt(raw, 10);
+  if (!Number.isFinite(days) || days < 1) return 0;
+  return Math.min(days, 90);
+}
+
 interface PlanCredits {
   id: string;
   credits_grant: number;
@@ -78,6 +95,9 @@ async function claimReferrerReward(input: {
   kind: "referrer_signup_bonus" | "referrer_payment_share";
   credits: number;
   sourceRef: string;
+  /** 'pending' settles immediately; 'pending_hold' waits for holdUntil. */
+  status?: "pending" | "pending_hold";
+  holdUntil?: string;
 }): Promise<"claimed" | "capped" | "duplicate"> {
   const service = createServiceClient();
   const { data, error } = await service.rpc("claim_referrer_reward", {
@@ -86,6 +106,8 @@ async function claimReferrerReward(input: {
     p_kind: input.kind,
     p_credits: input.credits,
     p_source_ref: input.sourceRef,
+    p_status: input.status ?? "pending",
+    p_hold_until: input.holdUntil ?? null,
   });
   if (error) {
     throw new Error(`referrer reward claim failed: ${error.message}`);
@@ -241,14 +263,25 @@ export async function grantReferrerPaymentShare(
   if (credits <= 0) return;
 
   const sourceRef = `payment_share:${buyerUserId}`;
+  const holdDays = paymentShareHoldDays();
+  const holdUntil =
+    holdDays > 0
+      ? new Date(Date.now() + holdDays * 86_400_000).toISOString()
+      : undefined;
   const claim = await claimReferrerReward({
     referrerId,
     refereeUserId: buyerUserId,
     kind: "referrer_payment_share",
     credits,
     sourceRef,
+    status: holdUntil ? "pending_hold" : "pending",
+    holdUntil,
   });
   if (claim !== "claimed") return; // capped past 15 or already processed
+
+  // Refund-window hold: credits mint later via releaseDueReferralHolds().
+  // A refund inside the window cancels the row before it can settle.
+  if (holdUntil) return;
 
   await settleClaimedReward({
     sourceRef,
@@ -263,6 +296,58 @@ export async function grantReferrerPaymentShare(
       order_id: orderId,
     },
   });
+}
+
+/**
+ * Release cron for the first-party refund hold: settle every
+ * pending_hold payment-share whose window elapsed. Budget exhaustion is
+ * NOT terminal here — the row stays pending_hold and retries on the next
+ * run (monthly rollover replenishes the program).
+ */
+export async function releaseDueReferralHolds(
+  limit = 100
+): Promise<{ released: number; retried: number }> {
+  const service = createServiceClient();
+  const { data: due } = await service
+    .from("referral_rewards")
+    .select("source_ref, referrer_user_id, referee_user_id, credits")
+    .eq("status", "pending_hold")
+    .eq("kind", "referrer_payment_share")
+    .lte("hold_until", new Date().toISOString())
+    .limit(limit);
+
+  let released = 0;
+  let retried = 0;
+  for (const row of due ?? []) {
+    const refereeId = row.referee_user_id as string;
+    const { ok, ledgerId } = await allocateSubsidyReward({
+      program: "referral_budget",
+      userId: row.referrer_user_id as string,
+      credits: Number(row.credits ?? 0),
+      idempotencyKey: `referral:payment_share:${refereeId}`,
+      metadata: {
+        reason: "referral_payment_share",
+        referee_user_id: refereeId,
+        share: REFERRER_SHARE,
+        released_from_hold: true,
+      },
+    });
+    if (!ok || !ledgerId) {
+      retried += 1;
+      continue;
+    }
+    await service
+      .from("referral_rewards")
+      .update({
+        status: "granted",
+        ledger_entry_id: ledgerId,
+        granted_at: new Date().toISOString(),
+      })
+      .eq("source_ref", row.source_ref as string)
+      .eq("status", "pending_hold");
+    released += 1;
+  }
+  return { released, retried };
 }
 
 /**

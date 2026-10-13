@@ -17,6 +17,7 @@ import {
   grantReferrerSignupBonus,
   grantRefereeSignupBonus,
   grantReferrerPaymentShare,
+  releaseDueReferralHolds,
   REFERRER_SIGNUP_BONUS,
   REFEREE_SIGNUP_BONUS,
 } from "../rewards";
@@ -42,7 +43,8 @@ function stubClaim(outcome: "claimed" | "capped" | "duplicate") {
           referee_user_id: args.p_referee_id,
           kind: args.p_kind,
           credits: args.p_credits,
-          status: "pending",
+          status: args.p_status ?? "pending",
+          hold_until: args.p_hold_until ?? null,
         },
       ]);
     }
@@ -66,6 +68,7 @@ beforeEach(() => {
   fake.db.clear();
   fake.rpcHandlers.clear();
   rpcCalls.length = 0;
+  vi.unstubAllEnvs();
 });
 
 describe("grantReferrerSignupBonus", () => {
@@ -170,7 +173,7 @@ describe("grantReferrerPaymentShare", () => {
     ]);
   });
 
-  it("pays 30% of the plan grant through the referral budget", async () => {
+  it("claims 30% of the plan grant as a refund-window hold", async () => {
     stubClaim("claimed");
     stubSubsidy("granted");
 
@@ -181,6 +184,28 @@ describe("grantReferrerPaymentShare", () => {
       p_referrer_id: "referrer-1",
       p_kind: "referrer_payment_share",
       p_credits: 327, // floor(1090 * 0.3)
+      p_status: "pending_hold",
+    });
+    expect(claim?.args.p_hold_until).toBeTruthy();
+    // No credits mint until the hold releases — a refund cancels the row.
+    expect(
+      rpcCalls.some((c) => c.fn === "grant_subsidy_credits")
+    ).toBe(false);
+    expect(fake.table("referral_rewards")[0].status).toBe("pending_hold");
+  });
+
+  it("settles immediately when the hold is disabled", async () => {
+    vi.stubEnv("REFERRAL_PAYMENT_SHARE_HOLD_DAYS", "0");
+    stubClaim("claimed");
+    stubSubsidy("granted");
+
+    await grantReferrerPaymentShare("buyer-1", plan, "order-1");
+
+    const grant = rpcCalls.find((c) => c.fn === "grant_subsidy_credits");
+    expect(grant?.args).toMatchObject({
+      p_user_id: "referrer-1",
+      p_program: "referral_budget",
+      p_credits: 327,
     });
     expect(fake.table("referral_rewards")[0].status).toBe("granted");
   });
@@ -203,5 +228,59 @@ describe("grantReferrerPaymentShare", () => {
     expect(
       rpcCalls.some((c) => c.fn === "grant_subsidy_credits")
     ).toBe(false);
+  });
+});
+
+describe("releaseDueReferralHolds", () => {
+  const heldRow = {
+    id: "rw-held",
+    source_ref: "payment_share:buyer-1",
+    referrer_user_id: "referrer-1",
+    referee_user_id: "buyer-1",
+    kind: "referrer_payment_share",
+    credits: 327,
+    status: "pending_hold",
+    hold_until: new Date(Date.now() - 86_400_000).toISOString(), // due
+  };
+
+  it("settles a due hold through the referral budget", async () => {
+    fake.seed("referral_rewards", [{ ...heldRow }]);
+    stubSubsidy("granted");
+
+    const result = await releaseDueReferralHolds();
+
+    expect(result).toEqual({ released: 1, retried: 0 });
+    const grant = rpcCalls.find((c) => c.fn === "grant_subsidy_credits");
+    expect(grant?.args).toMatchObject({
+      p_user_id: "referrer-1",
+      p_program: "referral_budget",
+      p_credits: 327,
+    });
+    expect(fake.table("referral_rewards")[0]).toMatchObject({
+      status: "granted",
+      ledger_entry_id: "ledger-1",
+    });
+  });
+
+  it("leaves the hold pending for retry when the budget is exhausted", async () => {
+    fake.seed("referral_rewards", [{ ...heldRow }]);
+    stubSubsidy("budget_exhausted");
+
+    const result = await releaseDueReferralHolds();
+
+    expect(result).toEqual({ released: 0, retried: 1 });
+    expect(fake.table("referral_rewards")[0].status).toBe("pending_hold");
+  });
+
+  it("skips holds whose window has not elapsed", async () => {
+    fake.seed("referral_rewards", [
+      { ...heldRow, hold_until: new Date(Date.now() + 86_400_000).toISOString() },
+    ]);
+    stubSubsidy("granted");
+
+    const result = await releaseDueReferralHolds();
+
+    expect(result).toEqual({ released: 0, retried: 0 });
+    expect(rpcCalls).toHaveLength(0);
   });
 });

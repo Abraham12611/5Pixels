@@ -106,6 +106,22 @@ describe("subsidy budgets migration", () => {
   });
 });
 
+const fixSql = readFileSync(
+  join(
+    __dirname,
+    "../../../../../supabase/migrations/20261018000001_referrer_cap_and_hold.sql"
+  ),
+  "utf-8"
+);
+
+const fixGrantBody = fixSql.slice(
+  fixSql.indexOf("FUNCTION public.grant_subsidy_credits"),
+  fixSql.indexOf("FUNCTION public.claim_referrer_reward")
+);
+const fixClaimBody = fixSql.slice(
+  fixSql.indexOf("FUNCTION public.claim_referrer_reward")
+);
+
 describe("claim_referrer_reward — 15-referral cap", () => {
   it("locks the referrer's profile row so the count can't race", () => {
     expect(claimBody).toContain(
@@ -137,6 +153,52 @@ describe("claim_referrer_reward — 15-referral cap", () => {
       /REVOKE ALL ON FUNCTION public\.claim_referrer_reward[\s\S]*?FROM PUBLIC, anon, authenticated/
     );
     expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.claim_referrer_reward[\s\S]*?TO service_role/
+    );
+  });
+});
+
+describe("fix-up migration — concurrency and cap-occupancy (review)", () => {
+  it("rechecks the ledger idempotency key under the budget lock", () => {
+    // Blocker 2: a duplicate that queued behind its own original grant
+    // must report 'duplicate', never 'budget_exhausted'. The fixed
+    // function performs a second ledger lookup AFTER FOR UPDATE.
+    const lockIdx = fixGrantBody.indexOf("FOR UPDATE");
+    const secondDupIdx = fixGrantBody.indexOf("'duplicate'", lockIdx);
+    const capIdx = fixGrantBody.indexOf("monthly_cap_credits THEN");
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(secondDupIdx).toBeGreaterThan(-1);
+    expect(secondDupIdx).toBeGreaterThan(lockIdx);
+    expect(secondDupIdx).toBeLessThan(capIdx);
+  });
+
+  it("lets a referee already occupying a rewarded slot bypass the cap", () => {
+    // Blocker 1: the 15-cap limits DISTINCT referees, not reward kinds —
+    // a referee with a live signup-bonus row stays eligible for their
+    // payment share even when the referrer is at 15.
+    expect(fixClaimBody).toContain("v_occupied");
+    const occupiedIdx = fixClaimBody.indexOf("v_occupied");
+    const countIdx = fixClaimBody.indexOf("COUNT(DISTINCT");
+    expect(occupiedIdx).toBeGreaterThan(-1);
+    expect(countIdx).toBeGreaterThan(-1);
+    expect(occupiedIdx).toBeLessThan(countIdx);
+    expect(fixClaimBody).toContain("IF NOT v_occupied THEN");
+  });
+
+  it("creates pending_hold rows atomically with the claim", () => {
+    expect(fixClaimBody).toContain("p_status TEXT DEFAULT 'pending'");
+    expect(fixClaimBody).toContain("p_hold_until TIMESTAMPTZ DEFAULT NULL");
+    expect(fixClaimBody).toContain("p_status,\n      p_hold_until");
+    // Due-hold index for the release cron.
+    expect(fixSql).toContain("idx_referral_rewards_pending_hold_due");
+    expect(fixSql).toContain("WHERE status = 'pending_hold'");
+  });
+
+  it("keeps both fixed RPCs service-role only", () => {
+    expect(fixSql).toMatch(
+      /REVOKE ALL ON FUNCTION public\.grant_subsidy_credits[\s\S]*?FROM PUBLIC, anon, authenticated/
+    );
+    expect(fixSql).toMatch(
       /GRANT EXECUTE ON FUNCTION public\.claim_referrer_reward[\s\S]*?TO service_role/
     );
   });
