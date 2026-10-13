@@ -2,7 +2,7 @@
   "name": "5pixels",
   "version": "0.1.0",
   "private": true,
-  "description": "5Pixels — curated AI image transformation platform",
+  "description": "5Pixels \u2014 curated AI image transformation platform",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "pnpm --filter web dev",
@@ -12,16 +12,21 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "format": "pnpm -r format",
-    "format:check": "pnpm -r format:check"
+    "format:check": "pnpm -r format:check",
+    "test:db": "bash scripts/test-db.sh"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
+    "supabase": "2.119.0",
     "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "sharp"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
   }
 }

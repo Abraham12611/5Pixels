@@ -912,6 +912,10 @@ GRANT EXECUTE ON FUNCTION public.get_user_generation_by_id(UUID) TO authenticate
 
 -- Expose the active version id to server-side generation flows while keeping the
 -- private recipe columns hidden.
+-- Return type changes vs the 20260901000002 definition (adds version_id /
+-- version_number), so the old row type must be dropped first — same pattern
+-- as 20260905100001 §get_public_product_by_slug.
+DROP FUNCTION IF EXISTS public.get_public_product_by_slug(TEXT);
 CREATE OR REPLACE FUNCTION public.get_public_product_by_slug(p_slug TEXT)
 RETURNS TABLE (
   id UUID,

@@ -50,6 +50,11 @@ pnpm typecheck
 # Tests
 pnpm test
 
+# Financial DB integration tests — requires a Docker runtime (OrbStack/
+# Docker Desktop). Starts the local Supabase stack, resets + migrates the
+# DB, then runs apps/web/tests/db. `pnpm supabase stop` shuts it down.
+pnpm test:db
+
 # Format
 pnpm format
 ```
