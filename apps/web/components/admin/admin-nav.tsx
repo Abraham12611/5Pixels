@@ -15,6 +15,7 @@ import {
   FileText,
   Users,
   Megaphone,
+  Tag,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,7 @@ const NAV_GROUPS: AdminNavGroup[] = [
     label: "Operations",
     items: [
       { label: "Generations", href: "/admin/generations", icon: Queue },
+      { label: "Pricing", href: "/admin/pricing", icon: Tag },
       { label: "Support", href: "/admin/support", icon: ChatCircle },
       { label: "Alerts", href: "/admin/alerts", icon: WarningOctagon },
       { label: "Audit", href: "/admin/audit", icon: FileText },
@@ -87,9 +89,12 @@ function isActive(pathname: string, item: AdminNavItem): boolean {
 
 function ActiveMarker() {
   return (
-    <span aria-hidden="true" className="ml-auto inline-flex items-center gap-[2.5px]">
+    <span
+      aria-hidden="true"
+      className="ml-auto inline-flex items-center gap-[2.5px]"
+    >
       {[0, 1, 2, 3, 4].map((i) => (
-        <span key={i} className="bg-lime-400 h-[3px] w-[3px] rounded-[1px]" />
+        <span key={i} className="h-[3px] w-[3px] rounded-[1px] bg-lime-400" />
       ))}
     </span>
   );
@@ -103,7 +108,7 @@ export function AdminNav() {
       {/* Mobile/tablet: horizontal chip rail */}
       <nav
         aria-label="Admin sections"
-        className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6 lg:hidden"
+        className="-mx-4 flex scrollbar-none gap-2 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6 lg:hidden"
       >
         {NAV_GROUPS.flatMap((g) => g.items).map((item) => {
           const active = isActive(pathname, item);
@@ -115,7 +120,7 @@ export function AdminNav() {
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-sm transition-colors",
                 active
-                  ? "border-lime-500/40 bg-lime-500/10 text-cream-50"
+                  ? "text-cream-50 border-lime-500/40 bg-lime-500/10"
                   : "border-cream-100/10 bg-charcoal-850 text-text-secondary hover:text-cream-100"
               )}
             >
@@ -131,7 +136,7 @@ export function AdminNav() {
         <div className="border-cream-100/10 bg-charcoal-850 sticky top-20 rounded-[15px] border p-2">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <p className="text-text-muted px-3 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wider first:pt-1">
+              <p className="text-text-muted px-3 pt-3 pb-1.5 text-[11px] font-semibold tracking-wider uppercase first:pt-1">
                 {group.label}
               </p>
               <div className="space-y-0.5">
