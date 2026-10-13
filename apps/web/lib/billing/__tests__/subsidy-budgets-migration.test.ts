@@ -188,7 +188,7 @@ describe("fix-up migration — concurrency and cap-occupancy (review)", () => {
   it("creates pending_hold rows atomically with the claim", () => {
     expect(fixClaimBody).toContain("p_status TEXT DEFAULT 'pending'");
     expect(fixClaimBody).toContain("p_hold_until TIMESTAMPTZ DEFAULT NULL");
-    expect(fixClaimBody).toContain("p_status,\n      p_hold_until");
+    expect(fixClaimBody).toMatch(/p_status,\s+p_hold_until/);
     // Due-hold index for the release cron.
     expect(fixSql).toContain("idx_referral_rewards_pending_hold_due");
     expect(fixSql).toContain("WHERE status = 'pending_hold'");
@@ -200,6 +200,22 @@ describe("fix-up migration — concurrency and cap-occupancy (review)", () => {
     );
     expect(fixSql).toMatch(
       /GRANT EXECUTE ON FUNCTION public\.claim_referrer_reward[\s\S]*?TO service_role/
+    );
+  });
+});
+
+describe("legacy overload cleanup", () => {
+  const dropSql = readFileSync(
+    join(
+      __dirname,
+      "../../../../../supabase/migrations/20261019000001_drop_legacy_claim_referrer_reward.sql"
+    ),
+    "utf-8"
+  );
+
+  it("drops the obsolete 5-argument claim_referrer_reward", () => {
+    expect(dropSql).toContain(
+      "DROP FUNCTION IF EXISTS public.claim_referrer_reward(UUID, UUID, TEXT, NUMERIC, TEXT)"
     );
   });
 });

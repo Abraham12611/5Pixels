@@ -37,9 +37,18 @@ const DEFAULT_PAYMENT_SHARE_HOLD_DAYS = 14;
 function paymentShareHoldDays(): number {
   const raw = process.env.REFERRAL_PAYMENT_SHARE_HOLD_DAYS?.trim();
   if (!raw) return DEFAULT_PAYMENT_SHARE_HOLD_DAYS;
+  // Only an explicit "0" disables the hold — a misconfigured value must
+  // never silently drop a fraud/refund control.
+  if (raw === "0") return 0;
   const days = Number.parseInt(raw, 10);
-  if (!Number.isFinite(days) || days < 1) return 0;
-  return Math.min(days, 90);
+  if (!Number.isFinite(days) || days < 1 || days > 90) {
+    console.warn(
+      `[referrals] invalid REFERRAL_PAYMENT_SHARE_HOLD_DAYS="${raw}" — ` +
+        `falling back to ${DEFAULT_PAYMENT_SHARE_HOLD_DAYS} days`
+    );
+    return DEFAULT_PAYMENT_SHARE_HOLD_DAYS;
+  }
+  return days;
 }
 
 interface PlanCredits {
