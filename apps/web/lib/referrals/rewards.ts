@@ -309,9 +309,13 @@ export async function grantReferrerPaymentShare(
 
 /**
  * Release cron for the first-party refund hold: settle every
- * pending_hold payment-share whose window elapsed. Budget exhaustion is
- * NOT terminal here — the row stays pending_hold and retries on the next
- * run (monthly rollover replenishes the program).
+ * pending_hold payment-share whose window elapsed through the
+ * release_referral_hold RPC — one atomic lock + budget consume + ledger
+ * write + status flip per row, so a refund landing mid-release can never
+ * produce cancelled-reward-with-live-credits (it either cancels before
+ * the lock or claws back after).
+ * Budget exhaustion is NOT terminal — the row stays pending_hold and
+ * retries on the next run (monthly rollover replenishes the program).
  */
 export async function releaseDueReferralHolds(
   limit = 100
@@ -319,7 +323,7 @@ export async function releaseDueReferralHolds(
   const service = createServiceClient();
   const { data: due } = await service
     .from("referral_rewards")
-    .select("source_ref, referrer_user_id, referee_user_id, credits")
+    .select("source_ref")
     .eq("status", "pending_hold")
     .eq("kind", "referrer_payment_share")
     .lte("hold_until", new Date().toISOString())
@@ -328,33 +332,24 @@ export async function releaseDueReferralHolds(
   let released = 0;
   let retried = 0;
   for (const row of due ?? []) {
-    const refereeId = row.referee_user_id as string;
-    const { ok, ledgerId } = await allocateSubsidyReward({
-      program: "referral_budget",
-      userId: row.referrer_user_id as string,
-      credits: Number(row.credits ?? 0),
-      idempotencyKey: `referral:payment_share:${refereeId}`,
-      metadata: {
-        reason: "referral_payment_share",
-        referee_user_id: refereeId,
-        share: REFERRER_SHARE,
-        released_from_hold: true,
-      },
+    const { data, error } = await service.rpc("release_referral_hold", {
+      p_source_ref: row.source_ref as string,
     });
-    if (!ok || !ledgerId) {
+    if (error) {
+      console.error(
+        "[releaseDueReferralHolds] release failed",
+        row.source_ref,
+        error.message
+      );
       retried += 1;
       continue;
     }
-    await service
-      .from("referral_rewards")
-      .update({
-        status: "granted",
-        ledger_entry_id: ledgerId,
-        granted_at: new Date().toISOString(),
-      })
-      .eq("source_ref", row.source_ref as string)
-      .eq("status", "pending_hold");
-    released += 1;
+    const outcome = (
+      (Array.isArray(data) ? data[0] : data) as { outcome?: string } | null
+    )?.outcome;
+    if (outcome === "granted" || outcome === "duplicate") released += 1;
+    else if (outcome === "budget_exhausted") retried += 1;
+    // cancelled/rejected/not_due — the refund path or a racing run owns it.
   }
   return { released, retried };
 }
@@ -380,22 +375,35 @@ export async function reverseReferrerShareForRefund(input: {
     .maybeSingle();
   if (!reward) return;
 
+  let grantedReward = reward;
   if (reward.status === "pending" || reward.status === "pending_hold") {
-    await service
+    const { data: cancelled } = await service
       .from("referral_rewards")
       .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
       .eq("id", reward.id)
-      .in("status", ["pending", "pending_hold"]);
+      .in("status", ["pending", "pending_hold"])
+      .select("id");
+    if (cancelled?.length) return;
+
+    // Lost the race with the hold release: the row settled to 'granted'
+    // between our read and the cancel attempt — re-read and claw back
+    // instead of returning with live credits against a refund.
+    const { data: current } = await service
+      .from("referral_rewards")
+      .select("id, referrer_user_id, referee_user_id, credits, status")
+      .eq("id", reward.id)
+      .maybeSingle();
+    if (!current || current.status !== "granted") return;
+    grantedReward = current;
+  } else if (reward.status !== "granted") {
     return;
   }
-
-  if (reward.status !== "granted") return;
 
   // Already granted — claw back what remains recoverable (03 §4). Same
   // rule as the buyer reversal: cap at available balance, record the
   // unrecovered remainder as loss in metadata.
-  const referrerId = reward.referrer_user_id as string;
-  const credits = Number(reward.credits ?? 0);
+  const referrerId = grantedReward.referrer_user_id as string;
+  const credits = Number(grantedReward.credits ?? 0);
   if (credits <= 0) return;
 
   const idempotencyKey = `referral_clawback:${reward.id}`;

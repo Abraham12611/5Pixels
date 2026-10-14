@@ -219,3 +219,53 @@ describe("legacy overload cleanup", () => {
     );
   });
 });
+
+describe("atomic hold release — refund race fix", () => {
+  const releaseSql = readFileSync(
+    join(
+      __dirname,
+      "../../../../../supabase/migrations/20261020000001_release_referral_hold.sql"
+    ),
+    "utf-8"
+  );
+  const releaseBody = releaseSql.slice(
+    releaseSql.indexOf("FUNCTION public.release_referral_hold")
+  );
+
+  it("locks the reward row before granting — the refund update serializes on it", () => {
+    expect(releaseBody).toContain("FOR UPDATE");
+    expect(releaseBody.indexOf("FOR UPDATE")).toBeLessThan(
+      releaseBody.indexOf("grant_subsidy_credits")
+    );
+    expect(releaseBody.indexOf("FOR UPDATE")).toBeLessThan(
+      releaseBody.indexOf("SET status = 'granted'")
+    );
+  });
+
+  it("confirms pending_hold and due before touching the budget", () => {
+    expect(releaseBody).toContain("v_reward.status <> 'pending_hold'");
+    expect(releaseBody).toContain("'not_due'");
+  });
+
+  it("keeps budget exhaustion non-destructive — the hold stays pending", () => {
+    const exhaustedIdx = releaseBody.indexOf("'budget_exhausted'");
+    const grantedIdx = releaseBody.indexOf("SET status = 'granted'");
+    expect(exhaustedIdx).toBeGreaterThan(-1);
+    expect(grantedIdx).toBeGreaterThan(-1);
+    // The exhausted RETURN must precede the granted update — and no
+    // update of any kind happens on that path.
+    expect(exhaustedIdx).toBeLessThan(grantedIdx);
+  });
+
+  it("dedupes an already-granted reward and is service-role only", () => {
+    expect(releaseBody).toContain("'duplicate'");
+    expect(releaseBody).toContain("SECURITY DEFINER");
+    expect(releaseSql).toMatch(
+      /REVOKE ALL ON FUNCTION public\.release_referral_hold[\s\S]*?FROM PUBLIC, anon, authenticated/
+    );
+    expect(releaseSql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.release_referral_hold[\s\S]*?TO service_role/
+    );
+    expect(releaseBody).toContain("SET search_path = ''");
+  });
+});

@@ -243,33 +243,49 @@ describe("releaseDueReferralHolds", () => {
     hold_until: new Date(Date.now() - 86_400_000).toISOString(), // due
   };
 
-  it("settles a due hold through the referral budget", async () => {
+  it("settles a due hold through the atomic release RPC", async () => {
     fake.seed("referral_rewards", [{ ...heldRow }]);
-    stubSubsidy("granted");
+    fake.rpcHandlers.set("release_referral_hold", (args) => {
+      rpcCalls.push({ fn: "release_referral_hold", args });
+      return [{ outcome: "granted", ledger_id: "ledger-1" }];
+    });
 
     const result = await releaseDueReferralHolds();
 
     expect(result).toEqual({ released: 1, retried: 0 });
-    const grant = rpcCalls.find((c) => c.fn === "grant_subsidy_credits");
-    expect(grant?.args).toMatchObject({
-      p_user_id: "referrer-1",
-      p_program: "referral_budget",
-      p_credits: 327,
+    expect(rpcCalls[0]).toMatchObject({
+      fn: "release_referral_hold",
+      args: { p_source_ref: "payment_share:buyer-1" },
     });
-    expect(fake.table("referral_rewards")[0]).toMatchObject({
-      status: "granted",
-      ledger_entry_id: "ledger-1",
-    });
+    // Grant + status flip happen inside the RPC — no separate update.
+    expect(
+      rpcCalls.some((c) => c.fn === "grant_subsidy_credits")
+    ).toBe(false);
   });
 
   it("leaves the hold pending for retry when the budget is exhausted", async () => {
     fake.seed("referral_rewards", [{ ...heldRow }]);
-    stubSubsidy("budget_exhausted");
+    fake.rpcHandlers.set("release_referral_hold", (args) => {
+      rpcCalls.push({ fn: "release_referral_hold", args });
+      return [{ outcome: "budget_exhausted", ledger_id: null }];
+    });
 
     const result = await releaseDueReferralHolds();
 
     expect(result).toEqual({ released: 0, retried: 1 });
     expect(fake.table("referral_rewards")[0].status).toBe("pending_hold");
+  });
+
+  it("skips holds the refund path already cancelled", async () => {
+    fake.seed("referral_rewards", [{ ...heldRow }]);
+    fake.rpcHandlers.set("release_referral_hold", (args) => {
+      rpcCalls.push({ fn: "release_referral_hold", args });
+      return [{ outcome: "cancelled", ledger_id: null }];
+    });
+
+    const result = await releaseDueReferralHolds();
+
+    expect(result).toEqual({ released: 0, retried: 0 });
   });
 
   it("skips holds whose window has not elapsed", async () => {

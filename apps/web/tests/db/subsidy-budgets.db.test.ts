@@ -200,6 +200,89 @@ describe("claim_referrer_reward cap", () => {
   });
 });
 
+describe("refund vs hold release race", () => {
+  it("never produces a cancelled reward with live credits", async () => {
+    await withDbClients(2, async ([clientA, clientB]) => {
+      const referrer = await makeUser(clientA);
+      const referee = await makeUser(clientA);
+      const sourceRef = `race:pshare:${referee.userId}`;
+      const ledgerKey = `referral:payment_share:${referee.userId}`;
+      await clientA.query(
+        `INSERT INTO public.referral_rewards
+           (source_ref, referrer_user_id, referee_user_id, kind, credits, status, hold_until)
+         VALUES ($1, $2, $3, 'referrer_payment_share', 100, 'pending_hold',
+                 NOW() - INTERVAL '1 day')`,
+        [sourceRef, referrer.userId, referee.userId]
+      );
+
+      // Race: atomic release_referral_hold vs the refund path's
+      // pending/pending_hold → cancelled update. Both serialize on the
+      // reward row lock — exactly one wins.
+      const [release, cancel] = await Promise.all([
+        asService(clientA, () =>
+          clientA.query(
+            `SELECT outcome, ledger_id FROM public.release_referral_hold($1)`,
+            [sourceRef]
+          )
+        ),
+        clientB.query(
+          `UPDATE public.referral_rewards
+           SET status = 'cancelled', cancelled_at = NOW()
+           WHERE source_ref = $1 AND status IN ('pending', 'pending_hold')`,
+          [sourceRef]
+        ),
+      ]);
+
+      const { rows: rewards } = await clientA.query(
+        `SELECT status FROM public.referral_rewards WHERE source_ref = $1`,
+        [sourceRef]
+      );
+      const { rows: ledger } = await clientA.query(
+        `SELECT COUNT(*)::int AS n FROM public.credit_ledger
+         WHERE user_id = $1 AND idempotency_key = $2`,
+        [referrer.userId, ledgerKey]
+      );
+
+      if (rewards[0].status === "cancelled") {
+        // Refund won the row lock: the release must report not-releasable
+        // and no credits may exist.
+        expect(release.rows[0].outcome).toBe("cancelled");
+        expect(cancel.rowCount).toBe(1);
+        expect(ledger[0].n).toBe(0);
+      } else {
+        // Release won: cancel touched zero rows, credits exist — the
+        // refund path's re-read then claws them back (mirrored here).
+        expect(release.rows[0].outcome).toBe("granted");
+        expect(rewards[0].status).toBe("granted");
+        expect(cancel.rowCount).toBe(0);
+        expect(ledger[0].n).toBe(1);
+
+        await clientB.query(
+          `INSERT INTO public.credit_ledger
+             (user_id, entry_type, amount, currency_unit, idempotency_key, metadata)
+           SELECT $1, 'debit',
+                  -LEAST(100, GREATEST(0, COALESCE(SUM(l.amount), 0))),
+                  'credits', 'claw:' || $2, '{}'::jsonb
+           FROM public.credit_ledger l WHERE l.user_id = $1`,
+          [referrer.userId, sourceRef]
+        );
+        await clientB.query(
+          `UPDATE public.referral_rewards
+           SET status = 'clawed_back' WHERE source_ref = $1 AND status = 'granted'`,
+          [sourceRef]
+        );
+
+        const { rows: bal } = await clientA.query(
+          `SELECT COALESCE(SUM(amount), 0)::int AS v
+           FROM public.credit_ledger WHERE user_id = $1`,
+          [referrer.userId]
+        );
+        expect(bal[0].v).toBe(0);
+      }
+    });
+  });
+});
+
 describe("referral refund-window hold", () => {
   it("a pending_hold reward cancelled by refund never mints credits", async () => {
     await withDb(async (client) => {
