@@ -75,6 +75,12 @@ export interface FalPricingSyncReport {
   snapshotsWritten: number;
   renewed: number;
   unchanged: number;
+  /**
+   * Inserts that failed on rows identical to the current snapshot (renewal
+   * copies). Failures where the price content CHANGED don't land here —
+   * those are fatal to the run (see PricingSyncFatal).
+   */
+  renewalWriteFailures: string[];
   unsupported: { endpointId: string; reason: string }[];
   alertsRaised: string[];
 }
@@ -152,6 +158,14 @@ function snapshotContentHash(
 /** Round to 6dp — kills binary-float noise (0.08 × 1.5 = 0.12000000000000001). */
 function usd(value: number): number {
   return Number(value.toFixed(6));
+}
+
+/** "3h 42m" for alert copy. */
+function formatRemaining(ms: number): string {
+  const mins = Math.max(0, Math.ceil(ms / 60_000));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 /**
@@ -368,6 +382,7 @@ export async function runFalPricingSync(
     snapshotsWritten: 0,
     renewed: 0,
     unchanged: 0,
+    renewalWriteFailures: [],
     unsupported: [],
     alertsRaised: [],
   };
@@ -456,6 +471,7 @@ export async function runFalPricingSync(
 
   // Per-definition snapshot write. Every outcome is a fresh immutable row
   // (or a dedupe skip) — never an UPDATE of history.
+  const changedWriteFailures: string[] = [];
   for (const def of definitions) {
     const { data: latestRow } = await client
       .from("provider_pricing_snapshots")
@@ -476,7 +492,28 @@ export async function runFalPricingSync(
 
     if (fetchFailed.has(def.endpointId)) {
       // We don't know this endpoint's price — leave the existing snapshot
-      // to expire naturally; the staleness scan below catches the lapse.
+      // to expire naturally, but say so immediately: an operator who sees
+      // "still valid for 3h 42m" has a window to react before the route
+      // starts serving pricing_unavailable.
+      const remainingMs = latest
+        ? Date.parse(latest.expires_at) - now.getTime()
+        : 0;
+      await raiseAlert(
+        client,
+        "warning",
+        "pricing_refresh_failed",
+        `Fal pricing fetch failed for ${def.endpointId}; ${
+          remainingMs > 0
+            ? `current snapshot remains valid for ${formatRemaining(remainingMs)}`
+            : "no valid snapshot remains — route will fail closed"
+        }`,
+        {
+          endpoint_id: def.endpointId,
+          snapshot_expires_at: latest?.expires_at ?? null,
+        },
+        raised
+      );
+      report.alertsRaised.push(`${def.endpointId}:refresh_failed`);
       continue;
     } else if (!record) {
       reason = "missing_from_feed";
@@ -542,11 +579,32 @@ export async function runFalPricingSync(
       source: SNAPSHOT_SOURCE,
     });
     if (error) {
-      console.error(
-        "[pricing-sync] snapshot insert failed",
-        def.endpointId,
-        error.message
+      // Silent persistence failure is the dangerous case: Fal may have
+      // reported a NEW price while the old snapshot still reads "fresh" —
+      // the route would keep quoting stale numbers with no signal. Alert
+      // always; make it fatal when the lost row carried changed content.
+      const contentChanged = latest?.content_hash !== hash;
+      if (contentChanged) {
+        changedWriteFailures.push(def.endpointId);
+      } else {
+        report.renewalWriteFailures.push(def.endpointId);
+      }
+      await raiseAlert(
+        client,
+        contentChanged ? "critical" : "warning",
+        "pricing_snapshot_write_failed",
+        contentChanged
+          ? `Fal reported updated pricing for ${def.endpointId} but the new snapshot could not be persisted — the route keeps quoting the previous snapshot until it expires: ${error.message}`
+          : `Failed to renew the unchanged pricing snapshot for ${def.endpointId}: ${error.message}`,
+        {
+          endpoint_id: def.endpointId,
+          reason,
+          content_changed: contentChanged,
+          error: error.message,
+        },
+        raised
       );
+      report.alertsRaised.push(`${def.endpointId}:snapshot_write_failed`);
       continue;
     }
     report.snapshotsWritten++;
@@ -578,6 +636,15 @@ export async function runFalPricingSync(
       );
       report.alertsRaised.push(`${def.endpointId}:unquotable`);
     }
+  }
+
+  // A run that couldn't persist NEW pricing isn't successful — the feed
+  // answered, we knew the price moved, and the stored state stayed stale.
+  // Surface it as a 500 after every other endpoint got its chance to write.
+  if (changedWriteFailures.length > 0) {
+    throw new PricingSyncFatal(
+      `failed to persist updated pricing snapshots for: ${changedWriteFailures.join(", ")}`
+    );
   }
 
   return report;

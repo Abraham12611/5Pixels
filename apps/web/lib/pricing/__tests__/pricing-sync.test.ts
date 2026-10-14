@@ -73,6 +73,38 @@ function makeClient() {
   return client;
 }
 
+/**
+ * Makes provider_pricing_snapshots inserts fail for rows matching
+ * `failFor` — wraps the FakeQuery's `insert` so it resolves with a
+ * supabase-js-style `{ error }` instead of writing.
+ */
+function failSnapshotInserts(
+  client: FakeServiceClient,
+  failFor: (row: Record<string, unknown>) => boolean
+) {
+  const origFrom = client.from.bind(client);
+  client.from = ((table: string) => {
+    const q = origFrom(table) as {
+      insert: (rows: unknown) => unknown;
+      [k: string]: unknown;
+    };
+    if (table !== "provider_pricing_snapshots") return q;
+    const origInsert = q.insert.bind(q);
+    q.insert = (rows: unknown) => {
+      const arr = Array.isArray(rows) ? rows : [rows];
+      if ((arr as Record<string, unknown>[]).some(failFor)) {
+        return Promise.resolve({
+          data: null,
+          error: { message: "permission denied for table snapshots" },
+        });
+      }
+      return origInsert(rows);
+    };
+    return q;
+  }) as FakeServiceClient["from"];
+  return client;
+}
+
 function snapshots(client: FakeServiceClient) {
   return client.table("provider_pricing_snapshots");
 }
@@ -527,5 +559,92 @@ describe("runFalPricingSync", () => {
     expect(report.fetchFailedEndpoints).toBe(12);
     // The coarse batch still refreshed discovery rows.
     expect(report.feedRecords).toBe(50);
+    // …and each defined endpoint raised an immediate refresh alert rather
+    // than going quiet until the previous snapshot expires.
+    const refreshAlerts = alerts(client).filter(
+      (a) => a.rule === "pricing_refresh_failed"
+    );
+    expect(refreshAlerts).toHaveLength(2);
+    expect(refreshAlerts.map((a) => a.details.endpoint_id).sort()).toEqual(
+      [FLAT.endpointId, TIERED.endpointId].sort()
+    );
+    expect(refreshAlerts[0]!.severity).toBe("warning");
+  });
+
+  it("changed-content insert failure is critical + fails the run", async () => {
+    const client = makeClient();
+    // First run succeeds — an $0.08 snapshot exists.
+    await runFalPricingSync(
+      client as never,
+      deps(
+        feedFetch([
+          priceRow(FLAT.endpointId, 0.0398),
+          priceRow(TIERED.endpointId, 0.08),
+        ])
+      )
+    );
+    // Fal moves to $0.10 for FLAT but its insert fails — the stale $0.08
+    // row is still "fresh", so without a loud failure the route would keep
+    // quoting the old price unnoticed.
+    failSnapshotInserts(client, (r) => r.endpoint_id === FLAT.endpointId);
+    const later = new Date(NOW.getTime() + 60 * 60 * 1000);
+    await expect(
+      runFalPricingSync(
+        client as never,
+        deps(
+          feedFetch([
+            priceRow(FLAT.endpointId, 0.045),
+            priceRow(TIERED.endpointId, 0.08),
+          ]),
+          { now: later }
+        )
+      )
+    ).rejects.toBeInstanceOf(PricingSyncFatal);
+    const writeAlerts = alerts(client).filter(
+      (a) => a.rule === "pricing_snapshot_write_failed"
+    );
+    expect(writeAlerts).toHaveLength(1);
+    expect(writeAlerts[0]!.severity).toBe("critical");
+    expect(writeAlerts[0]!.details.endpoint_id).toBe(FLAT.endpointId);
+    expect(writeAlerts[0]!.details.content_changed).toBe(true);
+    // The unchanged TIERED snapshot still deduped normally.
+    expect(
+      snapshots(client).filter((r) => r.endpoint_id === TIERED.endpointId)
+    ).toHaveLength(1);
+  });
+
+  it("identical-content insert failure alerts as warning but stays 200", async () => {
+    const client = makeClient();
+    await runFalPricingSync(
+      client as never,
+      deps(
+        feedFetch([
+          priceRow(FLAT.endpointId, 0.0398),
+          priceRow(TIERED.endpointId, 0.08),
+        ])
+      )
+    );
+    // 4h later: same price, inside the renewal window — the write is a
+    // refresh copy, not new information. Failure is noisy but not fatal:
+    // the existing snapshot remains valid for ~2h more.
+    failSnapshotInserts(client, (r) => r.endpoint_id === FLAT.endpointId);
+    const later = new Date(NOW.getTime() + 4 * 60 * 60 * 1000);
+    const report = await runFalPricingSync(
+      client as never,
+      deps(
+        feedFetch([
+          priceRow(FLAT.endpointId, 0.0398),
+          priceRow(TIERED.endpointId, 0.08),
+        ]),
+        { now: later }
+      )
+    );
+    expect(report.renewalWriteFailures).toEqual([FLAT.endpointId]);
+    const writeAlerts = alerts(client).filter(
+      (a) => a.rule === "pricing_snapshot_write_failed"
+    );
+    expect(writeAlerts).toHaveLength(1);
+    expect(writeAlerts[0]!.severity).toBe("warning");
+    expect(writeAlerts[0]!.details.content_changed).toBe(false);
   });
 });

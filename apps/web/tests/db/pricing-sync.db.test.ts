@@ -28,17 +28,19 @@ const TEST_SERVICE_KEY =
 
 const FAR_FUTURE = "2027-06-01T00:00:00Z";
 
-// Test-only endpoints — no seed rows exist for these ids, so each run has a
-// clean slate and repeated runs exercise the dedupe path.
+// Test-only endpoints, unique per run: snapshot history is immutable, so a
+// warm local DB keeps rows from earlier runs and dedupe would (correctly)
+// skip re-writing them — unique ids keep every run's assertions exact.
+const RUN = Math.random().toString(36).slice(2, 8);
 const DB_FLAT: FalPricingDefinition = {
-  endpointId: "fal-ai/db-test-flat/edit",
+  endpointId: `fal-ai/db-test-flat-${RUN}/edit`,
   definitionVersion: 1,
   pricingType: "flat_per_request",
   feedUnit: "images",
   componentsVerifiedUntil: FAR_FUTURE,
 };
 const DB_TIERED: FalPricingDefinition = {
-  endpointId: "fal-ai/db-test-tiered/edit",
+  endpointId: `fal-ai/db-test-tiered-${RUN}/edit`,
   definitionVersion: 1,
   pricingType: "resolution_tier",
   feedUnit: "images",
@@ -103,9 +105,14 @@ describe("pricing sync against real schema", () => {
       .in("endpoint_id", [DB_FLAT.endpointId, DB_TIERED.endpointId])
       .order("fetched_at", { ascending: false });
     expect(error).toBeNull();
-    expect(data).toHaveLength(2);
+    // Rows are immutable history — a warm local DB may hold expired rows
+    // from earlier runs. Assert against the newest row per endpoint.
+    const latest = new Map(data!.map((r) => [r.endpoint_id, r]));
+    expect([...latest.keys()].sort()).toEqual(
+      [DB_FLAT.endpointId, DB_TIERED.endpointId].sort()
+    );
 
-    const tiered = data!.find((r) => r.endpoint_id === DB_TIERED.endpointId)!;
+    const tiered = latest.get(DB_TIERED.endpointId)!;
     expect(tiered.content_hash).toBeTruthy();
     expect(tiered.source).toBe("pricing-sync");
     expect(tiered.payload.pricing_type).toBe("resolution_tier");
@@ -136,7 +143,7 @@ describe("pricing sync against real schema", () => {
     const client = serviceClient();
     const staleDef: FalPricingDefinition = {
       ...DB_TIERED,
-      endpointId: "fal-ai/db-test-stale/edit",
+      endpointId: `fal-ai/db-test-stale-${RUN}/edit`,
       componentsVerifiedUntil: "2026-10-01T00:00:00Z",
     };
     await runFalPricingSync(client, {
@@ -165,7 +172,7 @@ describe("pricing sync against real schema", () => {
     const client = serviceClient();
     const suspended: FalPricingDefinition = {
       ...DB_FLAT,
-      endpointId: "fal-ai/db-test-suspended/edit",
+      endpointId: `fal-ai/db-test-suspended-${RUN}/edit`,
     };
     await withDb(async (pg) => {
       await pg.query(
@@ -200,14 +207,15 @@ describe("pricing sync against real schema", () => {
     const client = serviceClient();
     await sync(client);
     const rows = await getPricingRouteStatus(client);
-    const ours = rows.filter((r) => r.endpointId.startsWith("fal-ai/db-test"));
+    // Warm DBs carry earlier runs' rows too — scope to this run's ids.
+    const ours = rows.filter((r) => r.endpointId.endsWith(`-${RUN}/edit`));
     expect(ours.length).toBeGreaterThanOrEqual(2);
     const tiered = ours.find((r) => r.endpointId === DB_TIERED.endpointId)!;
     expect(tiered.quotable).toBe(true);
     expect(tiered.stale).toBe(false);
     expect(tiered.snapshotSource).toBe("pricing-sync");
     const suspended = ours.find(
-      (r) => r.endpointId === "fal-ai/db-test-suspended/edit"
+      (r) => r.endpointId === `fal-ai/db-test-suspended-${RUN}/edit`
     );
     expect(suspended?.endpointState).toBe("suspended");
   });

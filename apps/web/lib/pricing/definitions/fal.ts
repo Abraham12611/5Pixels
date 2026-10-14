@@ -72,10 +72,13 @@ export interface FalPricingDefinition {
 /**
  * All six definitions were verified against fal.ai model docs on
  * 2026-10-09/10 (see the fixed_credit_pricing migration comments). Static
- * components are trusted for ~90 days — pricing interpretations rot quietly,
- * so they expire and demand a human re-check instead of silently renewing.
+ * components are trusted for 30 days — Fal explicitly notes pricing can
+ * change, and tiers/surcharges are exactly what the base pricing API can't
+ * refresh, so they expire and demand a human re-check instead of silently
+ * renewing. To re-verify: check the model docs, bump the date (and
+ * definitionVersion if anything changed), ship it.
  */
-const VERIFIED_UNTIL_2026_10 = "2027-01-09T00:00:00Z";
+const VERIFIED_UNTIL_2026_10 = "2026-11-09T00:00:00Z";
 
 export const FAL_PRICING_DEFINITIONS: readonly FalPricingDefinition[] = [
   {
