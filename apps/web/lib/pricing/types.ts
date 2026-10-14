@@ -25,10 +25,7 @@ export interface PricingPolicy {
 
 /** Normalized pricing payload stored on provider_pricing_snapshots. */
 export type PricingType =
-  | "flat_per_request"
-  | "per_megapixel"
-  | "resolution_tier"
-  | "unsupported";
+  "flat_per_request" | "per_megapixel" | "resolution_tier" | "unsupported";
 
 export interface SnapshotPayload {
   pricing_type: PricingType;
@@ -50,6 +47,27 @@ export interface SnapshotPayload {
    * recognized neutral/default.
    */
   modifiers?: Record<string, Record<string, number>>;
+  /**
+   * unsupported only: why the endpoint can't be quoted (missing feed
+   * record, malformed price, verification expired, …). Display/debug only —
+   * the adapter treats every unsupported payload as unsafe regardless.
+   */
+  unsupported_reason?: string;
+  /**
+   * Where each cost-bearing component came from — written by pricing sync
+   * (#104) so a snapshot's freshness is auditable per component rather than
+   * per row. Adapters ignore it entirely.
+   */
+  provenance?: {
+    definition_version: number;
+    components: Record<
+      string,
+      { source: "fal_pricing_api" | "verified_definition" } & Record<
+        string,
+        unknown
+      >
+    >;
+  };
 }
 
 /**

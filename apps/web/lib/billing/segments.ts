@@ -35,7 +35,7 @@ export interface BlockedCreditContext {
   planEndsAt?: string | null;
   /** Lapsed users' most recent non-weekly plan — preselected reactivation. */
   resumePlan?: ResumePlan | null;
-  /** GrowSurf-attributed signup — paywall gets a referral footnote. */
+  /** Referred signup — paywall gets a referral footnote. */
   isReferred: boolean;
   /** Global promo opt-out — suppresses the offer ladder inside the surface. */
   offersOptedOut: boolean;

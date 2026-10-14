@@ -91,8 +91,18 @@ jobs:
         with:
           version: 2.119.0
       - run: pnpm install --frozen-lockfile
-      - name: Start local Postgres
-        run: supabase db start
+      - name: Start local Supabase stack
+        run: supabase start
+      - name: Export local Supabase credentials
+        run: |
+          # `status -o env` emits shell-quoted KEY="value" pairs; GITHUB_ENV
+          # takes values literally, so the quotes must be stripped.
+          supabase status -o env \
+            | grep -E '^(API_URL|SERVICE_ROLE_KEY)=' \
+            | sed -e 's/^API_URL=/SUPABASE_TEST_URL=/' \
+                  -e 's/^SERVICE_ROLE_KEY=/SUPABASE_TEST_SERVICE_ROLE_KEY=/' \
+                  -e 's/"//g' \
+            >> "$GITHUB_ENV"
       - name: Apply migrations
         run: supabase db reset
       - name: Run financial DB suite
