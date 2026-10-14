@@ -1,7 +1,7 @@
 /**
  * Article slug helpers — the client-side mirror of
  * public.article_slugify() / the articles.slug CHECK constraint in
- * supabase/migrations/20261016000001_articles_foundation.sql.
+ * supabase/migrations/20261018000001_articles_foundation.sql.
  * Keep the two implementations in sync.
  */
 

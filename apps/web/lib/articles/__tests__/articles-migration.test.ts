@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 const sql = readFileSync(
   join(
     __dirname,
-    "../../../../../supabase/migrations/20261016000001_articles_foundation.sql"
+    "../../../../../supabase/migrations/20261018000001_articles_foundation.sql"
   ),
   "utf-8"
 );
@@ -58,6 +58,35 @@ describe("articles foundation migration", () => {
     expect(publish).toContain("INSERT INTO public.article_publications");
     expect(publish).toContain("status = 'published'");
     expect(publish).toContain("current_publication_id");
+  });
+
+  it("validates the document schema inside publish_article", () => {
+    // Publish is the trust boundary: malformed content must be rejected even
+    // when the RPC is invoked directly, outside the app's Zod layer.
+    const publish = sql.slice(sql.indexOf("FUNCTION public.publish_article"));
+    expect(publish).toContain("public.article_document_error");
+    expect(publish.indexOf("article_document_error")).toBeLessThan(
+      publish.indexOf("INSERT INTO public.article_publications")
+    );
+    // The validator itself mirrors lib/articles/document.ts bounds and
+    // checks every block's structural shape (type/id/props/content/children).
+    const validator = sql.slice(
+      sql.indexOf("FUNCTION public.article_document_error"),
+      sql.indexOf("4. articles")
+    );
+    for (const check of [
+      "document_not_array",
+      "document_too_large",
+      "document_too_many_blocks",
+      "document_too_deep",
+      "block_not_object",
+      "block_bad_type",
+      "block_bad_props",
+      "block_bad_content",
+      "block_bad_children",
+    ]) {
+      expect(validator).toContain(check);
+    }
   });
 
   it("makes publications immutable", () => {
