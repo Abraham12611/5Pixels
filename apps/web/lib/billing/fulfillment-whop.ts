@@ -7,7 +7,7 @@ import {
 } from "./whop-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
-import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
+import { grantReferrerPaymentShare } from "@/lib/referrals/rewards";
 
 /**
  * Whop fulfillment — mirrors fulfillment-creem.ts against Whop webhook
@@ -571,7 +571,6 @@ const ATTRIBUTION_KEYS = [
   "experiment_key",
   "variant_key",
   "ladder_stage",
-  "growsurf_participant_id",
   "campaign_id",
   "campaign_variant",
   "campaign_step",
@@ -711,11 +710,11 @@ async function fulfillMembershipCharge(input: {
   );
 
   try {
-    await awardOrHoldReferrerShare({
-      buyerUserId: mapping.userId,
+    await grantReferrerPaymentShare(
+      mapping.userId,
       plan,
-      orderId: paymentId ?? `${info.membershipId}:${info.currentPeriodEnd}`,
-    });
+      paymentId ?? `${info.membershipId}:${info.currentPeriodEnd}`
+    );
   } catch (err) {
     console.error(
       "[fulfillMembershipCharge] referral reward failed:",
@@ -884,11 +883,7 @@ export async function fulfillWhopPaymentSucceeded(
   );
 
   try {
-    await awardOrHoldReferrerShare({
-      buyerUserId: mapping.userId,
-      plan,
-      orderId: payment.id,
-    });
+    await grantReferrerPaymentShare(mapping.userId, plan, payment.id);
   } catch (err) {
     console.error(
       "[fulfillWhopPaymentSucceeded] referral reward failed:",
