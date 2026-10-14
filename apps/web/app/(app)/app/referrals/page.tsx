@@ -7,6 +7,7 @@ import {
   getReferralStats,
   REFERRER_SIGNUP_BONUS,
   REFEREE_SIGNUP_BONUS,
+  REFERRER_REWARD_CAP,
 } from "@/lib/referrals/rewards";
 import { getSiteUrl } from "@/lib/auth/url";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -18,7 +19,8 @@ export const metadata = { title: "Referrals — 5Pixels" };
  * First-party referral hub (07 §3 — Blackbird share anatomy + Open
  * give/get framing). Every user has a human code on profiles.referral_code;
  * the link is /r/<code> and the same code is claimable by hand during
- * onboarding. GrowSurf stays dormant — this surface no longer embeds it.
+ * onboarding. Referrer rewards are capped at REFERRER_REWARD_CAP referees
+ * (issue #110) — referrals past the cap still count, they just don't pay.
  */
 export default async function ReferralsPage() {
   const supabase = await createClient();
@@ -125,7 +127,10 @@ export default async function ReferralsPage() {
 
         <p className="text-text-muted text-xs leading-relaxed">
           Codes are for new accounts only — one referral per signup. Rewards
-          land when your friend joins and when they pick their first plan.
+          land when your friend joins and when they pick their first plan,
+          for up to {REFERRER_REWARD_CAP} friends. Friends who join after
+          that still get their welcome bonus — you just don&rsquo;t earn on
+          them.
         </p>
       </div>
     </SettingsShell>
