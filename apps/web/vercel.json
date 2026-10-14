@@ -9,6 +9,10 @@
       "schedule": "10 6 * * *"
     },
     {
+      "path": "/api/cron/pricing-sync",
+      "schedule": "23 */2 * * *"
+    },
+    {
       "path": "/api/cron/referral-hold-release",
       "schedule": "30 0 * * *"
     }

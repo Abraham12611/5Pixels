@@ -1,6 +1,7 @@
+import path from "path";
 import { defineConfig } from "vitest/config";
 
-// Database integration suite — real Postgres via `supabase db start`.
+// Database integration suite — real Postgres/PostgREST via `supabase start`.
 // Separate from vitest.config.ts so `pnpm test` never requires a database.
 export default defineConfig({
   test: {
@@ -11,5 +12,14 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 30000,
     hookTimeout: 30000,
+  },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "."),
+      "@5pixels/shared": path.resolve(
+        __dirname,
+        "../../packages/shared/src/index.ts"
+      ),
+    },
   },
 });
