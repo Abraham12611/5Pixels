@@ -16,6 +16,7 @@ import {
   Users,
   Megaphone,
   Tag,
+  PiggyBank,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,7 @@ const NAV_GROUPS: AdminNavGroup[] = [
       { label: "Pricing", href: "/admin/pricing", icon: Tag },
       { label: "Support", href: "/admin/support", icon: ChatCircle },
       { label: "Alerts", href: "/admin/alerts", icon: WarningOctagon },
+      { label: "Budgets", href: "/admin/budgets", icon: PiggyBank },
       { label: "Audit", href: "/admin/audit", icon: FileText },
     ],
   },

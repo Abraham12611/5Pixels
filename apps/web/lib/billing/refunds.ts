@@ -1,7 +1,7 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/service";
-import { reverseReferrerShareForRefund } from "@/lib/growsurf/sync";
+import { reverseReferrerShareForRefund } from "@/lib/referrals/rewards";
 
 export interface WhopRefundObject {
   id?: string;

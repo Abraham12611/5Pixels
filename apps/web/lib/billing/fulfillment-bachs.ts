@@ -8,7 +8,7 @@ import {
 } from "./bachs-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
-import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
+import { grantReferrerPaymentShare } from "@/lib/referrals/rewards";
 
 /**
  * Bachs fulfillment — mirrors fulfillment-whop.ts against Bachs webhook
@@ -555,7 +555,6 @@ const ATTRIBUTION_KEYS = [
   "experiment_key",
   "variant_key",
   "ladder_stage",
-  "growsurf_participant_id",
   "campaign_id",
   "campaign_variant",
   "campaign_step",
@@ -715,11 +714,11 @@ async function fulfillSubscriptionCharge(input: {
   );
 
   try {
-    await awardOrHoldReferrerShare({
-      buyerUserId: mapping.userId,
+    await grantReferrerPaymentShare(
+      mapping.userId,
       plan,
-      orderId: chargeId ?? `${info.subscriptionId}:${info.currentPeriodEnd}`,
-    });
+      chargeId ?? `${info.subscriptionId}:${info.currentPeriodEnd}`
+    );
   } catch (err) {
     console.error(
       "[fulfillSubscriptionCharge] referral reward failed:",
@@ -869,11 +868,7 @@ export async function fulfillBachsCollectionSucceeded(
   await recordOfferConversion(mapping.userId, metadata, chargeId, amountCents);
 
   try {
-    await awardOrHoldReferrerShare({
-      buyerUserId: mapping.userId,
-      plan,
-      orderId: chargeId,
-    });
+    await grantReferrerPaymentShare(mapping.userId, plan, chargeId);
   } catch (err) {
     console.error(
       "[fulfillBachsCollectionSucceeded] referral reward failed:",
