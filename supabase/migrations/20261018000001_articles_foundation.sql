@@ -153,8 +153,30 @@ BEGIN
     IF v_block ? 'props' AND jsonb_typeof(v_block -> 'props') <> 'object' THEN
       RETURN 'block_bad_props';
     END IF;
-    IF v_block ? 'content' AND jsonb_typeof(v_block -> 'content') <> 'array' THEN
-      RETURN 'block_bad_content';
+    -- content is InlineContent[] for most blocks, but BlockNote tables carry
+    -- a TableContent OBJECT ({type:'tableContent', rows:[{cells:[tableCell
+    -- objects]}]}). Reject anything that is neither shape.
+    IF v_block ? 'content' THEN
+      CASE jsonb_typeof(v_block -> 'content')
+        WHEN 'array' THEN NULL;
+        WHEN 'object' THEN
+          IF (v_block -> 'content' ->> 'type') IS DISTINCT FROM 'tableContent'
+             OR jsonb_typeof(v_block -> 'content' -> 'rows') IS DISTINCT FROM 'array'
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(v_block -> 'content' -> 'rows') AS r(row)
+               WHERE jsonb_typeof(r.row) IS DISTINCT FROM 'object'
+                  OR jsonb_typeof(r.row -> 'cells') IS DISTINCT FROM 'array'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(r.row -> 'cells') AS c(cell)
+                    WHERE jsonb_typeof(c.cell) IS DISTINCT FROM 'object'
+                  )
+             ) THEN
+            RETURN 'block_bad_content';
+          END IF;
+        ELSE RETURN 'block_bad_content';
+      END CASE;
     END IF;
     IF v_block ? 'children' AND jsonb_typeof(v_block -> 'children') <> 'array' THEN
       RETURN 'block_bad_children';

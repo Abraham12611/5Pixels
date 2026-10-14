@@ -74,6 +74,10 @@ describe("articles foundation migration", () => {
       sql.indexOf("FUNCTION public.article_document_error"),
       sql.indexOf("4. articles")
     );
+    // BlockNote tables persist content as a TableContent OBJECT — the
+    // validator must accept that shape, not assume content is always an
+    // array, or publishing articles containing tables would fail.
+    expect(validator).toContain("'tableContent'");
     for (const check of [
       "document_not_array",
       "document_too_large",
