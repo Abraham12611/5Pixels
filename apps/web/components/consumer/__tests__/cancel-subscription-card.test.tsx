@@ -22,7 +22,7 @@ const PROPS = {
   periodEnd: "Nov 1, 2026",
   loses: [
     "2,000 credits at every renewal",
-    "Your lower credit cost per transformation",
+    "Your higher credits-per-dollar rate",
   ],
   credits: 500,
 };

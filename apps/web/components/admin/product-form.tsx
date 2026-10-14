@@ -92,7 +92,7 @@ export function ProductForm({
       poster_asset_id: undefined,
       preview_video_asset_id: undefined,
       preview_gif_asset_id: undefined,
-      credit_cost: 1,
+      credit_cost: 0,
       featured_rank: undefined,
       version: {
         version_number: 1,
@@ -117,7 +117,7 @@ export function ProductForm({
           block_public_figures: true,
           block_minors: true,
         },
-        credit_cost: 1,
+        credit_cost: 0,
       },
       fields: [],
       filter_config:
@@ -312,20 +312,6 @@ export function ProductForm({
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="credit_cost">Credit cost</Label>
-            <Input
-              id="credit_cost"
-              type="number"
-              {...register("credit_cost", { valueAsNumber: true })}
-              className="mt-2"
-            />
-            {errors.credit_cost && (
-              <p className="text-error mt-1 text-sm">
-                {errors.credit_cost.message}
-              </p>
-            )}
-          </div>
         </div>
 
         <div className="mt-6">

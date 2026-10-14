@@ -18,6 +18,7 @@ vi.mock("@/lib/offers/conversions", () => ({
 }));
 
 import { POST } from "@/app/api/webhooks/creem/route";
+import { resetPricingPolicyCache } from "@/lib/pricing/policy";
 
 const SECRET = "whsec-creem-test";
 process.env.CREEM_WEBHOOK_SECRET = SECRET;
@@ -82,6 +83,7 @@ function subscriptionPaidEvent() {
 
 beforeEach(() => {
   fake.db.clear();
+  resetPricingPolicyCache();
   fake.seed("profiles", [{ id: "user-1", email: "u@example.com" }]);
   fake.seed("plans", [
     {
@@ -105,6 +107,18 @@ beforeEach(() => {
       metadata: { creem_product_id_test: "prod_monthly" },
     },
   ]);
+  fake.seed("pricing_policies", [
+    {
+      id: "pol-1",
+      version: 1,
+      is_active: true,
+      credit_capacity_usd: 0.01,
+      top_up_budget_ratio: 0.606,
+      quote_max_slack_factor: 1.15,
+      quote_ttl_seconds: 600,
+      snapshot_ttl_hours: 6,
+    },
+  ]);
 });
 
 describe("creem webhook route", () => {
@@ -115,10 +129,107 @@ describe("creem webhook route", () => {
 
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(1);
-    // extra_credit grants the paid amount (1 credit per cent).
-    expect(entries[0].amount).toBe(3000);
+    // extra_credit grants policy-priced credits: $30 × 0.606 → $18.18 → 1,818.
+    expect(entries[0].amount).toBe(1818);
     expect(fake.table("invoices")[0].creem_order_id).toBe("ord_1");
     expect(fake.table("profiles")[0].creem_customer_id).toBe("cust_1");
+  });
+
+  it("translates a grant pinned under an older policy denomination", async () => {
+    // Denomination cutover: checkout was created under v1 ($0.001/credit,
+    // $10 top-up → 6,060 credits) but the webhook lands after v2 activated
+    // ($0.01/credit). The pinned literal would silently become $60.60 of
+    // capacity on a $30 purchase — fulfillment must translate through the
+    // pinned version's capacity: 18,180 × $0.001 / $0.01 = 1,818.
+    fake.seed("pricing_policies", [
+      {
+        id: "pol-1",
+        version: 1,
+        is_active: false,
+        credit_capacity_usd: 0.001,
+        top_up_budget_ratio: 0.606,
+        quote_max_slack_factor: 1.15,
+        quote_ttl_seconds: 600,
+        snapshot_ttl_hours: 6,
+      },
+      {
+        id: "pol-2",
+        version: 2,
+        is_active: true,
+        credit_capacity_usd: 0.01,
+        top_up_budget_ratio: 0.606,
+        quote_max_slack_factor: 1.15,
+        quote_ttl_seconds: 600,
+        snapshot_ttl_hours: 6,
+      },
+    ]);
+
+    const event = checkoutCompletedEvent();
+    (event.object.metadata as Record<string, unknown>).credits = "18180";
+    (
+      event.object.metadata as Record<string, unknown>
+    ).pricing_policy_version = "1";
+    const res = await post(JSON.stringify(event), sign(JSON.stringify(event)));
+    expect(res.status).toBe(200);
+
+    const entries = fake.table("credit_ledger");
+    expect(entries).toHaveLength(1);
+    // $18.18 of provider budget — never the 18,180 literal ($181.80).
+    expect(entries[0].amount).toBe(1818);
+  });
+
+  it("floors fractional translations so a conversion never over-grants", async () => {
+    // 18,185 v1 credits = $18.185 → 1,818.5 v2 credits. Grants always round
+    // against the customer to protect margin — never 1,819.
+    fake.seed("pricing_policies", [
+      {
+        id: "pol-1",
+        version: 1,
+        is_active: false,
+        credit_capacity_usd: 0.001,
+        top_up_budget_ratio: 0.606,
+        quote_max_slack_factor: 1.15,
+        quote_ttl_seconds: 600,
+        snapshot_ttl_hours: 6,
+      },
+      {
+        id: "pol-2",
+        version: 2,
+        is_active: true,
+        credit_capacity_usd: 0.01,
+        top_up_budget_ratio: 0.606,
+        quote_max_slack_factor: 1.15,
+        quote_ttl_seconds: 600,
+        snapshot_ttl_hours: 6,
+      },
+    ]);
+
+    const event = checkoutCompletedEvent();
+    event.object.metadata = {
+      ...event.object.metadata,
+      credits: "18185",
+      pricing_policy_version: "1",
+    } as typeof event.object.metadata;
+    const body = JSON.stringify(event);
+    const res = await post(body, sign(body));
+    expect(res.status).toBe(200);
+    expect(fake.table("credit_ledger")[0].amount).toBe(1818);
+  });
+
+  it("grants the checkout-pinned credits, not a policy re-derivation", async () => {
+    // The checkout quoted 9,999 credits under an older policy; fulfillment
+    // must honor the purchase, not today's top_up_budget_ratio. The pin
+    // names the active version, so the grant carries over unchanged.
+    const event = checkoutCompletedEvent();
+    event.object.metadata = {
+      ...event.object.metadata,
+      credits: "9999",
+      pricing_policy_version: "1",
+    } as typeof event.object.metadata;
+    const body = JSON.stringify(event);
+    const res = await post(body, sign(body));
+    expect(res.status).toBe(200);
+    expect(fake.table("credit_ledger")[0].amount).toBe(9999);
   });
 
   it("rejects an invalid signature with 401 and writes nothing", async () => {
@@ -237,7 +348,7 @@ describe("creem webhook route", () => {
 
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(2);
-    expect(entries[1].amount).toBe(-3000);
+    expect(entries[1].amount).toBe(-1818);
     expect(entries[1].metadata.reason).toBe("refund");
     expect(fake.table("invoices")[0].status).toBe("refunded");
   });
@@ -274,7 +385,7 @@ describe("creem webhook route", () => {
 
     const entries = fake.table("credit_ledger");
     expect(entries).toHaveLength(2);
-    expect(entries[1].amount).toBe(-3000);
+    expect(entries[1].amount).toBe(-1818);
     expect(entries[1].metadata.reason).toBe("chargeback");
   });
 

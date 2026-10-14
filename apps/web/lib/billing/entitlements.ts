@@ -7,7 +7,6 @@ export interface ActivePlan {
   slug: string;
   name: string;
   type: string;
-  markupMultiplier: number;
   creditsGrant: number;
   currentPeriodEnd: string | null;
 }
@@ -105,7 +104,7 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
 
   const { data: plan, error: planError } = await supabase
     .from("plans")
-    .select("id, slug, name, type, markup_multiplier, credits_grant")
+    .select("id, slug, name, type, credits_grant")
     .eq("id", data as string)
     .single();
 
@@ -129,30 +128,9 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
     slug: plan.slug as string,
     name: plan.name as string,
     type: plan.type as string,
-    markupMultiplier: Number(plan.markup_multiplier),
     creditsGrant: Number(plan.credits_grant ?? 0),
     currentPeriodEnd: (subscription?.current_period_end as string | null) ?? null,
   };
-}
-
-export async function getUserMarkupMultiplier(userId?: string): Promise<number> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
-  if (!effectiveUserId) return 4.0;
-
-  const { data, error } = await supabase.rpc("get_user_markup_multiplier", {
-    p_user_id: effectiveUserId,
-  });
-
-  if (error || data === null) {
-    console.error("[getUserMarkupMultiplier] failed", error?.message);
-    return 4.0;
-  }
-
-  return Number(data);
 }
 
 export async function isMonthlySubscriber(userId?: string): Promise<boolean> {

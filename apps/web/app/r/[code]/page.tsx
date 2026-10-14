@@ -9,6 +9,7 @@ import {
   ReferralWelcomeTracker,
 } from "@/components/auth/referral-welcome";
 import { resolveReferrerId } from "@/lib/referrals/session";
+import { REFEREE_SIGNUP_BONUS } from "@/lib/referrals/reward-amounts";
 import { Check, Gift } from "@phosphor-icons/react/dist/ssr";
 
 export const metadata = {
@@ -56,7 +57,7 @@ export default async function ReferralWelcomePage({
     <AuthShell
       maxWidth="max-w-md"
       title={senderName ? `${senderName} sent you a gift` : "A friend sent you a gift"}
-      subtitle="25 credits plus your first transformation free — pick any Filter or Poster, upload a photo, and the result is on us."
+      subtitle={`${REFEREE_SIGNUP_BONUS} credits plus your first transformation free — pick any Filter or Poster, upload a photo, and the result is on us.`}
       footer={
         <p className="text-text-muted mt-6 text-center text-[11px] leading-relaxed">
           For new accounts — one free transformation per referred signup.
@@ -77,7 +78,7 @@ export default async function ReferralWelcomePage({
           <p className="text-cream-50 text-sm font-semibold">What you get</p>
           <ul className="text-text-secondary mt-1.5 space-y-1.5 text-[13px]">
             {[
-              "25 credits the moment you join",
+              `${REFEREE_SIGNUP_BONUS} credits the moment you join`,
               "Your first transformation free",
               "Every Filter and Poster open to try",
               "No card required to claim",

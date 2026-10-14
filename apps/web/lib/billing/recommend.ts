@@ -3,7 +3,6 @@ export interface FinderPlan {
   name: string;
   creditsGrant: number;
   priceCents: number;
-  markupMultiplier: number;
 }
 
 export type ContentType = "social" | "portraits" | "covers" | "creative";
@@ -16,8 +15,8 @@ export interface FinderSelections {
   priority: Priority | null;
 }
 
-/** Presets cost roughly 1–5 credits; ~3 is a fair blended average. */
-const AVG_CREDITS_PER_TRANSFORMATION = 3;
+/** Presets cost roughly 4–9 credits at $0.01/credit; ~6 blends the mix. */
+const AVG_CREDITS_PER_TRANSFORMATION = 6;
 
 export function estimateMonthlyCredits(perMonth: number): number {
   if (!Number.isFinite(perMonth) || perMonth <= 0) return 0;
@@ -27,7 +26,7 @@ export function estimateMonthlyCredits(perMonth: number): number {
 /**
  * Recommend the smallest monthly plan that covers estimated usage with
  * headroom. `volume` asks for extra headroom, `quality` prefers at least the
- * mid-tier (lower per-transformation credit cost), `flexibility` picks the
+ * mid-tier (more credits per dollar), `flexibility` picks the
  * smallest plan that still fits.
  */
 export function recommendPlan(
@@ -73,7 +72,7 @@ export function recommendReasons(
     );
   }
   if (selections.priority === "quality") {
-    reasons.push("Higher tiers pay fewer credits per transformation");
+    reasons.push("Higher tiers include more credits per dollar");
   } else if (selections.priority === "volume") {
     reasons.push("Best credits-per-dollar at your volume");
   } else {
