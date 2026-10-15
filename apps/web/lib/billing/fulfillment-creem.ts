@@ -9,7 +9,7 @@ import {
 } from "./creem-client";
 import { initializeSubscriptionDrip } from "./drip";
 import { recordOfferConversion } from "@/lib/offers/conversions";
-import { awardOrHoldReferrerShare } from "@/lib/growsurf/sync";
+import { grantReferrerPaymentShare } from "@/lib/referrals/rewards";
 
 /**
  * Creem fulfillment — mirrors fulfillment-polar.ts against Creem webhook
@@ -637,7 +637,6 @@ const ATTRIBUTION_KEYS = [
   "experiment_key",
   "variant_key",
   "ladder_stage",
-  "growsurf_participant_id",
   "campaign_id",
   "campaign_variant",
   "campaign_step",
@@ -764,11 +763,11 @@ async function fulfillSubscriptionCharge(input: {
   );
 
   try {
-    await awardOrHoldReferrerShare({
-      buyerUserId: mapping.userId,
+    await grantReferrerPaymentShare(
+      mapping.userId,
       plan,
-      orderId: orderId ?? `${info.subscriptionId}:${info.currentPeriodEnd}`,
-    });
+      orderId ?? `${info.subscriptionId}:${info.currentPeriodEnd}`
+    );
   } catch (err) {
     console.error(
       "[fulfillSubscriptionCharge] referral reward failed:",
@@ -955,11 +954,7 @@ export async function fulfillCreemCheckoutCompleted(
   await recordOfferConversion(mapping.userId, metadata, order.id, amountCents);
 
   try {
-    await awardOrHoldReferrerShare({
-      buyerUserId: mapping.userId,
-      plan,
-      orderId: order.id,
-    });
+    await grantReferrerPaymentShare(mapping.userId, plan, order.id);
   } catch (err) {
     console.error(
       "[fulfillCreemCheckoutCompleted] referral reward failed:",
