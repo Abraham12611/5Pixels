@@ -29,6 +29,9 @@ export const viewport: Viewport = {
   themeColor: "#080a08",
   colorScheme: "dark",
   viewportFit: "cover",
+  // BlockNote mobile compat: lets the on-screen keyboard resize the viewport
+  // so the article editor's menus/trackers stay visible (blocknotejs.org docs).
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
