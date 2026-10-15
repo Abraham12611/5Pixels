@@ -1,5 +1,10 @@
 # QA: In-house referral codes + multi-step onboarding
 
+> **Snapshot — reward amounts have drifted since.** Current amounts live in
+> `apps/web/lib/referrals/reward-amounts.ts` (referrer **+25** / referee
+> **+10** at signup, 30% first-payment share under a 14-day hold, 15-referee
+> cap). GrowSurf is now fully removed, not merely dormant.
+
 What changed: the referral identifier layer is now first-party — every user
 has a short code (`K7M-2QX` format, 6 chars from an unambiguous alphabet)
 on `profiles.referral_code`, backfilled for existing users. `/r/<code>`,

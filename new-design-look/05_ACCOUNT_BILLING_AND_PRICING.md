@@ -32,6 +32,8 @@ Higgsfield is a **reference for interaction grammar and information hierarchy**,
 
 Canonical consumer vocabulary: **Preset, Look, Transformation, Original, Result, Collection, Category, Trending, Save, Try this look, Regenerate, Adjust, Download.** Avoid exposing terms such as prompt, CFG, seed, inference, checkpoint, LoRA, scheduler, or model routing.
 
+> **Credit-policy note (canonical):** credits never expire while the account is active, and balances accumulate past a single period's grant — see `18_BILLING_CREDITS_PLAN.md`, "Canonical credit policy". Where this file says "reset/expiry" read it as **next-grant timing** (`+N credits each month`, `Next grant …`), never a balance reset or forfeiture.
+
 
 
 # P31 — Account overview
@@ -218,7 +220,7 @@ Design `/app/billing` inside the shared settings shell.
 
 Top: current plan card with plan name, cadence/renewal where applicable, and `Manage plan` or `Upgrade`.
 
-Next: Credits card with exact balance, reset/expiry explanation, five-pixel segmented meter, and `Buy credits`.
+Next: Credits card with exact balance, never-expire/next-grant explanation, five-pixel segmented meter, and `Buy credits`.
 
 Next: lightweight usage card showing this billing cycle at a glance. Useful metrics: Credits used, Transformations completed, Credits released/refunded, Credits remaining. Avoid `AI compute cost`, models, or provider metrics.
 
@@ -285,7 +287,7 @@ Design `/app/billing/credits`.
 
 Top balance module:
 - exact credits left;
-- reset/expiry note;
+- never-expire / next-grant note;
 - Buy credits action;
 - five-pixel meter.
 
@@ -456,7 +458,7 @@ Desktop comparison:
 
 Do not hide critical charges, renewal information, or failed-generation credit rules behind several layers.
 
-Below comparison, switch to a narrower reading width for FAQ. Prioritize credits, failed generations, rollover/expiry if applicable, top-ups, cancellation, privacy, storage, commercial use, and plan changes.
+Below comparison, switch to a narrower reading width for FAQ. Prioritize credits, failed generations, rollover (credits never expire — say so plainly), top-ups, cancellation, privacy, storage, commercial use, and plan changes.
 
 Finish with a small centered conversion prompt + `Choose your plan`, then quiet legal/help footer.
 

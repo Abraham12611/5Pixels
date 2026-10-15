@@ -639,7 +639,7 @@ Right content per section:
    - Generation / feedback stat cards instead of karma.
 
 2. **Subscription**
-   - Current plan card with plan name, renewal date, and **Manage / Upgrade** button that opens the Dodo customer portal.
+   - Current plan card with plan name, renewal date, and **Manage / Upgrade** button that opens the provider customer portal (currently Bachs).
    - Credits allocation card: monthly included credits, remaining, and a `Buy extra credits` action.
    - Pending **Invoices** list with `Manage billing` link.
 
@@ -773,10 +773,10 @@ The reference shows three cards:
 
 **5Pixels adaptation:**
 
-- Payment methods and billing are handled by Dodo, so we should **not** reproduce them.
-- Keep the **Pending invoices** card (link to Dodo customer portal).
+- Payment methods and billing are handled by the payment processor (currently Bachs), so we should **not** reproduce them.
+- Keep the **Pending invoices** card (link to the provider customer portal).
 - Keep a single **Billing portal** card instead of Payment methods / Billing information.
-- We can add `Pending invoices` list as a future enhancement once Dodo is fully integrated.
+- We can add `Pending invoices` list as a future enhancement.
 
 ### 22.4 Notification panel (not yet sent)
 
