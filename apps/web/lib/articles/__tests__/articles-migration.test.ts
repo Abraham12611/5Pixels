@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 const sql = readFileSync(
   join(
     __dirname,
-    "../../../../../supabase/migrations/20261018000001_articles_foundation.sql"
+    "../../../../../supabase/migrations/20261018000002_articles_foundation.sql"
   ),
   "utf-8"
 );
