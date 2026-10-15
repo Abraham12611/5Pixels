@@ -7,7 +7,11 @@ import {
   collectDocumentAssetIds,
   prepareDocumentForStorage,
 } from "./document-media";
-import { promoteArticleMedia, revokeArticleMedia } from "./media-lifecycle";
+import {
+  removeStagedPublicCopies,
+  revokeArticleMedia,
+  stageArticleMediaPublicCopies,
+} from "./media-lifecycle";
 import { normalizeSlug } from "./slug";
 import type {
   Article,
@@ -56,6 +60,9 @@ function mapRpcError(error: { message?: string; code?: string } | null): {
   else if (m.includes("invalid_tags")) code = "invalid_tags";
   else if (m.includes("invalid_content")) code = "invalid_content";
   else if (m.includes("invalid_cover_asset")) code = "invalid_cover_asset";
+  else if (m.includes("media_ref_not_ready")) code = "media_not_ready";
+  else if (m.includes("media_not_promoted")) code = "media_not_promoted";
+  else if (m.includes("media_in_use")) code = "media_in_use";
   else if (m.includes("title_required")) code = "title_required";
   else if (m.includes("content_required")) code = "content_required";
   else if (m.includes("cannot_publish_archived"))
@@ -182,24 +189,41 @@ export async function publishArticleAction(
 ): Promise<ArticleWriteResult> {
   const supabase = await createClient();
 
-  // Gate publish on media-reference integrity: every asset:// ref in the
-  // draft must be a ready/published media row of this article.
+  // Media references the publication will use: document asset:// ids + cover.
   const { data: draft } = await supabase
     .from("articles")
-    .select("draft_content")
+    .select("draft_content, cover_asset_id")
     .eq("id", articleId)
     .single();
-  const refError = await checkDocumentAssetRefs(
-    articleId,
+  const refs = new Set(
     collectDocumentAssetIds(
       Array.isArray(draft?.draft_content)
         ? (draft.draft_content as Parameters<typeof collectDocumentAssetIds>[0])
         : []
-    ),
-    true
+    )
   );
+  if (typeof draft?.cover_asset_id === "string" && draft.cover_asset_id) {
+    refs.add(draft.cover_asset_id);
+  }
+
+  const refError = await checkDocumentAssetRefs(articleId, [...refs], true);
   if (refError) {
     return { ok: false, code: "invalid_content", error: refError };
+  }
+
+  // Stage the public objects BEFORE publishing — only for the referenced
+  // assets. publish_article then verifies object presence and flips the rows
+  // inside the same transaction as the snapshot, so a failure at any point
+  // leaves the previous live publication fully intact.
+  let stagedKeys: string[];
+  try {
+    stagedKeys = await stageArticleMediaPublicCopies(articleId, [...refs]);
+  } catch {
+    return {
+      ok: false,
+      code: "media_not_promoted",
+      error: "Publishing failed while preparing media — the article was not changed.",
+    };
   }
 
   const result = await rpcResult(
@@ -208,20 +232,11 @@ export async function publishArticleAction(
       p_expected_edit_version: expectedEditVersion,
     })
   );
-  if (!result.ok) return result;
-
-  // Explicit media promotion: copy ready staging objects to the public bucket
-  // and flip the asset rows. If promotion fails, roll the article back to
-  // draft rather than leaving a live page with dead media.
-  try {
-    await promoteArticleMedia(articleId);
-  } catch {
-    await supabase.rpc("unpublish_article", { p_article_id: articleId });
-    return {
-      ok: false,
-      code: "unknown",
-      error: "Publishing failed while promoting media — the article was left as a draft.",
-    };
+  if (!result.ok) {
+    // The publication never committed — remove the staged objects (the orphan
+    // sweep is the backstop if this best-effort delete fails).
+    await removeStagedPublicCopies(stagedKeys);
+    return result;
   }
 
   revalidateArticlePaths(result.article);

@@ -276,6 +276,31 @@ $$;
 REVOKE ALL ON FUNCTION public.article_media_check_quota(UUID, BIGINT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.article_media_check_quota(UUID, BIGINT) TO authenticated;
 
+-- Asset references inside a persisted document: `asset://{uuid}` values in any
+-- block's props.url (media blocks) plus raw uuids in generation blocks'
+-- props.assetId. Recursive `**` descent reaches nested children. Anything else
+-- is ignored — external URLs and stripped/empty urls are not references.
+CREATE OR REPLACE FUNCTION public.article_document_asset_ids(p_content JSONB)
+RETURNS SETOF UUID
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$
+  SELECT DISTINCT x.id
+  FROM (
+    SELECT substring(u.val #>> '{}' from 9)::uuid AS id
+    FROM jsonb_path_query(p_content, '$.**.props.url') AS u(val)
+    WHERE (u.val #>> '{}') ~ '^asset://[0-9a-fA-F-]{36}$'
+    UNION ALL
+    SELECT (g.val #>> '{}')::uuid
+    FROM jsonb_path_query(p_content, '$.**.props.assetId') AS g(val)
+    WHERE (g.val #>> '{}') ~ '^[0-9a-fA-F-]{36}$'
+  ) x;
+$$;
+
+REVOKE ALL ON FUNCTION public.article_document_asset_ids(JSONB) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.article_document_asset_ids(JSONB) TO authenticated;
+
 -- 6. create_article_media_upload -------------------------------------------------
 -- Issues a staging path + records a pending asset/article_asset pair. Returns
 -- {asset_id, path}; the app layer mints the signed upload URL.
@@ -300,9 +325,12 @@ BEGIN
     RAISE EXCEPTION 'Forbidden: editorial staff only' USING ERRCODE = '42501';
   END IF;
 
+  -- FOR UPDATE serializes upload reservations per article — without it two
+  -- concurrent creates both see the pre-upload quota and both pass.
   SELECT * INTO v_article
   FROM public.articles
-  WHERE id = p_article_id;
+  WHERE id = p_article_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'article_not_found' USING ERRCODE = 'P0002';
@@ -473,7 +501,10 @@ BEGIN
     RAISE EXCEPTION 'Forbidden: editorial staff only' USING ERRCODE = '42501';
   END IF;
 
-  SELECT * INTO v_article FROM public.articles WHERE id = p_article_id;
+  -- FOR UPDATE serializes derivative registrations against concurrent
+  -- uploads so the per-article quota cannot be raced.
+  SELECT * INTO v_article FROM public.articles WHERE id = p_article_id
+  FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'article_not_found' USING ERRCODE = 'P0002';
   END IF;
@@ -636,6 +667,27 @@ BEGIN
     RAISE EXCEPTION 'article_media_not_found' USING ERRCODE = 'P0002';
   END IF;
 
+  -- Never delete media a live page or the working draft still references:
+  -- the current publication body, the draft body, or the cover slot.
+  IF EXISTS (
+    SELECT 1
+    FROM public.articles ar
+    WHERE ar.id = v_aa.article_id
+      AND (
+        ar.cover_asset_id = v_aa.asset_id
+        OR v_aa.asset_id IN (
+          SELECT public.article_document_asset_ids(ar.draft_content)
+        )
+        OR v_aa.asset_id IN (
+          SELECT public.article_document_asset_ids(ap.content)
+          FROM public.article_publications ap
+          WHERE ap.id = ar.current_publication_id
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'media_in_use' USING ERRCODE = 'P0001';
+  END IF;
+
   DELETE FROM public.assets WHERE id = v_aa.asset_id;
 
   RETURN jsonb_build_object(
@@ -649,44 +701,132 @@ $$;
 REVOKE ALL ON FUNCTION public.delete_article_media(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.delete_article_media(UUID) TO authenticated;
 
--- 11. Promotion / revocation -------------------------------------------------------
--- Promotion happens AFTER the app copies each staging object to the public
--- bucket (storage bytes cannot move inside a transaction). This flips every
--- ready article asset to published and repoints the assets row at the public
--- copy — atomically, per article. Re-publish is idempotent: published_key is
--- stable per asset, and already-published rows are untouched.
-CREATE OR REPLACE FUNCTION public.mark_article_media_published(p_article_id UUID)
-RETURNS INT
+-- 11. publish_article — media-aware override ----------------------------------------
+-- Publishing is where draft media becomes public, so ALL media checks live
+-- inside this transaction — direct RPC callers get the same guarantees as the
+-- Next.js action. The flow is:
+--   1. App copies ONLY the referenced assets' staging objects into the public
+--      bucket (bytes cannot move inside SQL).
+--   2. This function verifies every asset:// reference + the cover resolves to
+--      a ready/published media row of THIS article whose public object already
+--      exists — then marks exactly those rows published and de-publishes rows
+--      the new snapshot no longer references — all atomically with the
+--      publication insert. Any failure rolls everything back, so the previous
+--      live publication is never lost mid-publish.
+CREATE OR REPLACE FUNCTION public.publish_article(
+  p_article_id UUID,
+  p_expected_edit_version BIGINT
+)
+RETURNS public.articles
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
   v_user UUID := auth.uid();
-  v_count INT;
+  v_article public.articles;
+  v_revision_id UUID;
+  v_publication_id UUID;
+  v_pub_number BIGINT;
+  v_author_name TEXT;
+  v_author_avatar UUID;
+  v_doc_error TEXT;
+  v_refs UUID[];
 BEGIN
   IF v_user IS NULL OR NOT public.is_editorial_staff() THEN
     RAISE EXCEPTION 'Forbidden: editorial staff only' USING ERRCODE = '42501';
   END IF;
 
-  WITH to_publish AS (
-    SELECT aa.id, aa.asset_id, aa.article_id,
-           'articles/' || aa.article_id::text || '/' || aa.asset_id::text
-             || '.' || substring(aa.staging_key from '\.([a-z0-9]+)$') AS pkey
+  SELECT * INTO v_article
+  FROM public.articles
+  WHERE id = p_article_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'article_not_found' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF v_article.edit_version <> p_expected_edit_version THEN
+    RAISE EXCEPTION 'edit_version_conflict' USING ERRCODE = '40001';
+  END IF;
+
+  IF v_article.status = 'archived' THEN
+    RAISE EXCEPTION 'cannot_publish_archived' USING ERRCODE = 'P0001';
+  END IF;
+  IF btrim(v_article.title) = '' THEN
+    RAISE EXCEPTION 'title_required' USING ERRCODE = 'P0001';
+  END IF;
+  IF jsonb_array_length(v_article.draft_content) = 0 THEN
+    RAISE EXCEPTION 'content_required' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Publish is the trust boundary for document validity: the snapshot that
+  -- anonymous readers will render must be structurally sound even when this
+  -- RPC is invoked directly, outside the app's Zod validation.
+  v_doc_error := public.article_document_error(v_article.draft_content);
+  IF v_doc_error IS NOT NULL THEN
+    RAISE EXCEPTION '%', v_doc_error USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Every media reference in the document plus the cover.
+  v_refs := ARRAY(
+    SELECT DISTINCT ref.id
+    FROM (
+      SELECT public.article_document_asset_ids(v_article.draft_content) AS id
+      UNION ALL
+      SELECT v_article.cover_asset_id
+    ) ref
+    WHERE ref.id IS NOT NULL
+  );
+
+  -- Every reference must resolve to a verified media row of THIS article —
+  -- forged, pending, or cross-article asset ids are rejected.
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(v_refs) r(id)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.article_assets aa
+      WHERE aa.article_id = p_article_id
+        AND aa.asset_id = r.id
+        AND aa.state IN ('ready', 'published')
+    )
+  ) THEN
+    RAISE EXCEPTION 'media_ref_not_ready' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Referenced assets not yet published must already have their public copy
+  -- in storage — the app stages them just before calling this. The RPC never
+  -- trusts that bytes exist without checking storage.objects.
+  IF EXISTS (
+    SELECT 1
     FROM public.article_assets aa
     WHERE aa.article_id = p_article_id
       AND aa.state = 'ready'
-  ), upd AS (
-    UPDATE public.article_assets aa
-    SET state = 'published',
-        published_key = tp.pkey,
-        published_at = NOW(),
-        revoked_at = NULL
-    FROM to_publish tp
-    WHERE aa.id = tp.id
-    RETURNING aa.id
-  )
-  SELECT COUNT(*) INTO v_count FROM upd;
+      AND aa.asset_id = ANY(v_refs)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM storage.objects o
+        WHERE o.bucket_id = 'article-media-public'
+          AND o.name = 'articles/' || p_article_id::text || '/'
+              || aa.asset_id::text || '.'
+              || substring(aa.staging_key from '\.([a-z0-9]+)$')
+      )
+  ) THEN
+    RAISE EXCEPTION 'media_not_promoted' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Mark exactly the referenced assets published (stable ids, immutable keys).
+  UPDATE public.article_assets aa
+  SET state = 'published',
+      published_key = 'articles/' || aa.article_id::text || '/'
+          || aa.asset_id::text || '.'
+          || substring(aa.staging_key from '\.([a-z0-9]+)$'),
+      published_at = COALESCE(aa.published_at, NOW()),
+      revoked_at = NULL
+  WHERE aa.article_id = p_article_id
+    AND aa.state = 'ready'
+    AND aa.asset_id = ANY(v_refs);
 
   UPDATE public.assets a
   SET bucket = 'article-media-public',
@@ -696,14 +836,93 @@ BEGIN
   WHERE aa.asset_id = a.id
     AND aa.article_id = p_article_id
     AND aa.state = 'published'
+    AND aa.asset_id = ANY(v_refs)
     AND a.bucket <> 'article-media-public';
 
-  RETURN v_count;
+  -- De-publish assets a previous snapshot referenced but this one does not.
+  -- Their public objects stay on disk with published_key retained so the
+  -- revocation sweep can still find and remove them.
+  UPDATE public.assets a
+  SET bucket = 'article-media',
+      storage_key = aa.staging_key,
+      visibility = 'private'
+  FROM public.article_assets aa
+  WHERE aa.asset_id = a.id
+    AND aa.article_id = p_article_id
+    AND aa.state = 'published'
+    AND NOT (aa.asset_id = ANY(v_refs));
+
+  UPDATE public.article_assets aa
+  SET state = 'ready', revoked_at = NOW()
+  WHERE aa.article_id = p_article_id
+    AND aa.state = 'published'
+    AND NOT (aa.asset_id = ANY(v_refs));
+
+  -- The save that produced this edit_version usually already wrote a
+  -- 'manual'/'autosave' revision row at the same (article_id, version).
+  -- Upgrade that row to source='publish' so it is retained permanently and
+  -- reflects that this exact version is what went live.
+  INSERT INTO public.article_revisions (
+    article_id, editor_user_id, version, source,
+    title, summary, content, schema_version
+  ) VALUES (
+    p_article_id, v_user, v_article.edit_version, 'publish',
+    v_article.title, v_article.summary, v_article.draft_content, v_article.schema_version
+  )
+  ON CONFLICT (article_id, version) DO UPDATE
+    SET source = 'publish',
+        editor_user_id = EXCLUDED.editor_user_id,
+        title = EXCLUDED.title,
+        summary = EXCLUDED.summary,
+        content = EXCLUDED.content,
+        schema_version = EXCLUDED.schema_version,
+        saved_at = NOW()
+  RETURNING id INTO v_revision_id;
+
+  -- Frozen public-safe author projection (display name + avatar ref only).
+  SELECT
+    COALESCE(NULLIF(btrim(pr.display_name), ''), '5Pixels Team'),
+    pr.avatar_asset_id
+  INTO v_author_name, v_author_avatar
+  FROM public.profiles pr
+  WHERE pr.id = v_article.author_id;
+
+  v_author_name := COALESCE(v_author_name, '5Pixels Team');
+
+  SELECT COALESCE(MAX(publication_number), 0) + 1
+  INTO v_pub_number
+  FROM public.article_publications
+  WHERE article_id = p_article_id;
+
+  INSERT INTO public.article_publications (
+    article_id, revision_id, publication_number,
+    slug, title, summary, topic, tags, cover_asset_id,
+    content, schema_version,
+    author_display_name, author_avatar_asset_id, published_by
+  ) VALUES (
+    p_article_id, v_revision_id, v_pub_number,
+    v_article.slug, v_article.title, v_article.summary, v_article.topic,
+    v_article.tags, v_article.cover_asset_id,
+    v_article.draft_content, v_article.schema_version,
+    v_author_name, v_author_avatar, v_user
+  )
+  RETURNING id INTO v_publication_id;
+
+  UPDATE public.articles
+  SET
+    status = 'published',
+    current_publication_id = v_publication_id,
+    published_at = NOW(),
+    first_published_at = COALESCE(first_published_at, NOW())
+  WHERE id = p_article_id
+  RETURNING * INTO v_article;
+
+  RETURN v_article;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.mark_article_media_published(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.mark_article_media_published(UUID) TO authenticated;
+REVOKE ALL ON FUNCTION public.publish_article(UUID, BIGINT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.publish_article(UUID, BIGINT) TO authenticated;
 
 -- Revocation runs BEFORE public objects are deleted so the public projection
 -- (public_asset_json) stops resolving immediately. Returns the published keys
@@ -717,6 +936,7 @@ SET search_path = ''
 AS $$
 DECLARE
   v_user UUID := auth.uid();
+  v_ids JSONB;
   v_keys JSONB;
 BEGIN
   IF v_user IS NULL OR NOT public.is_editorial_staff() THEN
@@ -732,22 +952,61 @@ BEGIN
     AND aa.article_id = p_article_id
     AND aa.state = 'published';
 
+  -- published_key is RETAINED on the row until the caller confirms the public
+  -- object was deleted (confirm_article_media_revocation) — a failed delete is
+  -- retried by the sweep instead of being silently lost.
   WITH revoked AS (
     UPDATE public.article_assets aa
     SET state = 'ready', revoked_at = NOW()
     WHERE aa.article_id = p_article_id
       AND aa.state = 'published'
-    RETURNING aa.published_key
+    RETURNING aa.id, aa.published_key
   )
-  SELECT COALESCE(jsonb_agg(published_key), '[]'::jsonb)
-  INTO v_keys FROM revoked;
+  SELECT COALESCE(jsonb_agg(id), '[]'::jsonb),
+         COALESCE(jsonb_agg(published_key), '[]'::jsonb)
+  INTO v_ids, v_keys FROM revoked;
 
-  RETURN jsonb_build_object('revoked_keys', v_keys);
+  RETURN jsonb_build_object('revoked_ids', v_ids, 'revoked_keys', v_keys);
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.revoke_article_media(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.revoke_article_media(UUID) TO authenticated;
+
+-- Called by the app/cron AFTER the returned objects were actually deleted from
+-- the public bucket. Clears the retained published_key so rows stop showing up
+-- in the orphaned-object sweep. If object deletion fails, published_key stays
+-- and the sweep retries — revocation is idempotent and self-healing.
+CREATE OR REPLACE FUNCTION public.confirm_article_media_revocation(
+  p_article_asset_ids UUID[]
+)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_count INT;
+BEGIN
+  IF NOT (
+    public.is_editorial_staff()
+    OR (SELECT auth.role()) = 'service_role'
+  ) THEN
+    RAISE EXCEPTION 'Forbidden: editorial staff only' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.article_assets aa
+  SET published_key = NULL
+  WHERE aa.id = ANY(p_article_asset_ids)
+    AND aa.state <> 'published'
+    AND aa.published_key IS NOT NULL;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.confirm_article_media_revocation(UUID[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.confirm_article_media_revocation(UUID[]) TO authenticated;
 
 -- 12. Shared-generation resolver ----------------------------------------------------
 -- Fixed-projection read for a THIRD-PARTY shared result. Returns NULL unless

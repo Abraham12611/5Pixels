@@ -100,8 +100,9 @@ describe("article media migration", () => {
       "register_article_generation_derivative",
       "update_article_media",
       "delete_article_media",
-      "mark_article_media_published",
+      "publish_article",
       "revoke_article_media",
+      "confirm_article_media_revocation",
     ];
     for (const name of writeRpcs) {
       const body = fnBody(name);
@@ -112,7 +113,7 @@ describe("article media migration", () => {
 
   it("never grants a media write RPC to anon", () => {
     expect(sql).not.toMatch(
-      /GRANT EXECUTE ON FUNCTION public\.(create_article_media_upload|finalize_article_media_upload|register_article_generation_derivative|update_article_media|delete_article_media|mark_article_media_published|revoke_article_media|sweep_stale_article_uploads)[^;]*TO anon/
+      /GRANT EXECUTE ON FUNCTION public\.(create_article_media_upload|finalize_article_media_upload|register_article_generation_derivative|update_article_media|delete_article_media|publish_article|revoke_article_media|confirm_article_media_revocation|sweep_stale_article_uploads)[^;]*TO anon/
     );
   });
 
@@ -129,15 +130,54 @@ describe("article media migration", () => {
   it("derives staging and published keys inside the DB — no caller-chosen paths", () => {
     const register = fnBody("register_article_generation_derivative");
     expect(register).toContain("'staff/' || v_user::text || '/articles/'");
-    const mark = fnBody("mark_article_media_published");
-    expect(mark).toContain("'articles/' || aa.article_id::text");
+    const publish = fnBody("publish_article");
+    expect(publish).toContain("'articles/' || aa.article_id::text");
   });
 
-  it("promotes by repointing the asset row at the public copy", () => {
-    const mark = fnBody("mark_article_media_published");
-    expect(mark).toContain("state = 'published'");
-    expect(mark).toContain("bucket = 'article-media-public'");
-    expect(mark).toContain("visibility = 'public'");
+  it("validates media refs and promoted objects inside the publish transaction", () => {
+    const publish = fnBody("publish_article");
+    // Collects document refs + cover.
+    expect(publish).toContain("article_document_asset_ids");
+    expect(publish).toContain("v_article.cover_asset_id");
+    // Rejects forged/pending/cross-article refs and un-staged objects.
+    expect(publish).toContain("media_ref_not_ready");
+    expect(publish).toContain("media_not_promoted");
+    expect(publish).toContain("storage.objects");
+    expect(publish).toContain("aa.article_id = p_article_id");
+    // Marks only the referenced assets, inside the publication transaction.
+    expect(publish).toContain("aa.asset_id = ANY(v_refs)");
+    // And happens BEFORE the publication snapshot is inserted.
+    const markPos = publish.indexOf("SET state = 'published'");
+    const insertPos = publish.indexOf("INSERT INTO public.article_publications");
+    expect(markPos).toBeGreaterThan(-1);
+    expect(insertPos).toBeGreaterThan(markPos);
+  });
+
+  it("de-publishes assets the new snapshot no longer references", () => {
+    const publish = fnBody("publish_article");
+    const depublish = publish.indexOf("NOT (aa.asset_id = ANY(v_refs))");
+    expect(depublish).toBeGreaterThan(-1);
+    // Their published_key is retained so the sweep can remove the objects.
+    expect(publish).toContain("revoked_at = NOW()");
+  });
+
+  it("serializes upload reservations with a row lock on the article", () => {
+    for (const name of [
+      "create_article_media_upload",
+      "register_article_generation_derivative",
+      "publish_article",
+      "save_article_draft",
+    ]) {
+      expect(fnBody(name), name).toContain("FOR UPDATE");
+    }
+  });
+
+  it("refuses to delete media still referenced by draft, live publication or cover", () => {
+    const del = fnBody("delete_article_media");
+    expect(del).toContain("media_in_use");
+    expect(del).toContain("ar.cover_asset_id = v_aa.asset_id");
+    expect(del).toContain("ar.draft_content");
+    expect(del).toContain("ar.current_publication_id");
   });
 
   it("revokes by flipping rows private BEFORE object deletion", () => {

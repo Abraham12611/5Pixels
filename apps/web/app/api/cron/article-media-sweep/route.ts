@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sweepStaleArticleUploads } from "@/lib/articles/media-lifecycle";
+import {
+  retryRevokedArticleMedia,
+  sweepOrphanedPublicObjects,
+  sweepStaleArticleUploads,
+} from "@/lib/articles/media-lifecycle";
 
-// Sweeps pending article-media uploads that were never finalized (abandoned
-// signed-URL flows) along with their orphan staging objects (#129).
+// Article media sweep (#129): three cleanup jobs in one pass —
+//   1. pending uploads never finalized (abandoned signed-URL flows)
+//   2. revoked rows whose public object deletion previously failed
+//   3. public-bucket objects no published row references (orphans)
 // Authorization: Bearer $CRON_SECRET.
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -17,8 +23,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await sweepStaleArticleUploads();
-    return NextResponse.json(result);
+    const stale = await sweepStaleArticleUploads();
+    const revoked = await retryRevokedArticleMedia();
+    const orphans = await sweepOrphanedPublicObjects();
+    return NextResponse.json({
+      staleUploadsDeleted: stale.deleted,
+      revocationsConfirmed: revoked,
+      orphanObjectsDeleted: orphans,
+    });
   } catch (err) {
     console.error(
       "[article-media-sweep] run failed:",

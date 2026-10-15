@@ -335,6 +335,13 @@ export async function deleteArticleMedia(
     p_article_asset_id: articleAssetId,
   });
   if (error || !data) {
+    if (error?.message?.includes("media_in_use")) {
+      return {
+        ok: false,
+        error:
+          "This media is still referenced by the article — remove it from the content or cover first.",
+      };
+    }
     console.error("[deleteArticleMedia] RPC failed", error?.message);
     return { ok: false, error: GENERIC_ERROR };
   }

@@ -13,13 +13,15 @@ import {
  *
  * Storage object bytes cannot move inside a SQL transaction, so promotion is a
  * two-step dance coordinated here:
- *   publish   -> copy staging objects to the public bucket, then
- *                mark_article_media_published() repoints the asset rows.
+ *   publish   -> stageArticleMediaPublicCopies() copies ONLY the referenced
+ *                assets' staging objects to the public bucket, then the
+ *                publish_article RPC verifies object presence and marks those
+ *                rows published atomically with the publication snapshot.
  *   unpublish -> revoke_article_media() flips rows back to private FIRST (the
  *                public projection stops resolving immediately), then the
- *                public objects are deleted best-effort.
+ *                public objects are deleted; published_key stays on the row
+ *                until deletion is confirmed so a failed delete is retried.
  */
-
 interface ArticleAssetRow {
   id: string;
   article_id: string;
@@ -30,10 +32,18 @@ interface ArticleAssetRow {
   assets: { mime_type: string } | { mime_type: string }[] | null;
 }
 
-/** Copy every ready article asset's staging object into the public bucket,
- * then flip the rows. Throws on failure — callers should treat the publish as
- * failed (the article RPC already committed, so they unpublish to roll back). */
-export async function promoteArticleMedia(articleId: string): Promise<number> {
+/**
+ * Copy the public objects for exactly the asset ids the publication will
+ * reference (document refs + cover). Already-published assets are skipped —
+ * their objects exist already. Returns the keys staged so a failed publish
+ * can roll them back without touching the previous live publication.
+ * Throws on failure after cleaning up the keys it already staged.
+ */
+export async function stageArticleMediaPublicCopies(
+  articleId: string,
+  assetIds: string[]
+): Promise<string[]> {
+  if (assetIds.length === 0) return [];
   const supabase = await createClient();
   const service = createServiceClient();
 
@@ -43,74 +53,129 @@ export async function promoteArticleMedia(articleId: string): Promise<number> {
       "id, article_id, asset_id, state, staging_key, published_key, assets!inner(mime_type)"
     )
     .eq("article_id", articleId)
-    .eq("state", "ready");
+    .eq("state", "ready")
+    .in("asset_id", assetIds);
   if (error) {
-    console.error("[promoteArticleMedia] list failed", error.message);
+    console.error("[stageArticleMediaPublicCopies] list failed", error.message);
     throw new Error("Unable to publish article media");
   }
 
+  const stagedKeys: string[] = [];
   const rows = (data ?? []) as ArticleAssetRow[];
-  for (const row of rows) {
-    const ext = row.staging_key.split(".").pop() ?? "";
-    const publishedKey = buildArticlePublishedPath(
-      row.article_id,
-      row.asset_id,
-      ext
-    );
+  try {
+    for (const row of rows) {
+      const ext = row.staging_key.split(".").pop() ?? "";
+      const publishedKey = buildArticlePublishedPath(
+        row.article_id,
+        row.asset_id,
+        ext
+      );
 
-    const { data: blob, error: downloadError } = await service.storage
+      const { data: blob, error: downloadError } = await service.storage
+        .from(ARTICLE_MEDIA_BUCKET)
+        .download(row.staging_key);
+      if (downloadError || !blob) {
+        throw new Error(
+          `staging download failed for ${row.staging_key}: ${downloadError?.message ?? "not found"}`
+        );
+      }
+
+      // upsert: true — publish must be idempotent. A retry after a partial
+      // failure (or a republish where the object survived revocation) hits the
+      // same immutable key with identical bytes.
+      const { error: uploadError } = await service.storage
+        .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+        .upload(publishedKey, blob, {
+          contentType:
+            (Array.isArray(row.assets) ? row.assets[0] : row.assets)?.mime_type ||
+            "application/octet-stream",
+          upsert: true,
+          cacheControl: "31536000, immutable",
+        });
+      if (uploadError) {
+        throw new Error(
+          `public upload failed for ${publishedKey}: ${uploadError.message}`
+        );
+      }
+      stagedKeys.push(publishedKey);
+    }
+  } catch (err) {
+    // Roll back what we staged — nothing was marked published yet, and the
+    // previous live publication (if any) is untouched.
+    if (stagedKeys.length > 0) {
+      const { error: cleanupError } = await service.storage
+        .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+        .remove(stagedKeys);
+      if (cleanupError) {
+        console.error(
+          "[stageArticleMediaPublicCopies] rollback delete failed",
+          cleanupError.message
+        );
+      }
+    }
+    console.error("[stageArticleMediaPublicCopies] failed", err);
+    throw new Error("Unable to publish article media");
+  }
+
+  return stagedKeys;
+}
+
+/** Best-effort removal of staged public objects after a failed publish RPC. */
+export async function removeStagedPublicCopies(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const service = createServiceClient();
+  const { error } = await service.storage
+    .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+    .remove(keys);
+  if (error) {
+    // Orphaned public objects are unreferenced (rows were never marked
+    // published) — the orphan sweep finds and removes them.
+    console.error("[removeStagedPublicCopies] delete failed", error.message);
+  }
+}
+
+/**
+ * Repair for the delete-vs-republish race: object deletes happen outside any
+ * transaction, so a republish can mark a row `published` again (same immutable
+ * key) between the sweep's candidate read and its object removal. After every
+ * remove, re-stage the object for any key whose row is published again.
+ */
+async function restoreRepublishedObjects(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const service = createServiceClient();
+  const { data: rows, error } = await service
+    .from("article_assets")
+    .select("staging_key, published_key, assets!inner(mime_type)")
+    .eq("state", "published")
+    .in("published_key", keys);
+  if (error || !rows?.length) return;
+
+  for (const row of rows as {
+    staging_key: string;
+    published_key: string;
+    assets: { mime_type: string } | { mime_type: string }[] | null;
+  }[]) {
+    const { data: blob } = await service.storage
       .from(ARTICLE_MEDIA_BUCKET)
       .download(row.staging_key);
-    if (downloadError || !blob) {
-      console.error(
-        "[promoteArticleMedia] staging download failed",
-        row.staging_key,
-        downloadError?.message
-      );
-      throw new Error("Unable to publish article media");
-    }
-
-    // upsert: true — publish must be idempotent. A retry after a partial
-    // failure (or a republish where the object survived revocation) hits the
-    // same immutable key with identical bytes.
-    const { error: uploadError } = await service.storage
-      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-      .upload(publishedKey, blob, {
+    if (!blob) continue;
+    await service.storage.from(ARTICLE_MEDIA_PUBLIC_BUCKET).upload(
+      row.published_key,
+      blob,
+      {
         contentType:
           (Array.isArray(row.assets) ? row.assets[0] : row.assets)?.mime_type ||
           "application/octet-stream",
         upsert: true,
         cacheControl: "31536000, immutable",
-      });
-    if (uploadError) {
-      console.error(
-        "[promoteArticleMedia] public upload failed",
-        publishedKey,
-        uploadError.message
-      );
-      throw new Error("Unable to publish article media");
-    }
-  }
-
-  const { error: markError } = await supabase.rpc(
-    "mark_article_media_published",
-    { p_article_id: articleId }
-  );
-  if (markError) {
-    console.error(
-      "[promoteArticleMedia] mark failed",
-      articleId,
-      markError.message
+      }
     );
-    throw new Error("Unable to publish article media");
   }
-
-  return rows.length;
 }
 
 /** Flip published assets back to private, then delete their public objects.
- * Best-effort on the object deletes — the DB flip already denies new resolves;
- * a CDN-cached copy may persist briefly (documented behaviour per #129). */
+ * published_key is cleared only after the object is confirmed gone — a failed
+ * delete leaves the key on the row for the sweep to retry. */
 export async function revokeArticleMedia(articleId: string): Promise<void> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("revoke_article_media", {
@@ -125,8 +190,12 @@ export async function revokeArticleMedia(articleId: string): Promise<void> {
     return;
   }
 
-  const keys = ((data as { revoked_keys?: string[] } | null)?.revoked_keys ??
-    []) as string[];
+  const payload = data as {
+    revoked_ids?: string[];
+    revoked_keys?: string[];
+  } | null;
+  const ids = payload?.revoked_ids ?? [];
+  const keys = payload?.revoked_keys ?? [];
   if (keys.length === 0) return;
 
   const service = createServiceClient();
@@ -134,14 +203,118 @@ export async function revokeArticleMedia(articleId: string): Promise<void> {
     .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
     .remove(keys);
   if (removeError) {
-    // Stale public objects with no resolving reference — the orphan sweep
-    // / re-revoke will catch them. Log and continue.
+    // published_key stays on the rows — the sweep retries the object delete.
     console.error(
       "[revokeArticleMedia] object delete failed",
       articleId,
       removeError.message
     );
+    return;
   }
+
+  await restoreRepublishedObjects(keys);
+  await service.rpc("confirm_article_media_revocation", {
+    p_article_asset_ids: ids,
+  });
+}
+
+/** Retry object deletion for rows revoked earlier whose published_key is
+ * still set — covers failed deletes from revokeArticleMedia. */
+export async function retryRevokedArticleMedia(): Promise<number> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("article_assets")
+    .select("id, published_key")
+    .neq("state", "published")
+    .not("published_key", "is", null);
+  if (error) {
+    console.error("[retryRevokedArticleMedia] query failed", error.message);
+    return 0;
+  }
+  const rows = (data ?? []) as { id: string; published_key: string }[];
+  if (rows.length === 0) return 0;
+
+  const keys = rows.map((r) => r.published_key);
+  const { error: removeError } = await service.storage
+    .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+    .remove(keys);
+  if (removeError) {
+    console.error(
+      "[retryRevokedArticleMedia] object delete failed",
+      removeError.message
+    );
+    return 0;
+  }
+
+  await restoreRepublishedObjects(keys);
+
+  const { data: confirmed } = await service.rpc(
+    "confirm_article_media_revocation",
+    { p_article_asset_ids: rows.map((r) => r.id) }
+  );
+  return typeof confirmed === "number" ? confirmed : rows.length;
+}
+
+/** Delete public-bucket objects that no published row points at — covers
+ * orphans left by deleted assets, failed stage rollbacks and removed articles. */
+export async function sweepOrphanedPublicObjects(): Promise<number> {
+  const service = createServiceClient();
+
+  // Published keys still legitimately live.
+  const { data: liveRows, error } = await service
+    .from("article_assets")
+    .select("article_id, published_key")
+    .eq("state", "published")
+    .not("published_key", "is", null);
+  if (error) {
+    console.error("[sweepOrphanedPublicObjects] query failed", error.message);
+    return 0;
+  }
+  const liveKeys = new Set(
+    ((liveRows ?? []) as { published_key: string }[]).map((r) => r.published_key)
+  );
+
+  // Articles that could have public objects — ones that ever had media.
+  const { data: articleRows } = await service
+    .from("article_assets")
+    .select("article_id");
+  const articleIds = [
+    ...new Set(((articleRows ?? []) as { article_id: string }[]).map((r) => r.article_id)),
+  ];
+
+  let removed = 0;
+  for (const articleId of articleIds) {
+    const prefix = `articles/${articleId}`;
+    const { data: objects, error: listError } = await service.storage
+      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+      .list(prefix, { limit: 500 });
+    if (listError) {
+      console.error(
+        "[sweepOrphanedPublicObjects] list failed",
+        prefix,
+        listError.message
+      );
+      continue;
+    }
+    const orphans = (objects ?? [])
+      .map((o) => `${prefix}/${o.name}`)
+      .filter((key) => !liveKeys.has(key));
+    if (orphans.length === 0) continue;
+    const { error: removeError } = await service.storage
+      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+      .remove(orphans);
+    if (removeError) {
+      console.error(
+        "[sweepOrphanedPublicObjects] remove failed",
+        prefix,
+        removeError.message
+      );
+    } else {
+      removed += orphans.length;
+      await restoreRepublishedObjects(orphans);
+    }
+  }
+  return removed;
 }
 
 /** Delete pending-upload rows older than the DB cutoff + their orphan objects. */
