@@ -46,3 +46,6 @@ dodo-2-llms-full.txt
 *.md-bak
 
 scripts/preset-media/
+
+# Local visual-QA outputs (scripts/qa-route-generation.mjs)
+qa-route-outputs/
