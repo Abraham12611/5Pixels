@@ -55,6 +55,36 @@ describe("ArticleEditor", () => {
     expect(types.has("callout")).toBe(true);
   });
 
+  it("a table inserted through BlockNote serialises to TableContent and validates", () => {
+    const editor = BlockNoteEditor.create({ schema: articleSchema });
+    editor.insertBlocks(
+      [
+        {
+          type: "table",
+          content: {
+            type: "tableContent",
+            rows: [
+              { cells: ["Before", "After"] },
+              { cells: ["original", "transformed"] },
+            ],
+          },
+        },
+      ],
+      editor.document[0],
+      "after"
+    );
+    const json = JSON.parse(JSON.stringify(editor.document));
+    const table = (json as { type: string; content?: { type?: string } }[]).find(
+      (b) => b.type === "table"
+    );
+    expect(table).toBeDefined();
+    // BlockNote persists table content as an OBJECT, not an array —
+    // both validators (this schema + article_document_error SQL) must
+    // accept it or publish would reject legitimate articles.
+    expect(table!.content).toMatchObject({ type: "tableContent" });
+    expect(() => deserializeArticleDocument(json)).not.toThrow();
+  });
+
   it("slash menu lists all 8 5Pixels blocks first, in spec order", () => {
     const editor = BlockNoteEditor.create({ schema: articleSchema });
     const items = buildArticleSlashMenuItems(editor as never);

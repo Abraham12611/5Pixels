@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/service";
+import { grantSubsidyCredits } from "@/lib/billing/subsidies";
 import { requireAdminOrOwner } from "./admin";
 import { logAdminAction } from "./audit";
 
@@ -289,23 +290,54 @@ export async function adjustUserCredits(
     return { success: false, error: "User not found." };
   }
 
-  const { error: insertError } = await supabase.from("credit_ledger").insert({
-    user_id: userId,
-    entry_type: "adjustment",
-    amount,
-    idempotency_key: idempotencyKey,
-    metadata: {
-      reason: trimmedReason,
-      admin_adjustment: true,
-      user_email: profile.email,
-    },
-  });
+  const adjustmentMetadata = {
+    reason: trimmedReason,
+    admin_adjustment: true,
+    user_email: profile.email,
+  };
 
-  if (insertError) {
-    if (insertError.message?.includes("idx_credit_ledger_user_idempotency")) {
+  if (amount > 0) {
+    // Issue #110: positive manual grants are real provider-cost subsidy —
+    // they spend from the monthly `admin_manual` budget and fail closed
+    // when it's exhausted. Deductions stay outside the subsidy system.
+    const grant = await grantSubsidyCredits(supabase, {
+      userId,
+      program: "admin_manual",
+      credits: amount,
+      idempotencyKey,
+      metadata: adjustmentMetadata,
+    });
+
+    if (grant.outcome === "duplicate") {
       return { success: false, error: "This adjustment was already processed." };
     }
-    return { success: false, error: insertError.message };
+    if (grant.outcome === "budget_exhausted") {
+      return {
+        success: false,
+        error:
+          "The monthly manual-grant budget is exhausted — ask an owner to raise the admin_manual cap on the Budgets page.",
+      };
+    }
+  } else {
+    const { error: insertError } = await supabase
+      .from("credit_ledger")
+      .insert({
+        user_id: userId,
+        entry_type: "adjustment",
+        amount,
+        idempotency_key: idempotencyKey,
+        metadata: adjustmentMetadata,
+      });
+
+    if (insertError) {
+      if (insertError.message?.includes("idempotency_key")) {
+        return {
+          success: false,
+          error: "This adjustment was already processed.",
+        };
+      }
+      return { success: false, error: insertError.message };
+    }
   }
 
   await logAdminAction({

@@ -28,12 +28,36 @@ export interface ArticleBlockJson {
   [key: string]: unknown;
 }
 
+/**
+ * BlockNote serialises `content` two ways: InlineContent[] for most blocks,
+ * and a TableContent OBJECT for table blocks — rows of tableCell objects
+ * ({type:'tableContent', columnWidths?, rows:[{cells:[{type:'tableCell',
+ * content: InlineContent[], props}]}]}). Mirrors the article_document_error()
+ * SQL contract exactly.
+ */
+const tableCellSchema = z.looseObject({
+  type: z.literal("tableCell").optional(),
+  content: z.array(z.unknown()).optional(),
+});
+
+const tableContentSchema = z.looseObject({
+  type: z.literal("tableContent"),
+  columnWidths: z.array(z.number().nullable()).optional(),
+  headerRows: z.number().optional(),
+  headerCols: z.number().optional(),
+  rows: z.array(
+    z.looseObject({
+      cells: z.array(tableCellSchema),
+    })
+  ),
+});
+
 const articleBlockJsonSchema: z.ZodType<ArticleBlockJson> = z.lazy(() =>
   z.looseObject({
     id: z.string().min(1).max(64).optional(),
     type: z.string().min(1).max(64),
     props: z.record(z.string(), z.unknown()).optional(),
-    content: z.unknown().optional(),
+    content: z.union([z.array(z.unknown()), tableContentSchema]).optional(),
     children: z.array(articleBlockJsonSchema).optional(),
   })
 );

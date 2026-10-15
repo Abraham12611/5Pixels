@@ -55,6 +55,56 @@ describe("article document validation", () => {
     expect(validateArticleDocument(doc).ok).toBe(true);
   });
 
+  it("accepts BlockNote TableContent objects and rejects malformed content", () => {
+    const table = [
+      {
+        type: "table",
+        content: {
+          type: "tableContent",
+          columnWidths: [null, null],
+          rows: [
+            {
+              cells: [
+                {
+                  type: "tableCell",
+                  content: [{ type: "text", text: "a", styles: {} }],
+                  props: { colspan: 1, rowspan: 1 },
+                },
+                {
+                  type: "tableCell",
+                  content: [{ type: "text", text: "b", styles: {} }],
+                  props: { colspan: 1, rowspan: 1 },
+                },
+              ],
+            },
+          ],
+        },
+        children: [],
+      },
+    ];
+    expect(validateArticleDocument(table).ok).toBe(true);
+    // Object content that isn't a TableContent must still fail.
+    expect(
+      validateArticleDocument([
+        { type: "paragraph", content: { type: "weirdObject" }, children: [] },
+      ]).ok
+    ).toBe(false);
+    expect(
+      validateArticleDocument([
+        {
+          type: "table",
+          content: { type: "tableContent", rows: [{ noCells: true }] },
+          children: [],
+        },
+      ]).ok
+    ).toBe(false);
+    expect(
+      validateArticleDocument([
+        { type: "paragraph", content: "a string", children: [] },
+      ]).ok
+    ).toBe(false);
+  });
+
   it("rejects non-array content and missing block types", () => {
     expect(validateArticleDocument({ type: "paragraph" }).ok).toBe(false);
     expect(validateArticleDocument([{ children: [] }]).ok).toBe(false);

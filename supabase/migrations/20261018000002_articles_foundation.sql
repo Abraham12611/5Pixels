@@ -90,6 +90,115 @@ $$;
 REVOKE ALL ON FUNCTION public.public_asset_json(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.public_asset_json(UUID) TO authenticated;
 
+-- 3.5. Publish-time document validator ------------------------------------------
+-- Structural validation of the canonical BlockNote document, enforced inside
+-- publish_article so the live snapshot can never contain malformed content
+-- even when the RPC is called directly (bypassing the app's Zod layer).
+-- Returns NULL when valid, otherwise a stable error code the caller raises.
+-- Mirrors lib/articles/document.ts: max 500 blocks, nesting depth 8, 256KB.
+-- Contract for later tickets: per-block prop validation (preset existence,
+-- media asset ownership/visibility, workflow steps…) lands with the owning
+-- issues (#127–#131). Unknown block types are structurally valid here — the
+-- public renderer degrades them safely — but every element must be a proper
+-- BlockNote block object (type/id/props/content/children shapes).
+CREATE OR REPLACE FUNCTION public.article_document_error(p_content JSONB)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = ''
+AS $$
+DECLARE
+  v_work JSONB;
+  v_item JSONB;
+  v_block JSONB;
+  v_depth INT;
+  v_count INT := 0;
+BEGIN
+  IF p_content IS NULL OR jsonb_typeof(p_content) <> 'array' THEN
+    RETURN 'document_not_array';
+  END IF;
+  IF pg_column_size(p_content) > 262144 THEN
+    RETURN 'document_too_large';
+  END IF;
+
+  -- Worklist of {b: block, d: depth} pairs; depth-first walk.
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('b', e.el, 'd', 1)), '[]'::jsonb)
+  INTO v_work
+  FROM jsonb_array_elements(p_content) AS e(el);
+
+  WHILE jsonb_array_length(v_work) > 0 LOOP
+    v_item := v_work -> (jsonb_array_length(v_work) - 1);
+    v_work := v_work - (jsonb_array_length(v_work) - 1);
+    v_block := v_item -> 'b';
+    v_depth := (v_item ->> 'd')::int;
+
+    v_count := v_count + 1;
+    IF v_count > 500 THEN RETURN 'document_too_many_blocks'; END IF;
+    IF v_depth > 8 THEN RETURN 'document_too_deep'; END IF;
+
+    IF jsonb_typeof(v_block) <> 'object' THEN
+      RETURN 'block_not_object';
+    END IF;
+    IF jsonb_typeof(v_block -> 'type') IS DISTINCT FROM 'string'
+       OR char_length(v_block ->> 'type') = 0
+       OR char_length(v_block ->> 'type') > 64 THEN
+      RETURN 'block_bad_type';
+    END IF;
+    IF v_block ? 'id' AND (
+      jsonb_typeof(v_block -> 'id') IS DISTINCT FROM 'string'
+      OR char_length(v_block ->> 'id') > 64
+    ) THEN
+      RETURN 'block_bad_id';
+    END IF;
+    IF v_block ? 'props' AND jsonb_typeof(v_block -> 'props') <> 'object' THEN
+      RETURN 'block_bad_props';
+    END IF;
+    -- content is InlineContent[] for most blocks, but BlockNote tables carry
+    -- a TableContent OBJECT ({type:'tableContent', rows:[{cells:[tableCell
+    -- objects]}]}). Reject anything that is neither shape.
+    IF v_block ? 'content' THEN
+      CASE jsonb_typeof(v_block -> 'content')
+        WHEN 'array' THEN NULL;
+        WHEN 'object' THEN
+          IF (v_block -> 'content' ->> 'type') IS DISTINCT FROM 'tableContent'
+             OR jsonb_typeof(v_block -> 'content' -> 'rows') IS DISTINCT FROM 'array'
+             OR EXISTS (
+               SELECT 1
+               FROM jsonb_array_elements(v_block -> 'content' -> 'rows') AS r(row)
+               WHERE jsonb_typeof(r.row) IS DISTINCT FROM 'object'
+                  OR jsonb_typeof(r.row -> 'cells') IS DISTINCT FROM 'array'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(r.row -> 'cells') AS c(cell)
+                    WHERE jsonb_typeof(c.cell) IS DISTINCT FROM 'object'
+                  )
+             ) THEN
+            RETURN 'block_bad_content';
+          END IF;
+        ELSE RETURN 'block_bad_content';
+      END CASE;
+    END IF;
+    IF v_block ? 'children' AND jsonb_typeof(v_block -> 'children') <> 'array' THEN
+      RETURN 'block_bad_children';
+    END IF;
+
+    IF v_block ? 'children' THEN
+      SELECT v_work || COALESCE(
+        jsonb_agg(jsonb_build_object('b', c.el, 'd', v_depth + 1)),
+        '[]'::jsonb
+      )
+      INTO v_work
+      FROM jsonb_array_elements(v_block -> 'children') AS c(el);
+    END IF;
+  END LOOP;
+
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.article_document_error(JSONB) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.article_document_error(JSONB) TO authenticated;
+
 -- 4. articles — working/draft state --------------------------------------------
 CREATE TABLE public.articles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -425,7 +534,9 @@ GRANT EXECUTE ON FUNCTION public.save_article_draft(UUID, BIGINT, TEXT, TEXT, TE
 
 -- 10. publish_article --------------------------------------------------------------
 -- Atomic, race-safe publish: re-locks the row, re-checks the caller's
--- edit_version, snapshots the draft into article_revisions (source='publish')
+-- edit_version, validates the draft against the persisted document contract
+-- (article_document_error — structural only; per-block media/preset rules are
+-- owned by #127–#131), snapshots into article_revisions (source='publish')
 -- and article_publications, then flips status inside the same transaction.
 CREATE OR REPLACE FUNCTION public.publish_article(
   p_article_id UUID,
@@ -444,6 +555,7 @@ DECLARE
   v_pub_number BIGINT;
   v_author_name TEXT;
   v_author_avatar UUID;
+  v_doc_error TEXT;
 BEGIN
   IF v_user IS NULL OR NOT public.is_editorial_staff() THEN
     RAISE EXCEPTION 'Forbidden: editorial staff only' USING ERRCODE = '42501';
@@ -470,6 +582,14 @@ BEGIN
   END IF;
   IF jsonb_array_length(v_article.draft_content) = 0 THEN
     RAISE EXCEPTION 'content_required' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Publish is the trust boundary for document validity: the snapshot that
+  -- anonymous readers will render must be structurally sound even when this
+  -- RPC is invoked directly, outside the app's Zod validation.
+  v_doc_error := public.article_document_error(v_article.draft_content);
+  IF v_doc_error IS NOT NULL THEN
+    RAISE EXCEPTION '%', v_doc_error USING ERRCODE = 'P0001';
   END IF;
 
   -- The save that produced this edit_version usually already wrote a

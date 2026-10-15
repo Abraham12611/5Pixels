@@ -4,7 +4,6 @@ import { isRelativePath } from "@/lib/auth/url";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { claimAnonSessionToUser } from "@/lib/teaser/pending";
 import { claimReferralForUser } from "@/lib/referrals/session";
-import { syncParticipantToGrowSurf } from "@/lib/growsurf/sync";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -51,13 +50,6 @@ export async function GET(request: Request) {
       await claimReferralForUser(user.id);
     } catch {
       // Referral attribution is best-effort — never block auth over it.
-    }
-    try {
-      // GrowSurf participant sync (03 §3): every user is a potential
-      // referrer. No-ops when unconfigured or already synced.
-      await syncParticipantToGrowSurf(user.id);
-    } catch {
-      // Third-party sync must never block auth.
     }
   }
 

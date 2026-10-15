@@ -50,6 +50,11 @@ pnpm typecheck
 # Tests
 pnpm test
 
+# Financial DB integration tests — requires a Docker runtime (OrbStack/
+# Docker Desktop). Starts the local Supabase stack, resets + migrates the
+# DB, then runs apps/web/tests/db. `pnpm supabase stop` shuts it down.
+pnpm test:db
+
 # Format
 pnpm format
 ```
@@ -116,12 +121,8 @@ WHOP_API_KEY=
 WHOP_ACCOUNT_ID=
 WHOP_WEBHOOK_SECRET=
 CRON_SECRET=
+REFERRAL_PAYMENT_SHARE_HOLD_DAYS=14
 
-# GrowSurf (optional — referral program bridge; server only)
-GROWSURF_API_KEY=
-GROWSURF_CAMPAIGN_ID=
-GROWSURF_WEBHOOK_SECRET=
-GROWSURF_REFERRAL_HOLD_DAYS=
 ```
 
 ## Migrations
