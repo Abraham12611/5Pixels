@@ -13,7 +13,7 @@ const sql = readFileSync(
     "../../../../../supabase/migrations/20261020000002_article_media.sql"
   ),
   "utf-8"
-);
+).replace(/\r\n/g, "\n"); // tolerate CRLF checkouts on Windows dev machines
 
 /** Slice a CREATE FUNCTION body: from its declaration to the closing $$;. */
 function fnBody(name: string): string {
