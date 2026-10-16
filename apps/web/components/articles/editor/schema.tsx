@@ -10,6 +10,7 @@ import {
   getArticleBlockRegistration,
   type ArticleBlockRegistration,
 } from "@/lib/articles/blocks/registry";
+import { GenerationBlock } from "./generation-block";
 import { PlaceholderBlock } from "./placeholder-block";
 
 /**
@@ -70,7 +71,14 @@ const customBlockSpecs = {
       },
       content: "none",
     },
-    { render: () => <PlaceholderBlock registration={spec("generation")} /> }
+    {
+      render: ({ block, editor }) => (
+        <GenerationBlock
+          block={block as never}
+          editor={editor as never}
+        />
+      ),
+    }
   )(),
   comparison: createReactBlockSpec(
     {
