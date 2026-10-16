@@ -218,20 +218,33 @@ export async function revokeArticleMedia(articleId: string): Promise<void> {
   });
 }
 
+/** PostgREST caps every response at its configured max-rows (1000 by
+ * default). Any inventory the sweep depends on must be paginated — a
+ * silent truncation would delete live media. */
+const QUERY_PAGE = 1000;
+
 /** Retry object deletion for rows revoked earlier whose published_key is
  * still set — covers failed deletes from revokeArticleMedia. */
 export async function retryRevokedArticleMedia(): Promise<number> {
   const service = createServiceClient();
-  const { data, error } = await service
-    .from("article_assets")
-    .select("id, published_key")
-    .neq("state", "published")
-    .not("published_key", "is", null);
-  if (error) {
-    console.error("[retryRevokedArticleMedia] query failed", error.message);
-    return 0;
+  const rows: { id: string; published_key: string }[] = [];
+  for (let offset = 0; ; offset += QUERY_PAGE) {
+    const { data, error } = await service
+      .from("article_assets")
+      .select("id, published_key")
+      .neq("state", "published")
+      .not("published_key", "is", null)
+      .range(offset, offset + QUERY_PAGE - 1);
+    if (error) {
+      console.error(
+        "[retryRevokedArticleMedia] query failed",
+        error.message
+      );
+      return 0;
+    }
+    rows.push(...((data ?? []) as { id: string; published_key: string }[]));
+    if (!data || data.length < QUERY_PAGE) break;
   }
-  const rows = (data ?? []) as { id: string; published_key: string }[];
   if (rows.length === 0) return 0;
 
   const keys = rows.map((r) => r.published_key);
@@ -293,19 +306,29 @@ async function listPublicArticlePrefixes(
 export async function sweepOrphanedPublicObjects(): Promise<number> {
   const service = createServiceClient();
 
-  // Published keys still legitimately live.
-  const { data: liveRows, error } = await service
-    .from("article_assets")
-    .select("article_id, published_key")
-    .eq("state", "published")
-    .not("published_key", "is", null);
-  if (error) {
-    console.error("[sweepOrphanedPublicObjects] query failed", error.message);
-    return 0;
+  // Published keys still legitimately live. FAIL CLOSED: the inventory
+  // must be complete before anything is deleted — a truncated page would
+  // make live published media look orphaned.
+  const liveKeys = new Set<string>();
+  for (let offset = 0; ; offset += QUERY_PAGE) {
+    const { data, error } = await service
+      .from("article_assets")
+      .select("published_key")
+      .eq("state", "published")
+      .not("published_key", "is", null)
+      .range(offset, offset + QUERY_PAGE - 1);
+    if (error) {
+      console.error(
+        "[sweepOrphanedPublicObjects] live-inventory query failed",
+        error.message
+      );
+      return 0;
+    }
+    for (const row of (data ?? []) as { published_key: string }[]) {
+      liveKeys.add(row.published_key);
+    }
+    if (!data || data.length < QUERY_PAGE) break;
   }
-  const liveKeys = new Set(
-    ((liveRows ?? []) as { published_key: string }[]).map((r) => r.published_key)
-  );
 
   let removed = 0;
   for (const articleId of await listPublicArticlePrefixes(service)) {
