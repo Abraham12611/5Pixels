@@ -187,10 +187,7 @@ async function categoryId(slug) {
 }
 
 async function upsertVersion(productId, p, d) {
-  const row = {
-    product_id: productId,
-    version_number: 1,
-    state: "active",
+  const recipe = {
     private_instruction_template: p.instruction_template,
     provider_strategy: d.provider_strategy,
     model_config: d.model_config,
@@ -200,15 +197,45 @@ async function upsertVersion(productId, p, d) {
     credit_cost: p.credit_cost ?? d.credit_cost,
     output_sizes: d.output_sizes,
     created_by_admin_id: ADMIN_ID,
-    published_at: new Date().toISOString(),
   };
   const existing = await rest("GET", "product_versions", {
-    query: `?select=id&product_id=eq.${productId}&version_number=eq.1`,
+    query: `?select=id,state&product_id=eq.${productId}&version_number=eq.1`,
   });
-  if (existing?.length) {
-    await rest("PATCH", "product_versions", { query: `?id=eq.${existing[0].id}`, body: row });
+  const v1 = existing?.[0];
+  if (v1?.state === "active") {
+    // Active recipes are immutable — mirror the publish lifecycle: retire the
+    // old version, then insert the new recipe as the next active version.
+    await rest("PATCH", "product_versions", {
+      query: `?id=eq.${v1.id}`,
+      body: { state: "retired", retired_at: new Date().toISOString() },
+    });
+    const latest = await rest("GET", "product_versions", {
+      query: `?select=version_number&product_id=eq.${productId}&order=version_number.desc&limit=1`,
+    });
+    await rest("POST", "product_versions", {
+      body: {
+        ...recipe,
+        product_id: productId,
+        version_number: (latest?.[0]?.version_number ?? 0) + 1,
+        state: "active",
+        published_at: new Date().toISOString(),
+      },
+    });
+  } else if (v1) {
+    // Retired/draft v1: refresh the recipe without touching its state — a
+    // reseed must never resurrect a retired version or collide with the
+    // one-active-version index.
+    await rest("PATCH", "product_versions", { query: `?id=eq.${v1.id}`, body: recipe });
   } else {
-    await rest("POST", "product_versions", { body: row });
+    await rest("POST", "product_versions", {
+      body: {
+        ...recipe,
+        product_id: productId,
+        version_number: 1,
+        state: "active",
+        published_at: new Date().toISOString(),
+      },
+    });
   }
 }
 
