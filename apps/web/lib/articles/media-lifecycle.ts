@@ -199,20 +199,23 @@ export async function revokeArticleMedia(articleId: string): Promise<void> {
   if (keys.length === 0) return;
 
   const service = createServiceClient();
-  const { error: removeError } = await service.storage
-    .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-    .remove(keys);
-  if (removeError) {
-    // published_key stays on the rows — the sweep retries the object delete.
-    console.error(
-      "[revokeArticleMedia] object delete failed",
-      articleId,
-      removeError.message
-    );
-    return;
+  // Storage remove() accepts at most 1000 objects per request.
+  for (let i = 0; i < keys.length; i += STORAGE_REMOVE_BATCH) {
+    const chunk = keys.slice(i, i + STORAGE_REMOVE_BATCH);
+    const { error: removeError } = await service.storage
+      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+      .remove(chunk);
+    if (removeError) {
+      // published_key stays on the rows — the sweep retries the object delete.
+      console.error(
+        "[revokeArticleMedia] object delete failed",
+        articleId,
+        removeError.message
+      );
+      return;
+    }
+    await restoreRepublishedObjects(chunk);
   }
-
-  await restoreRepublishedObjects(keys);
   await service.rpc("confirm_article_media_revocation", {
     p_article_asset_ids: ids,
   });
@@ -222,6 +225,9 @@ export async function revokeArticleMedia(articleId: string): Promise<void> {
  * default). Any inventory the sweep depends on must be paginated — a
  * silent truncation would delete live media. */
 const QUERY_PAGE = 1000;
+
+/** storage.objects remove() accepts at most 1000 keys per request. */
+const STORAGE_REMOVE_BATCH = 1000;
 
 /** Retry object deletion for rows revoked earlier whose published_key is
  * still set — covers failed deletes from revokeArticleMedia. */
@@ -247,25 +253,29 @@ export async function retryRevokedArticleMedia(): Promise<number> {
   }
   if (rows.length === 0) return 0;
 
-  const keys = rows.map((r) => r.published_key);
-  const { error: removeError } = await service.storage
-    .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-    .remove(keys);
-  if (removeError) {
-    console.error(
-      "[retryRevokedArticleMedia] object delete failed",
-      removeError.message
-    );
-    return 0;
+  // Storage remove() accepts at most 1000 objects per request — chunk the
+  // backlog and confirm only batches whose objects are actually gone.
+  let confirmed = 0;
+  for (let i = 0; i < rows.length; i += STORAGE_REMOVE_BATCH) {
+    const chunk = rows.slice(i, i + STORAGE_REMOVE_BATCH);
+    const keys = chunk.map((r) => r.published_key);
+    const { error: removeError } = await service.storage
+      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+      .remove(keys);
+    if (removeError) {
+      console.error(
+        "[retryRevokedArticleMedia] object delete failed",
+        removeError.message
+      );
+      break;
+    }
+    await restoreRepublishedObjects(keys);
+    const { data: n } = await service.rpc("confirm_article_media_revocation", {
+      p_article_asset_ids: chunk.map((r) => r.id),
+    });
+    confirmed += typeof n === "number" ? n : chunk.length;
   }
-
-  await restoreRepublishedObjects(keys);
-
-  const { data: confirmed } = await service.rpc(
-    "confirm_article_media_revocation",
-    { p_article_asset_ids: rows.map((r) => r.id) }
-  );
-  return typeof confirmed === "number" ? confirmed : rows.length;
+  return confirmed;
 }
 
 /** List every `articles/<id>` object prefix in the public bucket, paginated.
@@ -392,10 +402,10 @@ export async function sweepStaleArticleUploads(): Promise<{
   }
   const keys = ((data as { deleted_keys?: string[] } | null)?.deleted_keys ??
     []) as string[];
-  if (keys.length > 0) {
+  for (let i = 0; i < keys.length; i += STORAGE_REMOVE_BATCH) {
     const { error: removeError } = await service.storage
       .from(ARTICLE_MEDIA_BUCKET)
-      .remove(keys);
+      .remove(keys.slice(i, i + STORAGE_REMOVE_BATCH));
     if (removeError) {
       console.error(
         "[sweepStaleArticleUploads] object delete failed",

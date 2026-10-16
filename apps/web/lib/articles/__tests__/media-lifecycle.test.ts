@@ -64,8 +64,9 @@ const service = {
     makeQuery(table === "article_assets" ? articleAssetRows : []),
   rpc: (name: string, args: Row) => {
     if (name === "confirm_article_media_revocation") {
-      confirmedIds = args.p_article_asset_ids as string[];
-      return Promise.resolve({ data: confirmedIds.length, error: null });
+      const ids = args.p_article_asset_ids as string[];
+      confirmedIds.push(...ids);
+      return Promise.resolve({ data: ids.length, error: null });
     }
     return Promise.resolve({ data: null, error: null });
   },
@@ -80,6 +81,13 @@ const service = {
         });
       },
       remove: (keys: string[]) => {
+        // The real Storage API rejects remove() calls over 1000 keys.
+        if (keys.length > PAGE_CAP) {
+          return Promise.resolve({
+            data: null,
+            error: { message: "exceeded maximum batch size" },
+          });
+        }
         removedKeys.push(...keys);
         return Promise.resolve({ data: keys, error: null });
       },
@@ -170,8 +178,8 @@ describe("sweepOrphanedPublicObjects — live-inventory pagination", () => {
   });
 });
 
-describe("retryRevokedArticleMedia — pagination", () => {
-  it("collects revoked rows beyond the first page before deleting", async () => {
+describe("retryRevokedArticleMedia — pagination and remove batching", () => {
+  it("collects revoked rows beyond the first page and deletes in batches", async () => {
     for (let i = 0; i < 1500; i++) {
       articleAssetRows.push({
         id: `aa-${i}`,
@@ -180,8 +188,9 @@ describe("retryRevokedArticleMedia — pagination", () => {
       });
     }
 
-    await retryRevokedArticleMedia();
-
+    expect(await retryRevokedArticleMedia()).toBe(1500);
+    // The fake rejects any remove() over PAGE_CAP keys — reaching 1500
+    // removals proves the backlog was split into API-legal batches.
     expect(removedKeys).toHaveLength(1500);
     expect(confirmedIds).toHaveLength(1500);
   });
