@@ -3,8 +3,8 @@
   "admin_user_id": "41b01f9c-f4bc-4bb8-912a-d13396b19be0",
   "defaults": {
     "provider_strategy": {
-      "primary_model": "openai/gpt-image-2/edit",
-      "fallback_model": "fal-ai/nano-banana-2/edit",
+      "primary_model": "fal-ai/nano-banana-2/edit",
+      "fallback_model": "fal-ai/nano-banana/edit",
       "primary_provider": "fal.ai",
       "fallback_provider": "fal.ai"
     },
