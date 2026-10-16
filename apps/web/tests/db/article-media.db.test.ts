@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { asUser, withDb } from "./helpers/db";
-import { makeUser } from "./helpers/fixtures";
 
 /**
  * Issue #129 review — real-Postgres coverage of the publication/media
@@ -14,11 +13,36 @@ import { makeUser } from "./helpers/fixtures";
  */
 
 async function makeStaff(client: Client): Promise<string> {
-  const { userId } = await makeUser(client);
-  await client.query(
-    `UPDATE public.profiles SET is_admin = true WHERE id = $1`,
-    [userId]
-  );
+  const userId = randomUUID();
+  // The privilege-escalation guard (prevent_profile_privilege_escalation)
+  // is a BEFORE UPDATE trigger — a test user cannot be promoted after
+  // creation. Seed the admin flag at INSERT time instead:
+  // session_replication_role='replica' suppresses triggers for THIS
+  // session only (superuser-only escape hatch), so on_auth_user_created
+  // does not race us and the profile is born with is_admin=true. This
+  // leaves the production guard fully intact — we simply never update.
+  await client.query("SET session_replication_role = 'replica'");
+  try {
+    await client.query(
+      `INSERT INTO auth.users (
+         id, instance_id, aud, role, email, encrypted_password,
+         email_confirmed_at, created_at, updated_at,
+         raw_app_meta_data, raw_user_meta_data
+       ) VALUES (
+         $1, '00000000-0000-0000-0000-000000000000',
+         'authenticated', 'authenticated', $2, '',
+         NOW(), NOW(), NOW(), '{}'::jsonb, '{}'::jsonb
+       )`,
+      [userId, `dbtest-staff-${userId}@example.invalid`]
+    );
+    await client.query(
+      `INSERT INTO public.profiles (id, email, status, is_admin)
+       VALUES ($1, $2, 'active', true)`,
+      [userId, `dbtest-staff-${userId}@example.invalid`]
+    );
+  } finally {
+    await client.query("SET session_replication_role = 'origin'");
+  }
   return userId;
 }
 

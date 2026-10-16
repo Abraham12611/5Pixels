@@ -310,11 +310,15 @@ export async function sweepOrphanedPublicObjects(): Promise<number> {
   let removed = 0;
   for (const articleId of await listPublicArticlePrefixes(service)) {
     const prefix = `articles/${articleId}`;
+    // Enumerate the whole prefix BEFORE deleting — removing objects
+    // mid-pagination shifts later pages and would skip entries until the
+    // next sweep.
+    const orphans: string[] = [];
     let offset = 0;
     for (;;) {
       const { data: objects, error: listError } = await service.storage
         .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-        .list(prefix, { limit: 500, offset });
+        .list(prefix, { limit: 1000, offset });
       if (listError) {
         console.error(
           "[sweepOrphanedPublicObjects] list failed",
@@ -324,27 +328,30 @@ export async function sweepOrphanedPublicObjects(): Promise<number> {
         break;
       }
       if (!objects?.length) break;
-      const orphans = objects
-        .filter((o) => o.id !== null)
-        .map((o) => `${prefix}/${o.name}`)
-        .filter((key) => !liveKeys.has(key));
-      if (orphans.length > 0) {
-        const { error: removeError } = await service.storage
-          .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-          .remove(orphans);
-        if (removeError) {
-          console.error(
-            "[sweepOrphanedPublicObjects] remove failed",
-            prefix,
-            removeError.message
-          );
-        } else {
-          removed += orphans.length;
-          await restoreRepublishedObjects(orphans);
-        }
+      for (const o of objects) {
+        if (o.id === null) continue;
+        const key = `${prefix}/${o.name}`;
+        if (!liveKeys.has(key)) orphans.push(key);
       }
-      if (objects.length < 500) break;
+      if (objects.length < 1000) break;
       offset += objects.length;
+    }
+
+    for (let i = 0; i < orphans.length; i += 1000) {
+      const chunk = orphans.slice(i, i + 1000);
+      const { error: removeError } = await service.storage
+        .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+        .remove(chunk);
+      if (removeError) {
+        console.error(
+          "[sweepOrphanedPublicObjects] remove failed",
+          prefix,
+          removeError.message
+        );
+      } else {
+        removed += chunk.length;
+        await restoreRepublishedObjects(chunk);
+      }
     }
   }
   return removed;
