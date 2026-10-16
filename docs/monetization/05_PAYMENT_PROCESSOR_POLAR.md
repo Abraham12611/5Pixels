@@ -1,6 +1,12 @@
 # Payment Processor Migration — Dodo → Polar
 
-Status: **Proposal.** On the critical path — nothing monetizes until this works (`00 §6`).
+Status: **HISTORICAL — superseded.** Polar rejected the application and never
+went live. The processor sequence that actually shipped was Dodo → Polar
+(aborted) → Creem → Whop → **Bachs** (current default; Whop/Creem are
+rollback paths). This document is retained as design/migration ancestry —
+the metadata-key and idempotency patterns described here carried into the
+shipped integrations — but **do not implement against it**. Current provider
+architecture: `18_BILLING_CREDITS_PLAN.md` §5 and `lib/billing/`.
 
 ---
 

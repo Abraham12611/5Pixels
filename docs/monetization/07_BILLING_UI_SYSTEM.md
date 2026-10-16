@@ -1,6 +1,7 @@
 # Billing & Promo UI System — Surfaces, Components, Visual Spec
 
-Status: **Proposal.** The UI layer for everything in `00`–`06`. Grounded in the `new-design-look/` bible (tokens in `09_IMPLEMENTATION_SPEC_TOKENS.md`) and the Higgsfield references in `new-design-look/reference-images/new-references/` — analyzed below — plus patterns pulled from Refero research on ~40 products' billing/pricing/promo screens.
+Status: **Design spec — largely shipped.** The UI layer for everything in
+`00`–`06`. Grounded in the `new-design-look/` bible (tokens in `09_IMPLEMENTATION_SPEC_TOKENS.md`) and the Higgsfield references in `new-design-look/reference-images/new-references/` — analyzed below — plus patterns pulled from Refero research on ~40 products' billing/pricing/promo screens. Processor names below predate the current stack: read "Polar" as "the payment processor" (currently Bachs), and "pay-what-you-want top-up" as the shipped **fixed credit packs** (`18 §2.4`).
 
 Companion docs:
 
@@ -189,7 +190,7 @@ The `Create an account to see generated image` clone, on our terms:
 
 ### S9 — `TopUpSheet`
 
-Open pattern (`o-p-e-n.com` credit store): `Special offers` row (a discounted pack if a campaign applies) above plain `Pay what you want` custom-amount card + quick amounts. Polar `pay-what-you-want` product already exists in sandbox (`e5538d76…`).
+Open pattern (`o-p-e-n.com` credit store): `Special offers` row (a discounted pack if a campaign applies) above the **fixed credit packs** ($10/$25/$50/$100 → 606/1,515/3,030/6,060 credits — the variable pay-what-you-want product is superseded, `18 §2.4`).
 
 ### S1/S3/S4 — ambient promo surfaces
 
@@ -201,11 +202,11 @@ Open pattern (`o-p-e-n.com` credit store): `Special offers` row (a discounted pa
 
 - `/checkout/success`: success state polls credit balance; shows `+N credits` and `Your result is ready →` deep-link when the purchase was a `teaser_unlock` context (the pending generation auto-fires server-side — `02 §6`).
 - Failure/cancel → returns to the context that launched checkout, preserving the ladder step.
-- **Credits never grant on redirect** — webhook only (`05`). The success page must tolerate the webhook lagging a few seconds (poll, don't panic).
+- **Credits never grant on redirect** — webhook only. The success page must tolerate the webhook lagging a few seconds (poll, don't panic).
 
 ### S12 — `/app/billing` layout (Exa pattern)
 
-Left settings rail (existing) + main column: `Plan card` (current plan, renews-at, upgrade/manage → Polar portal) · `Credits card` (balance, `Top up`, auto-reuse notice — no auto-recharge in v1) · `ReferralCard` · `History table` (invoice-like rows: date, plan, credits, status). Weekly trial users see `trial ends` + `upgrade to keep going` inline.
+Left settings rail (existing) + main column: `Plan card` (current plan, renews-at, upgrade/manage → provider portal) · `Credits card` (balance, `Top up`, auto-reuse notice — no auto-recharge in v1) · `ReferralCard` · `History table` (invoice-like rows: date, plan, credits, status). Weekly-pass users see `pass ends` + `upgrade to keep going` inline.
 
 ---
 
@@ -226,4 +227,4 @@ Banned still applies (no prompt/model/provider terms) **plus**: `free` as a noun
 
 ## 7. Truth-in-advertising line
 
-Every proof element must be literally true at render time: review quotes come from a curated `testimonials` table we populate with real user quotes, counts are queried (`COMMUNITY OF N` only above a threshold), `% OFF` is computed, `limited time` requires a real `ends_at`. This is both ethics and Polar-dispute hygiene — fake social proof in a paywall is screenshot-able and indefensible.
+Every proof element must be literally true at render time: review quotes come from a curated `testimonials` table we populate with real user quotes, counts are queried (`COMMUNITY OF N` only above a threshold), `% OFF` is computed, `limited time` requires a real `ends_at`. This is both ethics and processor-dispute hygiene — fake social proof in a paywall is screenshot-able and indefensible.

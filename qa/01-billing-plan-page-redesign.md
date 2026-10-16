@@ -1,5 +1,11 @@
 # QA — `/app/billing/plan` redesign
 
+> **Snapshot (2026-09-30) — provider references are stale.** Written when
+> Creem was the active processor; the current default is **Bachs**
+> (`PAYMENT_PROVIDER=bachs`, `BACHS_API_KEY`). Steps that say "Creem test
+> mode" map to `BACHS_ENVIRONMENT=sandbox` today. Page structure assertions
+> still hold.
+
 **Implementation date:** 2026-09-30
 **Scope:** Rebuilt the billing Plan page to the Mercury/Krea structure defined in `06_BILLING_PAYWALL_AND_OFFERS_DESIGN_PLAN.md` §3.1. New client component `components/consumer/plan-shop.tsx`; `PlanForPurchase` gained optional `metadata`; weekly-trial suppression by billing history; next-bill rail; lapsed-user restart banner; annual-switch nudge; cancel section limited to recurring plans.
 
