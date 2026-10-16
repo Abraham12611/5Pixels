@@ -1,6 +1,7 @@
 # Promo Admin Console & Metrics — Control Surface, Event Schema, Guardrails
 
-Status: **Proposal.** The admin half of the offer engine (`08`). Goals stated by the owner: see which offers/variants/flows work, disable anything instantly, edit ladders without a deploy.
+Status: **Shipped** (`/admin/offers`, `lib/offers/`). The admin half of the
+offer engine (`08`). Goals stated by the owner: see which offers/variants/flows work, disable anything instantly, edit ladders without a deploy. Provider-specific references below are genericized — the current processor is Bachs.
 
 ---
 
@@ -81,7 +82,7 @@ CREATE TABLE public.promo_events (
 CREATE INDEX idx_promo_events_funnel ON public.promo_events(campaign_id, variant, event, created_at);
 ```
 
-RLS: reads/writes for admins only (`profiles.role='admin'`); event inserts go through a service-route that validates the surface/context pair so clients can't forge `converted`. `converted`/`refunded` are written **server-side from the Polar webhook** (`order.paid` reads `checkout.metadata.campaign_id`), never from the client — the same discipline as credit grants.
+RLS: reads/writes for admins only (`profiles.role='admin'`); event inserts go through a service-route that validates the surface/context pair so clients can't forge `converted`. `converted`/`refunded` are written **server-side from the payment webhook** (the processor's paid event reads `checkout.metadata.campaign_id`), never from the client — the same discipline as credit grants.
 
 ## 3. Metrics & definitions
 
@@ -104,7 +105,7 @@ Dashboard renders variant columns side-by-side with impressions and a wilson-int
 2. Caps from `08 §6` are checked at assignment time, not render time.
 3. `opt_out`/`offers_opted_out` suppresses every promotional surface globally.
 4. Takeover never renders on excluded routes (checkout, billing, success, in-flight generation).
-5. Campaign with a `discount` step whose Polar discount was deleted → step auto-pauses, alert in metrics dashboard + admin notification.
+5. Campaign with a `discount` step whose provider discount was deleted → step auto-pauses, alert in metrics dashboard + admin notification. (Discount steps are provider-gated — `08 §7`.)
 6. Assignment is write-once: `promo_assignments` rows are never updated (except the anon→user `claim` rewrite); re-bucketing is impossible by construction.
 
 ## 5. Audit & review

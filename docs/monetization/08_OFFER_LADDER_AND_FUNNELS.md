@@ -1,6 +1,6 @@
 # Offer Ladder & Funnel Engine — Triggers, Ladders, Variants
 
-Status: **Proposal.** Decides *who sees which offer surface, when, and in what order*. Surfaces are defined in `07`; measurement and admin controls in `09`. Extends `02` (teaser) and `04` (experiments) — this doc is the runtime that ties them together.
+Status: **Shipped** (promo engine: `lib/offers/`, `promo_*` tables). Decides *who sees which offer surface, when, and in what order*. Surfaces are defined in `07`; measurement and admin controls in `09`. Extends `02` (teaser) and `04` (experiments) — this doc is the runtime that ties them together. Referral steps now point at the in-house program (`03`); discount steps are provider-gated (§7).
 
 ---
 
@@ -63,7 +63,7 @@ Step types (`offer_kind`):
 | Kind | Content | Backing |
 |---|---|---|
 | `weekly_pair` | Two `TrialBanner`s — Weekly Starter $5 / Weekly Plus $10, one-time framing | `plans` weekly_trial rows |
-| `discount` | Plan ladder with a Polar %-off applied + `OfferBadge` + real `ends_at` | `promo_steps.payload.discount_id` |
+| `discount` | Plan ladder with a %-off applied + `OfferBadge` + real `ends_at` — gated on processor discount support (§7) | `promo_steps.payload.discount_id` |
 | `plans` | Plan ladder, annual-forward (`07 §4` S7 format) | `plans` monthly+annual |
 | `referral` | `ReferralCard` — "refer a friend, get N credits when they join" | `03` |
 | `topup` | `TopUpSheet` content inline | pay-what-you-want product |
@@ -115,9 +115,15 @@ Step n shown ── accept → checkout/flow
 | PromoRibbon | 1 campaign at a time, dismissal scoped to campaign |
 | Discount offers | expire via real `ends_at`; no per-user fake deadlines |
 
-## 7. Discount mechanics (Polar)
+## 7. Discount mechanics — provider-gated
 
-- Discounts are Polar `discounts` resources created per campaign (`percent`/`fixed`, optional `max_redemptions`, `ends_at`). Step payload references `discount_id`; checkout applies it and stamps `checkout.metadata.campaign_id/variant/step` alongside the experiment metadata from `04`.
+*Written for Polar's native `discounts` API. The current processor (Bachs)
+does not expose a discounts resource in our integration, so `discount` steps
+are dormant until either a provider-side discount mechanism exists or the
+step is implemented as a separate discounted product. The rules below apply
+whenever that lands.*
+
+- Discounts are provider-native resources created per campaign (`percent`/`fixed`, optional `max_redemptions`, `ends_at`). Step payload references `discount_id`; checkout applies it and stamps `checkout.metadata.campaign_id/variant/step` alongside the experiment metadata from `04`.
 - Guardrail: discount floor — no step may price a plan below **50% of catalog** or below per-plan COGS floor (`06` margin math); enforced when saving a step in admin.
 - Never leak the discount in URLs (`?discount=` params) — application is server-side via the assigned step, so prices can't be shared/cached wrong.
 - **Deadline display is admin-configurable** (settled, §9): each discount step carries `deadline_display: 'none' | 'date' | 'countdown'`. `date` renders `Offer ends Friday, Oct 3`; `countdown` renders a real ticking timer bound to `ends_at` — no fake or resetting clocks, ever. Editable per step in the admin editor (`09`).

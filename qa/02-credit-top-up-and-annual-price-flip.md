@@ -1,5 +1,12 @@
 # QA — Credit Top-Up Surface + Annual Price Hierarchy
 
+> **Snapshot — amounts and provider are stale.** Written against Creem test
+> mode and pre-redenomination pack sizes. Current state: processor is
+> **Bachs** (sandbox via `BACHS_ENVIRONMENT=sandbox`); packs are fixed at
+> **606 / 1,515 / 3,030 / 6,060 credits** ($10/$25/$50/$100) with no custom
+> amount; top-ups are open to any signed-in user. Flow assertions still
+> apply; substitute current figures.
+
 Covers two changes on `feature/billing-promo-ui`:
 
 1. **Annual plan price hierarchy flip** on `/app/billing/plan` — the effective

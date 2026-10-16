@@ -1,21 +1,34 @@
 # Implementation Status & Testing Guide
 
+**⚠️ Era snapshot — mostly superseded.** Written during the
+`feature/billing-promo-ui` era (PR #57) when Creem was default and GrowSurf
+powered referrals. Since then: the processor moved Whop → **Bachs**
+(current default), referrals went **in-house** (GrowSurf fully removed),
+credits were re-denominated to **$0.01 provider-cost capacity**, and pricing
+became fail-closed quotes with settlement. Read this file as history;
+current canonical references are `18_BILLING_CREDITS_PLAN.md` and
+`docs/monetization/03_REFERRAL_PROGRAM.md`.
+
 Status snapshot of the monetization/referral stack on `feature/billing-promo-ui`
 (PR #57 → `develop`). Every entry lists the code path and how to verify it.
 
 ---
 
-## 1. Billing providers — Creem is the default
+## 1. Billing providers — [superseded] now Bachs
 
-Polar rejected the application ("no AI applications"), so Creem is now the
-active provider. Dodo and Polar code remain as rollback paths behind
-`PAYMENT_PROVIDER`.
+*Snapshot-era claim: "Creem is the default."* Current state: **Bachs is the
+default** (`PAYMENT_PROVIDER=bachs`); Whop and Creem are rollback paths;
+Dodo and Polar are historical. The per-provider file layout described below
+(`*-client.ts`, `checkout-*.ts`, `fulfillment-*.ts`,
+`app/api/webhooks/<provider>`) is still the architecture — the same pattern
+now exists for `bachs`, `whop`, and `creem`.
 
 | Provider | Status |
 |---|---|
-| Creem | **Active default** (`PAYMENT_PROVIDER=creem` or unset) |
-| Polar | Legacy rollback (`PAYMENT_PROVIDER=polar`) — rejected account, do not use live |
-| Dodo | Legacy rollback (`PAYMENT_PROVIDER=dodo`) |
+| Bachs | **Active default** (`PAYMENT_PROVIDER=bachs` or unset) |
+| Whop | Rollback (`PAYMENT_PROVIDER=whop`) |
+| Creem | Rollback (`PAYMENT_PROVIDER=creem`) |
+| Polar / Dodo | Historical — never use |
 
 ### Creem implementation files
 
@@ -113,7 +126,13 @@ re-apply it or the CLI will hit production with test keys.
 
 ---
 
-## 2. GrowSurf referral bridge (campaign `whr2c0`)
+## 2. [superseded] GrowSurf referral bridge — removed
+
+*The entire GrowSurf bridge documented below was removed; referrals are
+in-house (`lib/referrals/`). Reward economics also changed: referrer +25
+credits at signup + 30% of first plan grant (14-day hold, 15-referree cap,
+monthly subsidy budget); referee +10 credits + first transformation free —
+see `03`.*
 
 | File | Purpose |
 |---|---|
@@ -226,7 +245,7 @@ Full gates: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
 ---
 
-## 7. Env vars pending
+## 7. Env vars pending — [superseded] snapshot-era; see `AGENTS.md` for current vars
 
 | Var | Needed for |
 |---|---|
@@ -235,7 +254,7 @@ Full gates: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 | `GROWSURF_API_KEY`, `GROWSURF_WEBHOOK_SECRET` | GrowSurf REST + webhook activation. |
 | `GROWSURF_REFERRAL_HOLD_DAYS` | Optional 1–90 day referrer-reward hold (signup trigger means it falls back to immediate grant unless the trigger is changed to qualifying-action). |
 
-## 8. Known limitations / open items
+## 8. Known limitations / open items — [superseded] snapshot-era
 
 - Creem **test-mode products exist and are mapped** — all 11 `prod_*` ids are
   stamped into `plans.metadata.creem_product_id_test` by migration

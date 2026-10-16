@@ -1,40 +1,49 @@
 # 5Pixels Monetization — Overview & Tier Model
 
-Status: **Proposal.** Companion docs:
+Status: **Mixed — substantially shipped, some sections historical.** This doc
+was written as a proposal; the codebase has since moved on. Where the two
+disagree, **the code wins** — see the "current state" callouts and
+`18_BILLING_CREDITS_PLAN.md` for canonical billing policy.
+
+Companion docs:
 
 - `01_CREDIT_VISIBILITY.md` — when the credits chip appears
 - `02_FREE_USER_FIRST_RUN.md` — first-run teaser, cost model, and the labelling decision
-- `03_REFERRAL_PROGRAM.md` — GrowSurf-powered referrals
+- `03_REFERRAL_PROGRAM.md` — referrals (shipped in-house; the GrowSurf design is superseded)
 - `04_PRICING_EXPERIMENTS.md` — A/B framework, downsell ladders, annual anchoring
-- `05_PAYMENT_PROCESSOR_POLAR.md` — Dodo → Polar migration
-- `06_ANNUAL_PLANS.md` — annual pricing, margin ceilings, credit drip
+- `05_PAYMENT_PROCESSOR_POLAR.md` — **historical** — Polar never went live; processor is now Bachs
+- `06_ANNUAL_PLANS.md` — annual pricing, margin ceilings, credit drip (shipped)
 - `07_BILLING_UI_SYSTEM.md` — every billing/promo surface and its visual spec
 - `08_OFFER_LADDER_AND_FUNNELS.md` — offer triggers, ladders, funnel variants (pre-auth teaser)
 - `09_PROMO_ADMIN_AND_METRICS.md` — admin campaign console, event schema, guardrails
+- `10_IMPLEMENTATION_AND_TESTING.md` — era snapshot (Creem/GrowSurf); mostly superseded
 
 ---
 
 ## 1. Where we are today
 
+**Current state (Oct 2026):**
+
 | Fact | Evidence |
 |---|---|
-| Signup credits were **10**, granted by `handle_new_user()` | `supabase/migrations/20260901000004_generation_vertical_slice.sql:53-83` |
-| That grant is **currently gone** — overwritten by the default-avatar migration | `supabase/migrations/20260920000001_default_avatars.sql:57-73`, confirmed against live DB |
-| Credits chip renders for everyone, red at zero | `apps/web/components/consumer/credit-balance-chip.tsx:19-53` |
-| Paywall sheet exists | `apps/web/components/consumer/paywall-sheet.tsx` |
-| Entitlement helpers exist | `apps/web/lib/billing/entitlements.ts` |
-| Plans: weekly trial, monthly, extra-credit top-up. **No annual plan.** | `supabase/migrations/20260904100001_billing_credits_schema.sql:380-403` |
-| **Payment processor moving Dodo → Polar** | `05` — Polar org `5pixels` exists, onboarding incomplete |
+| No unconditional signup grant — new users start at **0 credits**; referral bonuses are the funded free path | `apps/web/lib/referrals/reward-amounts.ts` |
+| Referrals are **in-house** (`lib/referrals/`, `/app/referrals`, `/r/[code]`) — GrowSurf was evaluated, briefly bridged, then removed | `apps/web/lib/referrals/`; `qa/08-inhouse-referral-codes-and-onboarding.md` |
+| Referral economics shipped: referrer **+25** credits at referee signup, referee **+10** + free first transformation; referrer also earns **30%** of the referee's first plan grant after a **14-day** hold; capped at **15** rewarded referees and a monthly subsidy budget | `reward-amounts.ts`, `lib/referrals/rewards.ts`, `subsidy_budgets` |
+| **Payment processor is Bachs** (default). Whop/Creem are rollback paths; Dodo/Polar are historical | `lib/billing/payment-provider.ts` |
+| Credits: **1 credit = $0.01 of provider-cost capacity** (internal denomination, permanent); never expire; margin set at issuance via grant size — the `markup_multiplier` consumption model is retired | `18_BILLING_CREDITS_PLAN.md` "Canonical credit policy" |
+| Plans live: 2 weekly passes ($5/113cr, $10/259cr), 4 monthly ($20–$100 → 606–6,417cr/mo), 4 annual (monthly drip), 4 fixed credit packs ($10–$100 → 606–6,060cr) | `plans` seed + migrations through `20261014000001` |
+| Generation pricing is **quote-based and fail-closed**; reservations hold until authoritative provider settlement or the 72h fallback | `18` §3 |
+| Entitlement helpers + tier model exist | `apps/web/lib/billing/entitlements.ts` |
 
-**Settled decisions** (owner, this revision):
+**Settled decisions** (owner):
 
-1. The 10-credit signup grant **is not coming back** — it is unfunded at current runway.
+1. The signup grant **did not come back** — it is unfunded at current runway.
 2. **Phase 1 free tier is zero-COGS.** No generation runs for a user who has never paid. Real watermarked previews are a **Phase 2** feature, switched on once revenue covers the COGS.
-3. Referrals are powered by **GrowSurf**, not built in-house.
+3. ~~Referrals are powered by GrowSurf~~ → **superseded**: shipped in-house (`03` has the current spec).
 4. Pricing experiments are **web-only**; mobile apps ship a single fixed offer.
 5. Phase 1 teaser runs in **`implied` mode** — presented as the user's result (`02 §4`). Risks accepted and recorded; mitigations M1–M7 are in scope.
-6. **Annual plans are being added** (`06`), with tier-specific discounts and mandatory monthly credit drip.
-7. Polar sandbox is built and tested **before** KYC/go-live (`05 §6`).
+6. **Annual plans shipped** (`06`), with tier-specific discounts and mandatory monthly credit drip.
+7. ~~Polar sandbox before KYC~~ → **superseded**: Polar was rejected; the live processor path went Creem → Whop → **Bachs** (`05` is historical).
 8. The teaser fires **pre-auth** — anonymous users can upload and "generate" before hitting the blur-gate signup wall (`08 §1`). Same zero-COGS mechanics, earlier in the funnel.
 9. Offers are delivered as **ordered ladders inside one takeover surface** with server-assigned variants and admin-managed campaigns (`08`, `09`).
 10. Pre-auth promo inventory is **ambient-only** (ribbon/tiles/banner — never a takeover); the takeover's entry point is `signup_completed` (`08 §9`).
@@ -104,8 +113,8 @@ Placeholders — **not measurements.** Fill from real data before committing.
 
 | Input | Needed for | Source |
 |---|---|---|
-| Provider cost per low-res generation | Phase 2 trigger threshold | `provider_pricing` + a real fal invoice |
-| Credit → COGS conversion | Referral reward sizing | `plans.markup_multiplier` |
+| Provider cost per low-res generation | Phase 2 trigger threshold | `provider_pricing_snapshots` + a real provider invoice |
+| Credit → COGS conversion | Referral reward sizing | fixed: `credits × $0.01` provider-cost capacity (`18`) |
 | Free→paid conversion | Experiment sizing | Not yet measurable |
 | Referral acceptance rate | Whether referral-gating works | Not yet measurable |
 
@@ -113,15 +122,19 @@ Placeholders — **not measurements.** Fill from real data before committing.
 
 ---
 
-## 6. Build order
+## 6. Build order — historical
 
-| Phase | Scope | Notes |
+*This sequence shipped. Recorded for context: the `handle_new_user()`
+regression was fixed, checkout went live (ultimately on Bachs), the tier
+model + teaser + unlock modal shipped, referrals shipped in-house, and the
+promo engine (`08`/`09`) is in place. `04`'s experiment framework remains the
+last open piece — still gated on real traffic.*
+
+| Phase | Scope | Status |
 |---|---|---|
-| **0** | Fix `handle_new_user()` regression (avatar + no grant + GrowSurf hook) | Blocks everything |
-| **0** | **Polar onboarding + migration** (`05`) | **Blocks all revenue — start now** |
-| **1** | `getUserTier()` + chip visibility (`01`) | Low risk |
-| **2** | Teaser + unlock modal (`02`) | Zero COGS |
-| **3** | GrowSurf referrals (`03`) | Funds the free tier |
-| **4** | Experiment framework (`04`) | Last — needs traffic |
-
-Polar is now on the critical path. Nothing else monetizes until checkout works.
+| **0** | Fix `handle_new_user()` regression | Done |
+| **0** | Payment processor (eventually Bachs, not Polar) | Done |
+| **1** | `getUserTier()` + chip visibility (`01`) | Done |
+| **2** | Teaser + unlock modal (`02`) | Done |
+| **3** | In-house referrals (`03`) | Done |
+| **4** | Experiment framework (`04`) | Open — needs traffic |
