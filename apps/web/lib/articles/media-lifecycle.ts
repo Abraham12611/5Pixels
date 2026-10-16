@@ -255,8 +255,41 @@ export async function retryRevokedArticleMedia(): Promise<number> {
   return typeof confirmed === "number" ? confirmed : rows.length;
 }
 
+/** List every `articles/<id>` object prefix in the public bucket, paginated.
+ * The bucket itself is the durable inventory: an orphan whose article_assets
+ * rows were already deleted stays discoverable because its object prefix
+ * still exists here — no DB association required. */
+async function listPublicArticlePrefixes(
+  service: ReturnType<typeof createServiceClient>
+): Promise<string[]> {
+  const prefixes: string[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data: entries, error } = await service.storage
+      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+      .list("articles", { limit: 1000, offset });
+    if (error) {
+      console.error(
+        "[sweepOrphanedPublicObjects] prefix list failed",
+        error.message
+      );
+      break;
+    }
+    if (!entries?.length) break;
+    // Folders surface as entries with no object id.
+    for (const entry of entries) {
+      if (entry.id === null) prefixes.push(entry.name);
+    }
+    if (entries.length < 1000) break;
+    offset += entries.length;
+  }
+  return prefixes;
+}
+
 /** Delete public-bucket objects that no published row points at — covers
- * orphans left by deleted assets, failed stage rollbacks and removed articles. */
+ * orphans left by deleted assets, failed stage rollbacks and removed
+ * articles. Prefixes are enumerated from the bucket, not the DB, so an
+ * orphan survives losing its last article_assets row. */
 export async function sweepOrphanedPublicObjects(): Promise<number> {
   const service = createServiceClient();
 
@@ -274,44 +307,44 @@ export async function sweepOrphanedPublicObjects(): Promise<number> {
     ((liveRows ?? []) as { published_key: string }[]).map((r) => r.published_key)
   );
 
-  // Articles that could have public objects — ones that ever had media.
-  const { data: articleRows } = await service
-    .from("article_assets")
-    .select("article_id");
-  const articleIds = [
-    ...new Set(((articleRows ?? []) as { article_id: string }[]).map((r) => r.article_id)),
-  ];
-
   let removed = 0;
-  for (const articleId of articleIds) {
+  for (const articleId of await listPublicArticlePrefixes(service)) {
     const prefix = `articles/${articleId}`;
-    const { data: objects, error: listError } = await service.storage
-      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-      .list(prefix, { limit: 500 });
-    if (listError) {
-      console.error(
-        "[sweepOrphanedPublicObjects] list failed",
-        prefix,
-        listError.message
-      );
-      continue;
-    }
-    const orphans = (objects ?? [])
-      .map((o) => `${prefix}/${o.name}`)
-      .filter((key) => !liveKeys.has(key));
-    if (orphans.length === 0) continue;
-    const { error: removeError } = await service.storage
-      .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
-      .remove(orphans);
-    if (removeError) {
-      console.error(
-        "[sweepOrphanedPublicObjects] remove failed",
-        prefix,
-        removeError.message
-      );
-    } else {
-      removed += orphans.length;
-      await restoreRepublishedObjects(orphans);
+    let offset = 0;
+    for (;;) {
+      const { data: objects, error: listError } = await service.storage
+        .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+        .list(prefix, { limit: 500, offset });
+      if (listError) {
+        console.error(
+          "[sweepOrphanedPublicObjects] list failed",
+          prefix,
+          listError.message
+        );
+        break;
+      }
+      if (!objects?.length) break;
+      const orphans = objects
+        .filter((o) => o.id !== null)
+        .map((o) => `${prefix}/${o.name}`)
+        .filter((key) => !liveKeys.has(key));
+      if (orphans.length > 0) {
+        const { error: removeError } = await service.storage
+          .from(ARTICLE_MEDIA_PUBLIC_BUCKET)
+          .remove(orphans);
+        if (removeError) {
+          console.error(
+            "[sweepOrphanedPublicObjects] remove failed",
+            prefix,
+            removeError.message
+          );
+        } else {
+          removed += orphans.length;
+          await restoreRepublishedObjects(orphans);
+        }
+      }
+      if (objects.length < 500) break;
+      offset += objects.length;
     }
   }
   return removed;

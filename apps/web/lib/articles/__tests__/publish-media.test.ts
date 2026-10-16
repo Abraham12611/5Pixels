@@ -19,11 +19,13 @@ let articlesRow: { draft_content: unknown; cover_asset_id: string | null } = {
 let articleAssetsRows: { asset_id: string }[] = [];
 
 const STAGE_IDS = ["11111111-1111-1111-1111-111111111111"];
-const stageMock = vi.fn(async () => [
-  "articles/x/11111111-1111-1111-1111-111111111111.png",
-]);
-const removeMock = vi.fn(async () => {});
-const revokeMock = vi.fn(async () => {});
+const stageMock = vi.fn(
+  async (_articleId: string, _assetIds: string[]): Promise<string[]> => [
+    "articles/x/11111111-1111-1111-1111-111111111111.png",
+  ]
+);
+const removeMock = vi.fn(async (_keys: string[]): Promise<void> => {});
+const revokeMock = vi.fn(async (_articleId: string): Promise<void> => {});
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -67,11 +69,10 @@ vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: () => ({}),
 }));
 vi.mock("../media-lifecycle", () => ({
-  stageArticleMediaPublicCopies: (...args: unknown[]) =>
-    stageMock(...(args as [string, string[]])),
-  removeStagedPublicCopies: (...args: unknown[]) =>
-    removeMock(...(args as [string[]])),
-  revokeArticleMedia: () => revokeMock(),
+  stageArticleMediaPublicCopies: (articleId: string, assetIds: string[]) =>
+    stageMock(articleId, assetIds),
+  removeStagedPublicCopies: (keys: string[]) => removeMock(keys),
+  revokeArticleMedia: (articleId: string) => revokeMock(articleId),
 }));
 
 const { publishArticleAction } = await import("../actions");

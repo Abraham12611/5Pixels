@@ -178,6 +178,9 @@ describe("article media migration", () => {
     expect(del).toContain("ar.cover_asset_id = v_aa.asset_id");
     expect(del).toContain("ar.draft_content");
     expect(del).toContain("ar.current_publication_id");
+    // The live publication's own cover slot too — a draft cover change
+    // must not expose the cover still shown on the published snapshot.
+    expect(del).toContain("ap.cover_asset_id");
   });
 
   it("revokes by flipping rows private BEFORE object deletion", () => {

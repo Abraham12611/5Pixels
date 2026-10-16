@@ -668,7 +668,10 @@ BEGIN
   END IF;
 
   -- Never delete media a live page or the working draft still references:
-  -- the current publication body, the draft body, or the cover slot.
+  -- the current publication body OR its cover, the draft body, or the
+  -- draft cover slot. The published cover is stored on the publication
+  -- snapshot — an editor who changes the draft cover has NOT changed what
+  -- is live, so the published cover stays protected until a republish.
   IF EXISTS (
     SELECT 1
     FROM public.articles ar
@@ -680,6 +683,11 @@ BEGIN
         )
         OR v_aa.asset_id IN (
           SELECT public.article_document_asset_ids(ap.content)
+          FROM public.article_publications ap
+          WHERE ap.id = ar.current_publication_id
+        )
+        OR v_aa.asset_id IN (
+          SELECT ap.cover_asset_id
           FROM public.article_publications ap
           WHERE ap.id = ar.current_publication_id
         )
