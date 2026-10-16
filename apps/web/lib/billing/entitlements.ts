@@ -1,6 +1,23 @@
-"use server";
-
 import { createClient } from "@/lib/supabase/server";
+
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Returns the signed-in user's id — the only subject these helpers ever
+ * answer for. A caller-supplied `userId` that differs from the session user
+ * (or any `userId` with no session) fails closed to null. See issue #139.
+ */
+async function resolveSubject(
+  supabase: Supabase,
+  userId?: string
+): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  if (userId && userId !== user.id) return null;
+  return user.id;
+}
 
 export interface ActivePlan {
   planId: string;
@@ -25,10 +42,7 @@ export type UserTier = "visitor" | "free" | "paid_active" | "paid_exhausted";
  */
 export async function hasEverPaid(userId?: string): Promise<boolean> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return false;
 
   const [invoiceCount, subscriptionCount] = await Promise.all([
@@ -50,10 +64,7 @@ export async function hasEverPaid(userId?: string): Promise<boolean> {
 
 export async function getUserTier(userId?: string): Promise<UserTier> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return "visitor";
 
   const [everPaid, activePlan, balance] = await Promise.all([
@@ -69,10 +80,7 @@ export async function getUserTier(userId?: string): Promise<UserTier> {
 
 export async function getAvailableBalance(userId?: string): Promise<number> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return 0;
 
   const { data, error } = await supabase.rpc("get_available_balance");
@@ -87,10 +95,7 @@ export async function getAvailableBalance(userId?: string): Promise<number> {
 
 export async function getActivePlan(userId?: string): Promise<ActivePlan | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return null;
 
   const { data, error } = await supabase.rpc("get_active_plan_id", {
@@ -135,10 +140,7 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
 
 export async function isMonthlySubscriber(userId?: string): Promise<boolean> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return false;
 
   const { count, error } = await supabase
@@ -160,10 +162,7 @@ export async function canPurchaseTrial(
   userId?: string
 ): Promise<EntitlementResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
@@ -224,10 +223,7 @@ export async function canPurchaseWeeklyPass(
   userId?: string
 ): Promise<EntitlementResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
@@ -293,7 +289,9 @@ export async function canPurchaseExtraCredits(
 ): Promise<EntitlementResult> {
   // Top-ups are open to any signed-in user — the dedicated credits surface
   // sells them to subscribers, lapsed users, and free users alike.
-  if (!userId) {
+  const supabase = await createClient();
+  const effectiveUserId = await resolveSubject(supabase, userId);
+  if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
   return { allowed: true, reason: "" };
@@ -304,10 +302,7 @@ export async function canGenerate(
   userId?: string
 ): Promise<EntitlementResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
