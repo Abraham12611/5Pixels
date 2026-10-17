@@ -99,7 +99,10 @@ export function ArticleEditor({
       console.error("[ArticleEditor] invalid stored document", result.error);
       return undefined;
     }
-    return result.document;
+    // BlockNote rejects initialContent: [] even though an empty array is a
+    // valid freshly created draft in our persisted article schema. Let
+    // BlockNote initialize its default empty paragraph instead.
+    return result.document?.length ? result.document : undefined;
   }, [initialDocument]);
 
   const editor: ArticleEditorInstance = useCreateBlockNote({
