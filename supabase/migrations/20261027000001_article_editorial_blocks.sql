@@ -308,8 +308,6 @@ BEGIN
       WHERE jsonb_typeof(n.node) = 'object'
         AND n.node ->> 'type' = 'promptRecipe'
         AND (n.node -> 'props' -> 'references') IS NOT NULL
-        AND jsonb_typeof(n.node -> 'props' -> 'references')
-              IS DISTINCT FROM 'null'
         AND (
           jsonb_typeof(n.node -> 'props' -> 'references')
             IS DISTINCT FROM 'string'
@@ -397,8 +395,6 @@ BEGIN
       WHERE jsonb_typeof(n.node) = 'object'
         AND n.node ->> 'type' = 'settings'
         AND (n.node -> 'props' -> 'fields') IS NOT NULL
-        AND jsonb_typeof(n.node -> 'props' -> 'fields')
-              IS DISTINCT FROM 'null'
         AND (
           jsonb_typeof(n.node -> 'props' -> 'fields')
             IS DISTINCT FROM 'string'
