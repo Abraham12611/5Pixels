@@ -9,6 +9,7 @@ import type {
   PublicArticle,
   PublicArticleSummary,
   PublicArticleTopic,
+  StaffArticle,
 } from "./types";
 
 const GENERIC_ERROR = "Unable to load articles. Please try again.";
@@ -27,9 +28,14 @@ export interface ArticlesResult<T> {
 
 export async function listArticlesForStaff(options?: {
   status?: ArticleStatus;
+  /** Case-insensitive substring match on title OR author email. */
+  search?: string;
+  /** ISO yyyy-mm-dd bounds on updated_at (inclusive). */
+  updatedFrom?: string;
+  updatedTo?: string;
   page?: number;
   pageSize?: number;
-}): Promise<ArticlesResult<Article[]>> {
+}): Promise<ArticlesResult<StaffArticle[]>> {
   await requireAdminOrOwner();
   const supabase = await createClient();
 
@@ -42,14 +48,71 @@ export async function listArticlesForStaff(options?: {
     .order("updated_at", { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
   if (options?.status) query = query.eq("status", options.status);
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (options?.updatedFrom && DATE_RE.test(options.updatedFrom)) {
+    query = query.gte("updated_at", `${options.updatedFrom}T00:00:00Z`);
+  }
+  if (options?.updatedTo && DATE_RE.test(options.updatedTo)) {
+    query = query.lte("updated_at", `${options.updatedTo}T23:59:59.999Z`);
+  }
+  const search = options?.search?.trim();
+  if (search) {
+    // Escape ilike metacharacters — the pattern is author input. The `or`
+    // form additionally drops characters that would break PostgREST's
+    // or-syntax (quotes, commas, parens, dots).
+    const pattern = `%${search.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const orPattern = pattern.replace(/[",().]/g, "");
+    // Author match is a second lookup: resolve profile ids by email, then
+    // OR them into the article filter so "smith" finds smith@5pixels.ai.
+    const { data: matchedAuthors } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("email", pattern)
+      .limit(50);
+    const authorIds = (matchedAuthors ?? [])
+      .map((a) => (a as { id: string }).id)
+      .filter(Boolean);
+    query =
+      authorIds.length > 0
+        ? query.or(`title.ilike."${orPattern}",author_id.in.(${authorIds.join(",")})`)
+        : query.ilike("title", pattern);
+  }
 
   const { data, error, count } = await query;
   if (error) {
     console.error("[listArticlesForStaff] query failed", error);
     return { data: [], error: GENERIC_ERROR };
   }
+
+  const articles = (data ?? []) as Article[];
+  // Resolve author + last-editor identities for the staff table. A second
+  // lookup keeps this independent of FK constraint names.
+  const ids = [
+    ...new Set(
+      articles.flatMap((a) =>
+        [a.author_id, a.last_edited_by].filter((v): v is string => !!v)
+      )
+    ),
+  ];
+  const emails = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .in("id", ids);
+    for (const p of (profiles ?? []) as { id: string; email: string | null }[]) {
+      if (p.email) emails.set(p.id, p.email);
+    }
+  }
+
   return {
-    data: (data ?? []) as Article[],
+    data: articles.map((a) => ({
+      ...a,
+      author_email: a.author_id ? (emails.get(a.author_id) ?? null) : null,
+      editor_email: a.last_edited_by
+        ? (emails.get(a.last_edited_by) ?? null)
+        : null,
+    })),
     totalCount: count ?? 0,
   };
 }
