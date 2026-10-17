@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { asUser, withDb } from "./helpers/db";
-import { makeProduct } from "./helpers/fixtures";
+import { makeAsset, makeProduct, makeUser } from "./helpers/fixtures";
 
 /**
  * #131 — public article detail read path.
@@ -281,8 +281,29 @@ describe("get_public_article_by_slug — media map (#131)", () => {
   it("serves editor-format promptRecipe + settings snapshots to anonymous readers", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);
-      const { productId } = await makeProduct(client);
+      const { productId, productVersionId } = await makeProduct(client);
       const slug = `editorial-${randomUUID().slice(0, 8)}`;
+
+      // The #128 publish gate validates settings keys against the preset's
+      // live product_fields and generation refs against completed+shared rows.
+      await client.query(
+        `INSERT INTO public.product_fields (
+           product_id, field_key, label, field_type, sort_order, config, active
+         ) VALUES ($1, 'intensity', 'Intensity', 'intensity', 1,
+                   '{"min": 0, "max": 100}'::jsonb, TRUE)`,
+        [productId]
+      );
+      const { userId } = await makeUser(client);
+      const sourceAssetId = await makeAsset(client, userId);
+      const generationId = randomUUID();
+      await client.query(
+        `INSERT INTO public.generations (
+           id, user_id, product_id, product_version_id, source_asset_id,
+           status, public_share_id
+         ) VALUES ($1, $2, $3, $4, $5, 'completed', $6)`,
+        [generationId, userId, productId, productVersionId, sourceAssetId,
+         randomUUID()]
+      );
 
       const articleId = await makeArticle(client, staffId, "[]", slug);
       const media = await makeArticleAsset(client, articleId, staffId);
@@ -291,11 +312,7 @@ describe("get_public_article_by_slug — media map (#131)", () => {
       // Exactly the document shape the #128 editor persists.
       const references = JSON.stringify([
         { id: media.assetId, label: "Source photo", kind: "asset" },
-        {
-          id: randomUUID(),
-          label: "Shared result",
-          kind: "generation",
-        },
+        { id: generationId, label: "Shared result", kind: "generation" },
       ]);
       const fields = JSON.stringify([
         { key: "intensity", label: "Intensity", value: "40" },
