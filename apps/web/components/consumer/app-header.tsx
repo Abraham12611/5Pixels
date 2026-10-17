@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/explore";
 import { getAvatarUrl } from "@/lib/profile/actions";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
+import { mapSafeGenerationRow } from "@/lib/generation/map";
 import { buildSearchPresets } from "@/lib/search/search-presets";
 import type { SafeGeneration } from "@/lib/generation/types";
 import type {
@@ -86,7 +87,9 @@ export async function AppHeader() {
     getUserFavoriteProductIds(),
   ]);
 
-  const generations = (generationsResult.data ?? []) as SafeGeneration[];
+  const generations: SafeGeneration[] = (generationsResult.data ?? []).map(
+    mapSafeGenerationRow
+  );
 
   const searchPresets: SearchPreset[] = buildSearchPresets(
     featured.data,
