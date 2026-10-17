@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  ArrowRight,
   Image as ImageIcon,
   Info,
   Lightbulb,
@@ -9,6 +8,11 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import type { PublicProductDetail } from "@/types/catalog";
 import type { PublicAssetRef } from "@/lib/articles/types";
+import {
+  parsePromptReferences,
+  parseSettingsFields,
+  settingsFieldsFromPublic,
+} from "@/lib/articles/blocks/prompt-settings";
 import {
   resolveAssetMedia,
   sanitizeCtaHref,
@@ -21,8 +25,9 @@ import {
   type PresetCardData,
 } from "@/lib/articles/preset-card";
 import { ArticlePresetCard } from "@/components/articles/blocks/preset-card";
+import { PromptRecipeCard } from "@/components/articles/blocks/prompt-recipe-card";
+import { SettingsCard } from "@/components/articles/blocks/settings-card";
 import { cn } from "@/lib/utils";
-import { CopyButton } from "./copy-button";
 import { ArticleImage } from "./article-image";
 import { ComparisonSlider } from "./comparison-slider";
 
@@ -99,100 +104,124 @@ export function PresetBlockView({
 }
 
 /* --------------------------------------------------------------------------
- * Settings table
+ * Preset link resolution shared by the editorial blocks (#128 contract):
+ * canonical presetId -> resolved card; sanitized slug -> catalog row or a
+ * plain /presets/{slug} link for documents authored before presetId existed.
  * ------------------------------------------------------------------------ */
 
-export function SettingsBlockCard({
-  product,
-}: {
-  product: PublicProductDetail | null;
-}) {
-  if (!product) return null;
-  const fields = product.active_fields ?? [];
+function resolvePresetLink(
+  presetId: unknown,
+  slug: unknown,
+  presetCards: ReadonlyMap<string, PresetCardData>,
+  presets: ReadonlyMap<string, PublicProductDetail | null>
+): { name: string | null; href: string | null } {
+  const id = typeof presetId === "string" ? presetId.trim() : "";
+  if (id && isPresetUuid(id)) {
+    const card = presetCards.get(id) ?? null;
+    return { name: card?.name ?? null, href: card?.href ?? null };
+  }
+  const s = sanitizePresetSlug(slug);
+  if (!s) return { name: null, href: null };
+  const product = presets.get(s) ?? null;
+  return {
+    name: product?.name ?? null,
+    href: product ? `/presets/${product.slug}` : `/presets/${s}`,
+  };
+}
 
+/* --------------------------------------------------------------------------
+ * Settings table — shared SettingsCard (#128 contract).
+ * ------------------------------------------------------------------------ */
+
+export function SettingsBlockView({
+  presetId,
+  slug,
+  fields,
+  presetCards,
+  presets,
+}: {
+  presetId: unknown;
+  slug: unknown;
+  /** JSON-stringified SettingsFieldRow[] snapshot; "" on pre-#128 docs. */
+  fields: unknown;
+  presetCards: ReadonlyMap<string, PresetCardData>;
+  presets: ReadonlyMap<string, PublicProductDetail | null>;
+}) {
+  const link = resolvePresetLink(presetId, slug, presetCards, presets);
+  let rows = parseSettingsFields(typeof fields === "string" ? fields : "");
+  // Legacy fallback: pre-#128 documents stored no field snapshot — rebuild
+  // the labelled-example rows from the preset's documented controls.
+  if (rows.length === 0) {
+    const s = sanitizePresetSlug(slug);
+    const product = s ? (presets.get(s) ?? null) : null;
+    if (product?.active_fields?.length) {
+      rows = settingsFieldsFromPublic(product.active_fields);
+    }
+  }
   return (
-    <div className="border-cream-100/10 bg-charcoal-850 my-6 overflow-hidden rounded-xl border">
-      <div className="border-cream-100/10 border-b px-4 py-3">
-        <p className="text-cream-50 text-sm font-semibold">
-          {product.name} settings
-        </p>
-      </div>
-      {fields.length === 0 ? (
-        <p className="text-text-muted px-4 py-3 text-sm">
-          This preset uses default settings — no extra controls.
-        </p>
-      ) : (
-        <dl className="divide-cream-100/10 divide-y">
-          {fields.map((field) => (
-            <div
-              key={field.id}
-              className="flex flex-col gap-0.5 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-6"
-            >
-              <dt className="text-cream-100 w-40 shrink-0 text-sm font-medium">
-                {field.label}
-              </dt>
-              <dd className="text-text-secondary min-w-0 text-sm">
-                {field.help_text ?? (
-                  <span className="text-text-muted capitalize">
-                    {field.field_type}
-                  </span>
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </div>
+    <SettingsCard
+      presetName={link.name}
+      presetHref={link.href}
+      rows={rows}
+      className="my-6"
+    />
   );
 }
 
 /* --------------------------------------------------------------------------
- * Prompt recipe
+ * Prompt recipe — shared PromptRecipeCard (#128 contract). Only the
+ * article-local snapshot is rendered; private prompts are structurally absent.
  * ------------------------------------------------------------------------ */
 
 export function PromptRecipeBlock({
+  presetId,
+  slug,
+  recipeText,
   recipe,
-  presetSlug,
+  source,
+  capturedAt,
+  references,
+  presetCards,
   presets,
 }: {
-  recipe: string;
-  presetSlug: unknown;
+  presetId: unknown;
+  slug: unknown;
+  /** #128 snapshot text; `recipe` is the pre-#128 prop. */
+  recipeText: unknown;
+  recipe: unknown;
+  source: unknown;
+  capturedAt: unknown;
+  /** JSON-stringified PromptReference[]. */
+  references: unknown;
+  presetCards: ReadonlyMap<string, PresetCardData>;
   presets: ReadonlyMap<string, PublicProductDetail | null>;
 }) {
-  const slug = sanitizePresetSlug(presetSlug);
-  const product = slug ? (presets.get(slug) ?? null) : null;
-
-  if (!recipe.trim()) {
-    return (
-      <div className="border-cream-100/10 bg-charcoal-850 text-text-muted my-6 rounded-xl border border-dashed p-4 text-sm">
-        Prompt recipe was removed by the author.
-      </div>
-    );
-  }
+  const text =
+    typeof recipeText === "string" && recipeText
+      ? recipeText
+      : typeof recipe === "string"
+        ? recipe
+        : "";
+  const link = resolvePresetLink(presetId, slug, presetCards, presets);
+  const captured =
+    typeof capturedAt === "string" &&
+    capturedAt &&
+    !Number.isNaN(Date.parse(capturedAt))
+      ? capturedAt
+      : undefined;
 
   return (
-    <figure className="border-lime-500/20 bg-charcoal-850 my-6 overflow-hidden rounded-xl border">
-      <div className="border-cream-100/10 flex items-center justify-between gap-2 border-b px-4 py-2.5">
-        <figcaption className="text-text-secondary text-xs font-semibold tracking-wider uppercase">
-          Prompt recipe
-        </figcaption>
-        <CopyButton text={recipe} />
-      </div>
-      <pre className="text-cream-100 max-w-full overflow-x-auto px-4 py-3 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap">
-        {recipe}
-      </pre>
-      {product ? (
-        <div className="border-cream-100/10 border-t px-4 py-3">
-          <Link
-            href={`/presets/${product.slug}`}
-            className="text-lime-400 hover:text-lime-300 focus-visible:ring-lime-500/70 inline-flex items-center gap-1.5 rounded-md text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
-          >
-            Try this preset
-            <ArrowRight size={14} weight="bold" aria-hidden />
-          </Link>
-        </div>
-      ) : null}
-    </figure>
+    <PromptRecipeCard
+      recipeText={text}
+      source={source === "approved_template" ? "approved_template" : "manual"}
+      capturedAt={captured}
+      presetName={link.name}
+      presetHref={link.href}
+      references={parsePromptReferences(
+        typeof references === "string" ? references : ""
+      )}
+      className="my-6"
+    />
   );
 }
 

@@ -264,15 +264,26 @@ export function anchorIdFor(
 
 /**
  * Slug-keyed preset references, resolved through the public catalog RPC.
- * `preset` blocks are intentionally absent: their canonical reference is
- * `props.presetId` (collected by collectDocumentPresetIds in preset-card.ts);
- * their `slug` prop is only a fallback for documents authored before #127.
+ * `preset`, `promptRecipe` and `settings` blocks (#127/#128) carry a
+ * canonical `presetId` — their slug props are only a fallback for
+ * documents authored before the canonical contract existed.
  */
-const PRESET_REF_PROP_KEYS: Record<string, string> = {
-  settings: "productSlug",
-  cta: "presetSlug",
-  promptRecipe: "presetSlug",
+const PRESET_REF_PROP_KEYS: Record<string, string[]> = {
+  preset: ["slug", "productSlug"],
+  promptRecipe: ["slug", "presetSlug"],
+  settings: ["slug", "productSlug"],
+  cta: ["presetSlug"],
 };
+
+const PRESET_ID_BLOCK_TYPES = new Set(["preset", "promptRecipe", "settings"]);
+
+function hasCanonicalPresetId(block: ArticleBlockJson): boolean {
+  return (
+    PRESET_ID_BLOCK_TYPES.has(block.type) &&
+    typeof block.props?.presetId === "string" &&
+    block.props.presetId !== ""
+  );
+}
 
 /** Unique, sanitized preset slugs referenced by any block (document order). */
 export function collectPresetSlugs(blocks: ArticleBlockJson[]): string[] {
@@ -280,25 +291,45 @@ export function collectPresetSlugs(blocks: ArticleBlockJson[]): string[] {
   const out: string[] = [];
   const walk = (list: ArticleBlockJson[]) => {
     for (const block of list) {
-      let slug: string | null = null;
-      if (block.type === "preset") {
-        const presetId = block.props?.presetId;
-        if (typeof presetId !== "string" || presetId === "") {
-          slug = sanitizePresetSlug(
-            block.props?.slug ?? block.props?.productSlug
-          );
+      // presetId-bearing blocks resolve via collectEditorialPresetIds /
+      // collectDocumentPresetIds — never through the slug path.
+      if (!hasCanonicalPresetId(block)) {
+        for (const key of PRESET_REF_PROP_KEYS[block.type] ?? []) {
+          const slug = sanitizePresetSlug(block.props?.[key]);
+          if (slug && !seen.has(slug)) {
+            seen.add(slug);
+            out.push(slug);
+            break;
+          }
         }
-      } else {
-        const key = PRESET_REF_PROP_KEYS[block.type];
-        if (key) slug = sanitizePresetSlug(block.props?.[key]);
-      }
-      if (slug && !seen.has(slug)) {
-        seen.add(slug);
-        out.push(slug);
       }
       if (block.children?.length) walk(block.children);
     }
   };
   walk(blocks);
   return out;
+}
+
+/**
+ * Canonical presetIds carried by the #128 editorial blocks
+ * (promptRecipe, settings). `preset` blocks are covered upstream by
+ * collectDocumentPresetIds — the page unions both.
+ */
+export function collectEditorialPresetIds(
+  blocks: ArticleBlockJson[]
+): string[] {
+  const ids: string[] = [];
+  const walk = (list: ArticleBlockJson[]) => {
+    for (const block of list) {
+      if (
+        (block.type === "promptRecipe" || block.type === "settings") &&
+        hasCanonicalPresetId(block)
+      ) {
+        ids.push(block.props!.presetId as string);
+      }
+      if (block.children?.length) walk(block.children);
+    }
+  };
+  walk(blocks);
+  return [...new Set(ids)];
 }

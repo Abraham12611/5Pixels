@@ -21,7 +21,7 @@ import {
   MediaUnavailable,
   PresetBlockView,
   PromptRecipeBlock,
-  SettingsBlockCard,
+  SettingsBlockView,
   WorkflowBlock,
 } from "./custom-blocks";
 
@@ -488,16 +488,27 @@ function CustomBlock({
           articleId={ctx.articleId}
         />
       );
-    case "settings": {
-      const slug = typeof props.productSlug === "string" ? props.productSlug : "";
-      const product = slug ? (ctx.presets.get(slug) ?? null) : null;
-      return <SettingsBlockCard product={product} />;
-    }
+    case "settings":
+      return (
+        <SettingsBlockView
+          presetId={props.presetId}
+          slug={props.slug ?? props.productSlug}
+          fields={props.fields}
+          presetCards={ctx.presetCards}
+          presets={ctx.presets}
+        />
+      );
     case "promptRecipe":
       return (
         <PromptRecipeBlock
-          recipe={typeof props.recipe === "string" ? props.recipe : ""}
-          presetSlug={props.presetSlug}
+          presetId={props.presetId}
+          slug={props.slug ?? props.presetSlug}
+          recipeText={props.recipeText}
+          recipe={props.recipe}
+          source={props.source}
+          capturedAt={props.capturedAt}
+          references={props.references}
+          presetCards={ctx.presetCards}
           presets={ctx.presets}
         />
       );

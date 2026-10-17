@@ -385,7 +385,35 @@ describe("ArticleRenderer — custom blocks", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  it("renders prompt recipes with copy + preset CTA", () => {
+  it("renders editor-format prompt recipes with copy + preset CTA", () => {
+    const content: ArticleBlockJson[] = [
+      {
+        type: "promptRecipe",
+        props: {
+          presetId: PRESET_ID,
+          slug: "film-grain",
+          recipeText: "warm tones, soft light",
+          source: "approved_template",
+          capturedAt: "2026-10-20T12:00:00Z",
+          references: JSON.stringify([
+            { id: ASSET_ID, label: "My portrait", kind: "asset" },
+          ]),
+        },
+      },
+    ];
+    renderArticle(content, new Map(), new Map([[PRESET_ID, PRESET_CARD]]));
+    expect(screen.getByText("warm tones, soft light")).toBeInTheDocument();
+    expect(screen.getByText(/public recipe/i)).toBeInTheDocument();
+    expect(screen.getByText(/Made with Film Grain/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /copy/i })).toBeInTheDocument();
+    // Reference chips show author labels only — never raw ids or links.
+    expect(screen.getByText(/My portrait/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Try this preset/i })
+    ).toHaveAttribute("href", "/presets/film-grain");
+  });
+
+  it("renders legacy prompt recipes through the same card", () => {
     const content: ArticleBlockJson[] = [
       {
         type: "promptRecipe",
@@ -394,15 +422,59 @@ describe("ArticleRenderer — custom blocks", () => {
     ];
     renderArticle(content, new Map([["film-grain", PRODUCT]]));
     expect(screen.getByText("warm tones, soft light")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /copy/i })).toBeInTheDocument();
+    expect(screen.getByText(/Written for this article/i)).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /Try this preset/i })
     ).toHaveAttribute("href", "/presets/film-grain");
   });
 
-  it("renders settings, workflow, callout and cta blocks", () => {
+  it("degrades malformed recipe references and blank recipes safely", () => {
     const content: ArticleBlockJson[] = [
-      { type: "settings", props: { productSlug: "film-grain" } },
+      {
+        type: "promptRecipe",
+        props: {
+          recipeText: "",
+          references: "not-json{{",
+        },
+      },
+    ];
+    renderArticle(content);
+    expect(
+      screen.getByText(/left blank by the author/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("renders editor-format settings rows through the shared card", () => {
+    const content: ArticleBlockJson[] = [
+      {
+        type: "settings",
+        props: {
+          presetId: PRESET_ID,
+          slug: "film-grain",
+          fields: JSON.stringify([
+            { key: "intensity", label: "Intensity", value: "40" },
+            { key: "color", label: "Tone", value: "#82ea3a" },
+          ]),
+        },
+      },
+    ];
+    renderArticle(content, new Map(), new Map([[PRESET_ID, PRESET_CARD]]));
+    expect(screen.getByText("Film Grain settings")).toBeInTheDocument();
+    expect(screen.getByText("Intensity")).toBeInTheDocument();
+    expect(screen.getByText("40")).toBeInTheDocument();
+    expect(screen.getByText("#82ea3a")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Try this preset/i })
+    ).toHaveAttribute("href", "/presets/film-grain");
+  });
+
+  it("renders workflow, callout and cta blocks", () => {
+    const content: ArticleBlockJson[] = [
+      {
+        type: "settings",
+        props: { productSlug: "film-grain" },
+      },
       {
         type: "workflow",
         props: { steps: ["Upload photo", "Pick preset", "Generate"] },
@@ -423,8 +495,10 @@ describe("ArticleRenderer — custom blocks", () => {
     ];
     renderArticle(content, new Map([["film-grain", PRODUCT]]));
 
+    // Legacy productSlug block rebuilds example rows from public fields.
     expect(screen.getByText("Film Grain settings")).toBeInTheDocument();
-    expect(screen.getByText("How strong the grain reads.")).toBeInTheDocument();
+    expect(screen.getByText("Intensity")).toBeInTheDocument();
+    expect(screen.getByText("default")).toBeInTheDocument();
     expect(screen.getByText("Upload photo")).toBeInTheDocument();
     expect(screen.getByText("Watch exposure")).toBeInTheDocument();
     expect(

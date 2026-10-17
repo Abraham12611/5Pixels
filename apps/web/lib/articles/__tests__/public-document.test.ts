@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArticleBlockJson } from "../document";
 import {
+  collectEditorialPresetIds,
   collectPresetSlugs,
   estimateReadingTimeMinutes,
   extractPlainText,
@@ -186,6 +187,63 @@ describe("collectPresetSlugs", () => {
       { type: "preset", props: { presetId: "", slug: "fallback-slug" } },
     ];
     expect(collectPresetSlugs(doc)).toEqual(["fallback-slug"]);
+  });
+
+  it("collects #128 editorial slug props only when presetId is absent", () => {
+    const doc: ArticleBlockJson[] = [
+      {
+        type: "promptRecipe",
+        props: { presetId: "", slug: "recipe-preset" },
+      },
+      {
+        type: "settings",
+        props: { presetId: "", slug: "settings-preset" },
+      },
+      {
+        type: "settings",
+        props: {
+          presetId: "aaaaaaaa-1111-4111-8111-111111111111",
+          slug: "not-collected",
+        },
+      },
+    ];
+    expect(collectPresetSlugs(doc)).toEqual([
+      "recipe-preset",
+      "settings-preset",
+    ]);
+  });
+});
+
+describe("collectEditorialPresetIds", () => {
+  it("collects presetIds from promptRecipe/settings, skipping legacy blocks", () => {
+    const doc: ArticleBlockJson[] = [
+      {
+        type: "promptRecipe",
+        props: { presetId: "aaaaaaaa-1111-4111-8111-111111111111" },
+      },
+      {
+        type: "settings",
+        props: { presetId: "aaaaaaaa-1111-4111-8111-111111111111" },
+      },
+      { type: "settings", props: { presetId: "", slug: "legacy" } },
+      {
+        type: "paragraph",
+        children: [
+          {
+            type: "promptRecipe",
+            props: { presetId: "bbbbbbbb-2222-4333-8444-555555555555" },
+          },
+        ],
+      },
+      {
+        type: "preset",
+        props: { presetId: "cccccccc-3333-4333-8444-555555555555" },
+      },
+    ];
+    expect(collectEditorialPresetIds(doc)).toEqual([
+      "aaaaaaaa-1111-4111-8111-111111111111",
+      "bbbbbbbb-2222-4333-8444-555555555555",
+    ]);
   });
 });
 

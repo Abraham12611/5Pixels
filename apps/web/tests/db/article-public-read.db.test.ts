@@ -277,4 +277,91 @@ describe("get_public_article_by_slug — media map (#131)", () => {
       expect(reread[0].content).toEqual(rows[0].content);
     });
   });
+
+  it("serves editor-format promptRecipe + settings snapshots to anonymous readers", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { productId } = await makeProduct(client);
+      const slug = `editorial-${randomUUID().slice(0, 8)}`;
+
+      const articleId = await makeArticle(client, staffId, "[]", slug);
+      const media = await makeArticleAsset(client, articleId, staffId);
+      await stagePublicObject(client, media.publishedKey);
+
+      // Exactly the document shape the #128 editor persists.
+      const references = JSON.stringify([
+        { id: media.assetId, label: "Source photo", kind: "asset" },
+        {
+          id: randomUUID(),
+          label: "Shared result",
+          kind: "generation",
+        },
+      ]);
+      const fields = JSON.stringify([
+        { key: "intensity", label: "Intensity", value: "40" },
+      ]);
+      await client.query(
+        `UPDATE public.articles SET draft_content = $1::jsonb WHERE id = $2`,
+        [
+          JSON.stringify([
+            {
+              type: "promptRecipe",
+              props: {
+                presetId: productId,
+                slug: "db-test",
+                recipeText: "Upload a portrait, apply the preset.",
+                source: "approved_template",
+                capturedAt: "2026-10-20T12:00:00Z",
+                references,
+              },
+            },
+            {
+              type: "settings",
+              props: { presetId: productId, slug: "db-test", fields },
+            },
+          ]),
+          articleId,
+        ]
+      );
+
+      const { rows: [published] } = await asUser(client, staffId, () =>
+        client.query(
+          `SELECT status FROM public.publish_article($1, $2)`,
+          [articleId, 0]
+        )
+      );
+      expect(published.status).toBe("published");
+
+      const { rows } = await asAnon(client, () =>
+        client.query(
+          `SELECT content FROM public.get_public_article_by_slug($1)`,
+          [slug]
+        )
+      );
+      expect(rows).toHaveLength(1);
+      const content = rows[0].content as Array<{
+        type: string;
+        props?: Record<string, unknown>;
+      }>;
+
+      const recipe = content.find((b) => b.type === "promptRecipe")?.props;
+      expect(recipe?.recipeText).toBe("Upload a portrait, apply the preset.");
+      expect(recipe?.source).toBe("approved_template");
+      expect(recipe?.presetId).toBe(productId);
+      const refs = JSON.parse(recipe?.references as string) as Array<{
+        kind: string;
+        id: string;
+      }>;
+      // Reader resolves asset refs to public media; generation refs are
+      // label-only provenance chips — never joined to generation rows.
+      expect(refs).toHaveLength(2);
+      expect(refs[0].kind).toBe("asset");
+
+      const settings = content.find((b) => b.type === "settings")?.props;
+      expect(settings?.presetId).toBe(productId);
+      expect(JSON.parse(settings?.fields as string)).toEqual([
+        { key: "intensity", label: "Intensity", value: "40" },
+      ]);
+    });
+  });
 });

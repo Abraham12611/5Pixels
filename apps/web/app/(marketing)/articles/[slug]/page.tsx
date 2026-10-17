@@ -10,6 +10,7 @@ import type { PublicProductDetail } from "@/types/catalog";
 import { collectDocumentPresetIds } from "@/lib/articles/preset-card";
 import { resolvePresetCardMap } from "@/lib/articles/presets";
 import {
+  collectEditorialPresetIds,
   collectPresetSlugs,
   estimateReadingTimeMinutes,
   extractPlainText,
@@ -122,10 +123,15 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
 
   // Resolve every preset referenced by a block in one pass — the renderer
   // stays synchronous and each card degrades gracefully when a preset was
-  // retired after publication. presetId-keyed resolution is canonical (#127);
-  // the slug map covers settings/cta/promptRecipe refs and pre-#127 documents.
+  // retired after publication. presetId-keyed resolution is canonical
+  // (#127 preset + #128 promptRecipe/settings blocks); the slug map covers
+  // cta refs and pre-canonical documents.
+  const presetIds = [
+    ...collectDocumentPresetIds(article.content),
+    ...collectEditorialPresetIds(article.content),
+  ];
   const [presetCards, presetEntries] = await Promise.all([
-    resolvePresetCardMap(collectDocumentPresetIds(article.content)),
+    resolvePresetCardMap(presetIds),
     Promise.all(
       collectPresetSlugs(article.content).map(
         async (s) =>
