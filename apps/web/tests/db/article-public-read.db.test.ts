@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { asUser, withDb } from "./helpers/db";
+import { makeProduct } from "./helpers/fixtures";
 
 /**
  * #131 — public article detail read path.
@@ -211,6 +212,69 @@ describe("get_public_article_by_slug — media map (#131)", () => {
         )
       );
       expect(missing.rows).toHaveLength(0);
+    });
+  });
+
+  it("surfaces an editor-authored preset block to anonymous readers, and keeps the snapshot intact when the preset retires", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { productId, productVersionId } = await makeProduct(client);
+      const slug = `preset-${randomUUID().slice(0, 8)}`;
+
+      // Exactly the document shape the #127 editor persists.
+      const doc = JSON.stringify([
+        {
+          type: "preset",
+          props: {
+            presetId: productId,
+            slug: "db-test",
+            selectedPublicVersionId: productVersionId,
+            displayVariant: "card",
+          },
+        },
+      ]);
+      const articleId = await makeArticle(client, staffId, doc, slug);
+
+      const { rows: [published] } = await asUser(client, staffId, () =>
+        client.query(
+          `SELECT status FROM public.publish_article($1, $2)`,
+          [articleId, 0]
+        )
+      );
+      expect(published.status).toBe("published");
+
+      const read = () =>
+        asAnon(client, () =>
+          client.query(
+            `SELECT content FROM public.get_public_article_by_slug($1)`,
+            [slug]
+          )
+        );
+
+      const { rows } = await read();
+      expect(rows).toHaveLength(1);
+      const content = rows[0].content as Array<{
+        type: string;
+        props?: { presetId?: string; selectedPublicVersionId?: string };
+      }>;
+      const presetBlock = content.find((b) => b.type === "preset");
+      // The canonical presetId survives publish — the page resolves it
+      // through the public-safe resolver to an ArticlePresetCard.
+      expect(presetBlock?.props?.presetId).toBe(productId);
+      expect(presetBlock?.props?.selectedPublicVersionId).toBe(
+        productVersionId
+      );
+
+      // Retire the product after publish: the immutable snapshot still
+      // carries the reference; the app layer then renders the card's
+      // "no longer available" fallback rather than leaking data.
+      await client.query(
+        `UPDATE public.products SET public_status = 'retired'
+         WHERE id = $1`,
+        [productId]
+      );
+      const { rows: reread } = await read();
+      expect(reread[0].content).toEqual(rows[0].content);
     });
   });
 });

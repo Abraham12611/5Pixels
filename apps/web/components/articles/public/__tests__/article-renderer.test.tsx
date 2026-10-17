@@ -4,6 +4,7 @@ import type { ArticleBlockJson } from "@/lib/articles/document";
 import { indexHeadings } from "@/lib/articles/public-document";
 import type { PublicAssetRef } from "@/lib/articles/types";
 import type { PublicProductDetail } from "@/types/catalog";
+import type { PresetCardData } from "@/lib/articles/preset-card";
 import { ArticleRenderer } from "../article-renderer";
 
 vi.mock("@/lib/supabase/env", () => ({
@@ -62,14 +63,36 @@ const PRODUCT: PublicProductDetail = {
   ],
 };
 
-function renderArticle(content: ArticleBlockJson[], presets = new Map()) {
+const PRESET_ID = "aaaaaaaa-1111-4111-8111-111111111111";
+const PRESET_CARD: PresetCardData = {
+  productId: PRESET_ID,
+  slug: "film-grain",
+  name: "Film Grain",
+  type: "filter",
+  shortDescription: "Analog grain and tones.",
+  categoryName: "Portrait",
+  creditCost: 25,
+  activeVersionId: "v1",
+  versionNumber: 1,
+  imageUrl: null,
+  videoUrl: null,
+  href: "/presets/film-grain",
+};
+
+function renderArticle(
+  content: ArticleBlockJson[],
+  presets = new Map<string, PublicProductDetail | null>(),
+  presetCards = new Map<string, PresetCardData>()
+) {
   const headings = indexHeadings(content);
   return render(
     <ArticleRenderer
       content={content}
       media={MEDIA}
       presets={presets}
+      presetCards={presetCards}
       headings={headings}
+      articleId="article-1"
     />
   );
 }
@@ -307,7 +330,9 @@ describe("ArticleRenderer — media blocks", () => {
         content={content}
         media={media}
         presets={new Map()}
+        presetCards={new Map()}
         headings={headings}
+        articleId="article-1"
       />
     );
     expect(screen.getByRole("img", { name: "Before" })).toBeInTheDocument();
@@ -316,22 +341,46 @@ describe("ArticleRenderer — media blocks", () => {
 });
 
 describe("ArticleRenderer — custom blocks", () => {
-  it("renders preset cards linking to the preset page", () => {
+  it("renders presetId blocks through the shared ArticlePresetCard", () => {
+    const content: ArticleBlockJson[] = [
+      {
+        type: "preset",
+        props: {
+          presetId: PRESET_ID,
+          slug: "film-grain",
+          selectedPublicVersionId: "",
+          displayVariant: "card",
+        },
+      },
+    ];
+    renderArticle(content, new Map(), new Map([[PRESET_ID, PRESET_CARD]]));
+    expect(screen.getByText("Film Grain")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Try this look/i });
+    expect(link).toHaveAttribute("href", "/presets/film-grain");
+  });
+
+  it("falls back to the cached slug for pre-#127 preset blocks", () => {
     const content: ArticleBlockJson[] = [
       { type: "preset", props: { productSlug: "film-grain" } },
     ];
     renderArticle(content, new Map([["film-grain", PRODUCT]]));
-    const link = screen.getByRole("link", { name: /Film Grain/ });
-    expect(link).toHaveAttribute("href", "/presets/film-grain");
+    expect(screen.getByText("Film Grain")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Try this look/i })
+    ).toHaveAttribute("href", "/presets/film-grain");
   });
 
-  it("shows an unavailable card for retired presets", () => {
-    renderArticle(
-      [{ type: "preset", props: { productSlug: "gone" } }],
-      new Map([["gone", null]])
-    );
+  it("shows the unavailable card for retired/unavailable presets", () => {
+    const content: ArticleBlockJson[] = [
+      {
+        type: "preset",
+        props: { presetId: PRESET_ID, slug: "gone" },
+      },
+    ];
+    // presetId absent from the resolved map — the card must degrade.
+    renderArticle(content);
     expect(
-      screen.getByText("This preset is no longer available.")
+      screen.getByText("This preset is no longer available")
     ).toBeInTheDocument();
     expect(screen.queryByRole("link")).toBeNull();
   });

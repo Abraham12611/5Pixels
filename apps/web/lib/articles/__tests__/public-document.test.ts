@@ -173,6 +173,20 @@ describe("collectPresetSlugs", () => {
     ];
     expect(collectPresetSlugs(doc)).toEqual(["a-b", "c-d", "e-f"]);
   });
+
+  it("skips presetId-keyed blocks — those resolve via collectDocumentPresetIds", () => {
+    const doc: ArticleBlockJson[] = [
+      {
+        type: "preset",
+        props: {
+          presetId: "aaaaaaaa-1111-4111-8111-111111111111",
+          slug: "should-not-be-collected",
+        },
+      },
+      { type: "preset", props: { presetId: "", slug: "fallback-slug" } },
+    ];
+    expect(collectPresetSlugs(doc)).toEqual(["fallback-slug"]);
+  });
 });
 
 describe("extractPlainText / reading time", () => {

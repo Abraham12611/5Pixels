@@ -262,8 +262,13 @@ export function anchorIdFor(
  * Preset references
  * ------------------------------------------------------------------------ */
 
+/**
+ * Slug-keyed preset references, resolved through the public catalog RPC.
+ * `preset` blocks are intentionally absent: their canonical reference is
+ * `props.presetId` (collected by collectDocumentPresetIds in preset-card.ts);
+ * their `slug` prop is only a fallback for documents authored before #127.
+ */
 const PRESET_REF_PROP_KEYS: Record<string, string> = {
-  preset: "productSlug",
   settings: "productSlug",
   cta: "presetSlug",
   promptRecipe: "presetSlug",
@@ -275,13 +280,21 @@ export function collectPresetSlugs(blocks: ArticleBlockJson[]): string[] {
   const out: string[] = [];
   const walk = (list: ArticleBlockJson[]) => {
     for (const block of list) {
-      const key = PRESET_REF_PROP_KEYS[block.type];
-      if (key) {
-        const slug = sanitizePresetSlug(block.props?.[key]);
-        if (slug && !seen.has(slug)) {
-          seen.add(slug);
-          out.push(slug);
+      let slug: string | null = null;
+      if (block.type === "preset") {
+        const presetId = block.props?.presetId;
+        if (typeof presetId !== "string" || presetId === "") {
+          slug = sanitizePresetSlug(
+            block.props?.slug ?? block.props?.productSlug
+          );
         }
+      } else {
+        const key = PRESET_REF_PROP_KEYS[block.type];
+        if (key) slug = sanitizePresetSlug(block.props?.[key]);
+      }
+      if (slug && !seen.has(slug)) {
+        seen.add(slug);
+        out.push(slug);
       }
       if (block.children?.length) walk(block.children);
     }

@@ -10,6 +10,7 @@ import {
   type HeadingIndex,
 } from "@/lib/articles/public-document";
 import type { PublicProductDetail } from "@/types/catalog";
+import type { PresetCardData } from "@/lib/articles/preset-card";
 import { cn } from "@/lib/utils";
 import { ArticleImage } from "./article-image";
 import {
@@ -18,7 +19,7 @@ import {
   CtaBlock,
   GenerationBlockView,
   MediaUnavailable,
-  PresetBlockCard,
+  PresetBlockView,
   PromptRecipeBlock,
   SettingsBlockCard,
   WorkflowBlock,
@@ -35,8 +36,12 @@ import {
 
 interface RenderContext {
   media: Record<string, PublicAssetRef>;
+  /** Slug-keyed catalog rows for settings/cta/promptRecipe + legacy presets. */
   presets: ReadonlyMap<string, PublicProductDetail | null>;
+  /** productId-keyed cards for #127 preset blocks; absent = unavailable. */
+  presetCards: ReadonlyMap<string, PresetCardData>;
   headings: HeadingIndex;
+  articleId: string;
 }
 
 /* --------------------------------------------------------------------------
@@ -471,11 +476,18 @@ function CustomBlock({
 }) {
   const props = block.props ?? {};
   switch (block.type) {
-    case "preset": {
-      const slug = typeof props.productSlug === "string" ? props.productSlug : "";
-      const product = slug ? (ctx.presets.get(slug) ?? null) : null;
-      return <PresetBlockCard product={product} />;
-    }
+    case "preset":
+      return (
+        <PresetBlockView
+          presetId={props.presetId}
+          slug={props.slug ?? props.productSlug}
+          selectedPublicVersionId={props.selectedPublicVersionId}
+          displayVariant={props.displayVariant}
+          presetCards={ctx.presetCards}
+          presets={ctx.presets}
+          articleId={ctx.articleId}
+        />
+      );
     case "settings": {
       const slug = typeof props.productSlug === "string" ? props.productSlug : "";
       const product = slug ? (ctx.presets.get(slug) ?? null) : null;
@@ -662,16 +674,23 @@ export function ArticleRenderer({
   content,
   media,
   presets,
+  presetCards,
   headings,
+  articleId,
 }: {
   content: ArticleBlockJson[];
   media: Record<string, PublicAssetRef>;
   presets: ReadonlyMap<string, PublicProductDetail | null>;
+  presetCards: ReadonlyMap<string, PresetCardData>;
   headings: HeadingIndex;
+  articleId: string;
 }) {
   return (
     <div className="min-w-0">
-      <RenderBlocks blocks={content} ctx={{ media, presets, headings }} />
+      <RenderBlocks
+        blocks={content}
+        ctx={{ media, presets, presetCards, headings, articleId }}
+      />
     </div>
   );
 }

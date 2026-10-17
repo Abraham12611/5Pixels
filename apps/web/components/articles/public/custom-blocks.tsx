@@ -7,7 +7,6 @@ import {
   Sparkle,
   Warning,
 } from "@phosphor-icons/react/dist/ssr";
-import { selectCatalogMediaAsset, publicAssetUrl } from "@/lib/catalog/media";
 import type { PublicProductDetail } from "@/types/catalog";
 import type { PublicAssetRef } from "@/lib/articles/types";
 import {
@@ -15,6 +14,13 @@ import {
   sanitizeCtaHref,
   sanitizePresetSlug,
 } from "@/lib/articles/public-document";
+import {
+  isPinnedVersionStale,
+  isPresetUuid,
+  presetCardDataFromProduct,
+  type PresetCardData,
+} from "@/lib/articles/preset-card";
+import { ArticlePresetCard } from "@/components/articles/blocks/preset-card";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
 import { ArticleImage } from "./article-image";
@@ -42,71 +48,53 @@ export function MediaUnavailable({ label }: { label: string }) {
 }
 
 /* --------------------------------------------------------------------------
- * Preset card
+ * Preset card — delegates to the shared ArticlePresetCard (#127 contract).
+ * The canonical reference is props.presetId (products.id); props.slug is a
+ * deep-link fallback for documents authored before the picker existed.
  * ------------------------------------------------------------------------ */
 
-export function PresetBlockCard({
-  product,
+export function PresetBlockView({
+  presetId,
+  slug,
+  selectedPublicVersionId,
+  displayVariant,
+  presetCards,
+  presets,
+  articleId,
 }: {
-  product: PublicProductDetail | null;
+  presetId: unknown;
+  slug: unknown;
+  selectedPublicVersionId: unknown;
+  displayVariant: unknown;
+  /** productId -> PresetCardData; absent id = retired/unavailable. */
+  presetCards: ReadonlyMap<string, PresetCardData>;
+  /** slug -> catalog row, for pre-#127 slug-only blocks. */
+  presets: ReadonlyMap<string, PublicProductDetail | null>;
+  articleId: string;
 }) {
-  if (!product) {
-    return (
-      <div className="border-cream-100/10 bg-charcoal-850 text-text-muted my-6 flex items-center gap-3 rounded-xl border p-4 text-sm">
-        <Sparkle size={18} aria-hidden className="shrink-0" />
-        This preset is no longer available.
-      </div>
-    );
+  const id = typeof presetId === "string" ? presetId.trim() : "";
+  let card: PresetCardData | null =
+    id && isPresetUuid(id) ? (presetCards.get(id) ?? null) : null;
+  if (!card && !id) {
+    const s = sanitizePresetSlug(slug);
+    const product = s ? (presets.get(s) ?? null) : null;
+    card = product ? presetCardDataFromProduct(product) : null;
   }
-
-  const hero = selectCatalogMediaAsset(product.public_assets, "hero");
-  const thumb = hero ? publicAssetUrl(hero.bucket, hero.storage_key) : null;
-  const href = `/presets/${product.slug}`;
+  const pinned =
+    typeof selectedPublicVersionId === "string"
+      ? selectedPublicVersionId
+      : "";
 
   return (
-    <div className="border-cream-100/10 bg-charcoal-850 hover:border-lime-500/30 my-6 overflow-hidden rounded-xl border transition-colors">
-      <Link
-        href={href}
-        className="focus-visible:ring-lime-500/70 group flex flex-col focus-visible:ring-2 focus-visible:outline-none sm:flex-row"
-      >
-        {thumb ? (
-          <div className="bg-charcoal-800 aspect-[16/10] w-full shrink-0 overflow-hidden sm:aspect-square sm:w-40">
-            {/* eslint-disable-next-line @next/next/no-img-element -- public Storage URL */}
-            <img
-              src={thumb}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            />
-          </div>
-        ) : null}
-        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 p-4">
-          <div className="flex items-center gap-2">
-            <span className="text-cream-50 truncate font-semibold">
-              {product.name}
-            </span>
-            <span className="text-text-muted border-cream-100/10 rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
-              {product.type}
-            </span>
-          </div>
-          {product.short_description ? (
-            <p className="text-text-secondary line-clamp-2 text-sm">
-              {product.short_description}
-            </p>
-          ) : null}
-          <span className="text-lime-400 mt-1 inline-flex items-center gap-1 text-sm font-medium">
-            Try this look
-            <ArrowRight
-              size={14}
-              weight="bold"
-              aria-hidden
-              className="transition-transform group-hover:translate-x-0.5"
-            />
-          </span>
-        </div>
-      </Link>
-    </div>
+    <ArticlePresetCard
+      preset={card}
+      variant={displayVariant === "compact" ? "compact" : "card"}
+      pinnedVersionStale={Boolean(
+        card && pinned && isPinnedVersionStale(card, pinned)
+      )}
+      analyticsProps={{ surface: "article", article_id: articleId }}
+      className="my-6"
+    />
   );
 }
 

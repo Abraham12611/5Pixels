@@ -7,6 +7,8 @@ import { publicAssetUrl } from "@/lib/catalog/media";
 import { getSiteUrl } from "@/lib/billing/site-url";
 import { getPublicProductBySlug } from "@/lib/db/explore";
 import type { PublicProductDetail } from "@/types/catalog";
+import { collectDocumentPresetIds } from "@/lib/articles/preset-card";
+import { resolvePresetCardMap } from "@/lib/articles/presets";
 import {
   collectPresetSlugs,
   estimateReadingTimeMinutes,
@@ -120,14 +122,17 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
 
   // Resolve every preset referenced by a block in one pass — the renderer
   // stays synchronous and each card degrades gracefully when a preset was
-  // retired after publication.
-  const presetSlugs = collectPresetSlugs(article.content);
-  const presetEntries = await Promise.all(
-    presetSlugs.map(
-      async (s) =>
-        [s, (await getPublicProductBySlug(s)).data] as const
-    )
-  );
+  // retired after publication. presetId-keyed resolution is canonical (#127);
+  // the slug map covers settings/cta/promptRecipe refs and pre-#127 documents.
+  const [presetCards, presetEntries] = await Promise.all([
+    resolvePresetCardMap(collectDocumentPresetIds(article.content)),
+    Promise.all(
+      collectPresetSlugs(article.content).map(
+        async (s) =>
+          [s, (await getPublicProductBySlug(s)).data] as const
+      )
+    ),
+  ]);
   const presets = new Map<string, PublicProductDetail | null>(presetEntries);
 
   const headings = indexHeadings(article.content);
@@ -268,7 +273,9 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
                 content={article.content}
                 media={article.media}
                 presets={presets}
+                presetCards={presetCards}
                 headings={headings}
+                articleId={article.article_id}
               />
             </div>
             {toc.length > 0 ? (
