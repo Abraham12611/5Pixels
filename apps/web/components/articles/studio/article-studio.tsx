@@ -47,7 +47,16 @@ interface StudioSnapshot {
   document: unknown[];
 }
 
-type ConfirmKind = "publish" | "unpublish" | "archive" | "unarchive" | null;
+type ConfirmKind =
+  | "publish"
+  | "unpublish"
+  | "archive"
+  | "unarchive"
+  | "reload"
+  | null;
+
+/** sessionStorage hand-off for the post-duplicate media warning. */
+const DUPLICATE_FLASH_KEY = "article-studio-duplicate-flash";
 
 const STATUS_LABEL: Record<Article["status"], string> = {
   draft: "Draft",
@@ -97,6 +106,8 @@ export function ArticleStudio({
   const [notice, setNotice] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmKind>(null);
+  /** Warning carried across the duplicate→new-editor navigation. */
+  const [flashWarning, setFlashWarning] = useState<string>();
   const [version, setVersion] = useState(article.edit_version);
   const [initialDoc, setInitialDoc] = useState<unknown[]>(
     article.draft_content
@@ -201,6 +212,26 @@ export function ArticleStudio({
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
+  // A duplicate lands here with any media-copy warning in sessionStorage —
+  // surface it once, then clear it so refreshes don't repeat it. Deferred
+  // to a microtask so hydration isn't a mismatch and the effect stays a
+  // pure external-system read.
+  useEffect(() => {
+    const raw = sessionStorage.getItem(DUPLICATE_FLASH_KEY);
+    sessionStorage.removeItem(DUPLICATE_FLASH_KEY);
+    if (!raw) return;
+    queueMicrotask(() => {
+      try {
+        const parsed = JSON.parse(raw) as { warning?: unknown };
+        if (typeof parsed.warning === "string") {
+          setFlashWarning(parsed.warning);
+        }
+      } catch {
+        // Malformed hand-off — nothing worth surfacing.
+      }
+    });
+  }, []);
+
   const markChanged = useCallback(() => {
     setActionError(undefined);
     getPipeline().queue(snapshot());
@@ -257,7 +288,7 @@ export function ArticleStudio({
   }, [current.id, publicBaseUrl, getPipeline]);
 
   const doLifecycle = useCallback(
-    async (kind: Exclude<ConfirmKind, "publish" | null>) => {
+    async (kind: Exclude<ConfirmKind, "publish" | "reload" | null>) => {
       const actions = {
         unpublish: unpublishArticleAction,
         archive: archiveArticleAction,
@@ -292,10 +323,33 @@ export function ArticleStudio({
       setActionError(articleErrorMessage(result.code, result.error));
       return;
     }
+    // The new editor mounts fresh — hand the media-copy warning over so it
+    // isn't silently swallowed by the navigation.
+    if (result.warning) {
+      sessionStorage.setItem(
+        DUPLICATE_FLASH_KEY,
+        JSON.stringify({ warning: result.warning })
+      );
+    }
     router.push(`/admin/articles/${result.article.id}/edit`);
   }, [current.id, router]);
 
+  /** Export the unsaved on-screen draft before a conflict reload drops it. */
+  const downloadMyEdits = useCallback(() => {
+    const snap = snapshot();
+    const blob = new Blob([JSON.stringify(snap, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `article-${current.id}-unsaved-edits.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [snapshot, current.id]);
+
   const reloadAfterConflict = useCallback(async () => {
+    setConfirm(null);
     const result = await getArticleForStudioAction(current.id);
     if (!result.ok || !result.article) {
       setActionError("Couldn't reload the article — refresh the page.");
@@ -447,13 +501,39 @@ export function ArticleStudio({
             A newer version of this article was saved elsewhere. Your latest
             edits are kept on screen but can&rsquo;t be saved over it.
           </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-8 text-xs"
+              onClick={downloadMyEdits}
+            >
+              Download my edits
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-8 text-xs"
+              onClick={() => setConfirm("reload")}
+            >
+              Reload latest version
+            </Button>
+          </div>
+        </div>
+      )}
+      {flashWarning && (
+        <div
+          role="alert"
+          className="border-warning/40 bg-warning/10 text-cream-50 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm"
+        >
+          <span>{flashWarning}</span>
           <Button
             type="button"
             variant="secondary"
             className="h-8 text-xs"
-            onClick={() => void reloadAfterConflict()}
+            onClick={() => setFlashWarning(undefined)}
           >
-            Reload latest version
+            Dismiss
           </Button>
         </div>
       )}
@@ -557,7 +637,9 @@ export function ArticleStudio({
                 ? "Unpublish article?"
                 : confirm === "archive"
                   ? "Archive article?"
-                  : "Unarchive article?"}
+                  : confirm === "reload"
+                    ? "Reload latest version?"
+                    : "Unarchive article?"}
           </DialogTitle>
           <DialogDescription>
             {confirm === "publish" &&
@@ -568,10 +650,22 @@ export function ArticleStudio({
               "Archived articles leave the public listing and can't be published until unarchived. Draft content is kept."}
             {confirm === "unarchive" &&
               "The article returns to draft status and can be edited and published again."}
+            {confirm === "reload" &&
+              "Reloading replaces everything on screen with the newest saved version. Your unsaved edits will be discarded — download them first if you need to keep or re-apply them."}
           </DialogDescription>
         </DialogHeader>
         <DialogContent>
           <DialogFooter>
+            {confirm === "reload" && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={downloadMyEdits}
+              >
+                Download my edits
+              </Button>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -586,9 +680,11 @@ export function ArticleStudio({
               onClick={() =>
                 confirm === "publish"
                   ? void doPublish()
-                  : confirm
-                    ? void doLifecycle(confirm)
-                    : undefined
+                  : confirm === "reload"
+                    ? void reloadAfterConflict()
+                    : confirm
+                      ? void doLifecycle(confirm)
+                      : undefined
               }
             >
               {busy
@@ -597,7 +693,9 @@ export function ArticleStudio({
                   ? current.status === "published"
                     ? "Republish"
                     : "Publish"
-                  : "Confirm"}
+                  : confirm === "reload"
+                    ? "Discard edits and reload"
+                    : "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>

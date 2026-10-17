@@ -167,6 +167,62 @@ describe("SavePipeline", () => {
     expect(pipeline.hasUnsaved()).toBe(true);
   });
 
+  it("flushNow during a slow save waits for it AND every newer queued edit", async () => {
+    // Publish path (#126 review): flushNow must not resolve while a save is
+    // in flight, and edits queued during the wait must also be acked before
+    // it returns true — otherwise publish snapshots a stale document.
+    const first = deferred();
+    const save = vi
+      .fn<(s: Snap) => Promise<StudioSaveResult>>()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementation(async () => ok(9));
+    const { pipeline, savedVersions } = makePipeline(save);
+
+    pipeline.queue({ doc: "v1" });
+    await vi.advanceTimersByTimeAsync(150); // first save now in flight
+
+    let flushed: boolean | undefined;
+    const flushing = pipeline
+      .flushNow("manual")
+      .then((d) => (flushed = d));
+
+    // A newer edit lands while flushNow is already waiting.
+    pipeline.queue({ doc: "v2" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(flushed).toBeUndefined(); // still waiting on the slow save
+
+    first.resolve(ok(4));
+    await flushing;
+
+    expect(flushed).toBe(true);
+    // Both the in-flight save and the newer queued edit were acknowledged.
+    expect(savedVersions).toEqual([4, 9]);
+    expect(save).toHaveBeenLastCalledWith({ doc: "v2" }, "autosave");
+    expect(pipeline.hasUnsaved()).toBe(false);
+  });
+
+  it("flushNow during a slow save resolves false when it ends in conflict", async () => {
+    const first = deferred();
+    const save = vi
+      .fn<(s: Snap) => Promise<StudioSaveResult>>()
+      .mockImplementationOnce(() => first.promise);
+    const { pipeline, states } = makePipeline(save);
+
+    pipeline.queue({ doc: "v1" });
+    await vi.advanceTimersByTimeAsync(150);
+
+    let flushed: boolean | undefined;
+    const flushing = pipeline.flushNow().then((d) => (flushed = d));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(flushed).toBeUndefined();
+
+    first.resolve({ ok: false, conflict: true });
+    await flushing;
+
+    expect(flushed).toBe(false);
+    expect(states.at(-1)).toBe("conflict");
+  });
+
   it("hasUnsaved is true while dirty or in flight, false when clean", async () => {
     const gate = deferred();
     const save = vi

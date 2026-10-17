@@ -136,6 +136,16 @@ describe("duplicate_article (#126)", () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);
       const articleId = randomUUID();
+      // Parent article first — article_assets rows FK to it, so media
+      // fixtures can only insert once the article exists.
+      await client.query(
+        `INSERT INTO public.articles (
+           id, author_id, title, slug, draft_content, cover_asset_id,
+           status, last_edited_by
+         ) VALUES ($1, $2, 'Source article', 'dbtest-src', '[]'::jsonb, NULL,
+                   'published', $2)`,
+        [articleId, staffId]
+      );
       const { assetId: imgA } = await makeArticleAsset(
         client,
         articleId,
@@ -147,12 +157,10 @@ describe("duplicate_article (#126)", () => {
         staffId
       );
       await client.query(
-        `INSERT INTO public.articles (
-           id, author_id, title, slug, draft_content, cover_asset_id,
-           status, last_edited_by
-         ) VALUES ($1, $2, 'Source article', 'dbtest-src', $3::jsonb, $4,
-                   'published', $2)`,
-        [articleId, staffId, docReferencing(imgA, genA), imgA]
+        `UPDATE public.articles
+           SET draft_content = $2::jsonb, cover_asset_id = $3
+         WHERE id = $1`,
+        [articleId, docReferencing(imgA, genA), imgA]
       );
       // Publish-state fields a clone must never inherit.
       await client.query(

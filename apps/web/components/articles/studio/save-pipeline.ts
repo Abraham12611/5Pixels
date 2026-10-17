@@ -51,6 +51,8 @@ export class SavePipeline<T> {
   private stopped = false;
   private lastEmitted: StudioSaveState = "clean";
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /** Promise of the drain currently running — lets flushNow await it. */
+  private activeDrain?: Promise<void>;
   private readonly debounceMs: number;
 
   constructor(private readonly options: SavePipelineOptions<T>) {
@@ -70,24 +72,28 @@ export class SavePipeline<T> {
     this.pending = { snapshot, source: "autosave" };
     this.emit("dirty");
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.drain(), this.debounceMs);
+    this.timer = setTimeout(() => void this.requestDrain(), this.debounceMs);
   }
 
   /**
-   * Save immediately (explicit Save, or pre-publish flush). Awaits the full
-   * drain and resolves true when everything queued was acknowledged.
+   * Save immediately (explicit Save, or pre-publish flush). Waits for any
+   * in-flight save AND drains every newer queued edit until the queue is
+   * acknowledged — publish must never snapshot a stale document. Resolves
+   * true only when everything queued was acknowledged; a failed save or a
+   * conflict leaves `pending`/`stopped` set and resolves false so the
+   * caller aborts instead of publishing unsaved work.
    */
   async flushNow(source: StudioSaveSource = "manual"): Promise<boolean> {
     if (this.timer) clearTimeout(this.timer);
     if (this.pending) this.pending.source = source;
-    await this.drain();
+    await this.requestDrain();
     return !this.pending && !this.stopped;
   }
 
   /** Retry after a transient failure — the failed snapshot was re-queued. */
   retry(): void {
     if (this.stopped) return;
-    void this.drain();
+    void this.requestDrain();
   }
 
   /** Unsaved work exists — drives the navigation/unload warning. */
@@ -97,6 +103,17 @@ export class SavePipeline<T> {
 
   destroy(): void {
     if (this.timer) clearTimeout(this.timer);
+  }
+
+  /**
+   * Returns the in-flight drain's promise, starting a drain when none is
+   * running. The drain clears `activeDrain` in its own finally — which runs
+   * before the promise resolves — so an `await` followed by re-draining
+   * can never observe a stale resolved handle.
+   */
+  private requestDrain(): Promise<void> {
+    if (!this.activeDrain) this.activeDrain = this.drain();
+    return this.activeDrain;
   }
 
   private async drain(): Promise<void> {
@@ -127,6 +144,9 @@ export class SavePipeline<T> {
         }
         if (result.conflict) {
           this.stopped = true;
+          // Keep the rejected snapshot pending — the on-screen edits are
+          // still unsaved, so hasUnsaved() must keep warning on unload.
+          if (!this.pending) this.pending = { snapshot, source };
           this.emit("conflict");
           break;
         }
@@ -138,6 +158,7 @@ export class SavePipeline<T> {
       }
     } finally {
       this.inFlight = false;
+      this.activeDrain = undefined;
     }
   }
 }
