@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { requireAdminOrOwner } from "@/lib/db/admin";
-import { createArticleAction } from "@/lib/articles/actions";
+import { createAndOpenArticleAction } from "./create-action";
 
 export const metadata: Metadata = {
   title: "New article",
@@ -10,32 +9,44 @@ export const metadata: Metadata = {
 };
 
 /**
- * "New article" lands the author straight in the studio: the draft row is
- * created here (media uploads need a real article id) and the editor opens
- * against it immediately.
+ * GET is intentionally read-only. A draft is created by an explicit form
+ * submission, so opening, refreshing, or prefetching this URL cannot create
+ * unwanted drafts or call revalidatePath() during a Server Component render.
  */
-export default async function NewArticlePage() {
+export default async function NewArticlePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   await requireAdminOrOwner();
-  const result = await createArticleAction();
+  const { error } = await searchParams;
 
-  if (!result.ok || !result.article) {
-    return (
-      <div className="max-w-md py-16">
-        <h1 className="text-cream-50 text-2xl font-bold">
-          Couldn&rsquo;t create the article
-        </h1>
-        <p role="alert" className="text-error mt-3 text-sm">
-          {result.error ?? "Something went wrong."}
+  return (
+    <div className="max-w-lg py-12">
+      <h1 className="text-cream-50 text-3xl font-bold">New article</h1>
+      <p className="text-text-secondary mt-3 text-sm">
+        Create a private draft and open the article editor. Nothing is
+        published until you choose to publish it.
+      </p>
+      {error === "create" && (
+        <p role="alert" className="text-error mt-5 text-sm">
+          Couldn&rsquo;t create the article. Please try again.
         </p>
-        <Link
-          href="/admin/articles"
-          className="text-lime-400 mt-6 inline-block text-sm hover:underline"
+      )}
+      <form action={createAndOpenArticleAction} className="mt-7">
+        <button
+          type="submit"
+          className="bg-lime-500 text-ink-950 hover:bg-lime-400 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors"
         >
-          ← Back to articles
-        </Link>
-      </div>
-    );
-  }
-
-  redirect(`/admin/articles/${result.article.id}/edit`);
+          Create draft and open editor
+        </button>
+      </form>
+      <Link
+        href="/admin/articles"
+        className="text-lime-400 mt-6 inline-block text-sm hover:underline"
+      >
+        ← Back to articles
+      </Link>
+    </div>
+  );
 }
