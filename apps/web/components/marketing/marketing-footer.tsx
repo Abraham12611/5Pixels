@@ -31,6 +31,7 @@ const footerLinks = {
     { label: "Categories", href: "/categories" },
   ],
   Resources: [
+    { label: "Articles", href: "/articles" },
     { label: "How it works", href: "/#how-it-works" },
     { label: "Pricing", href: "/pricing" },
     { label: "FAQ", href: "/pricing#faq" },
