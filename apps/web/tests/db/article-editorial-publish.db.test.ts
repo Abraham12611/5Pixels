@@ -197,6 +197,11 @@ describe("publish_article promptRecipe/settings gate", () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);
       const { productId } = await makeProduct(client);
+      // Publishing a settings snapshot requires an active, publicly
+      // documented control; a product alone is not sufficient.
+      await makeProductField(client, productId, "style", "select", {
+        options: [{ value: "Film", label: "Film" }],
+      });
       const { articleId, editVersion } = await makeArticle(client, staffId, [
         paragraph,
         settingsBlock(
