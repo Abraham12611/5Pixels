@@ -50,7 +50,7 @@ export async function withDbClients<T>(
   }
 }
 
-export type JwtRole = "authenticated" | "service_role";
+export type JwtRole = "authenticated" | "service_role" | "anon";
 
 /**
  * Runs `fn` inside one transaction as `role` with `auth.uid()` = userId.
@@ -64,11 +64,11 @@ export async function asRole<T>(
 ): Promise<T> {
   await client.query("BEGIN");
   try {
-    if (userId) {
-      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [
-        JSON.stringify({ sub: userId, role }),
-      ]);
-    }
+    // PostgREST always forwards a `role` claim (anon JWTs included); set it
+    // unconditionally so auth.role() resolves like a real API request.
+    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [
+      JSON.stringify(userId ? { sub: userId, role } : { role }),
+    ]);
     await client.query(`SET LOCAL ROLE ${role}`);
     const result = await fn();
     await client.query("COMMIT");
@@ -89,4 +89,8 @@ export function asUser<T>(
 
 export function asService<T>(client: Client, fn: () => Promise<T>): Promise<T> {
   return asRole(client, "service_role", null, fn);
+}
+
+export function asAnon<T>(client: Client, fn: () => Promise<T>): Promise<T> {
+  return asRole(client, "anon", null, fn);
 }
