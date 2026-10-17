@@ -77,7 +77,7 @@ export async function markNotificationRead(notificationId: string) {
     console.error("[markNotificationRead] failed", error.message);
     return { success: false, error: error.message };
   }
-  revalidatePath("/app");
+  revalidatePath("/app", "layout");
   return { success: true };
 }
 
@@ -98,6 +98,6 @@ export async function markAllNotificationsRead() {
     console.error("[markAllNotificationsRead] failed", error.message);
     return { success: false, error: error.message };
   }
-  revalidatePath("/app");
+  revalidatePath("/app", "layout");
   return { success: true };
 }
