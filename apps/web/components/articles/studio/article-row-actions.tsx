@@ -11,6 +11,7 @@ import {
   unpublishArticleAction,
 } from "@/lib/articles/actions";
 import type { StaffArticle } from "@/lib/articles/types";
+import { stashDuplicateWarning } from "@/lib/articles/duplicate-flash";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -60,6 +61,9 @@ export function ArticleRowActions({ article }: { article: StaffArticle }) {
       }
       setPending(null);
       if (kind === "duplicate" && result.article) {
+        // Same hand-off the studio uses — a partial media copy must surface
+        // on the new draft's editor, not vanish with this navigation.
+        stashDuplicateWarning(result.warning);
         router.push(`/admin/articles/${result.article.id}/edit`);
         return;
       }

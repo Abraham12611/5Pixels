@@ -107,12 +107,17 @@ export class SavePipeline<T> {
 
   /**
    * Returns the in-flight drain's promise, starting a drain when none is
-   * running. The drain clears `activeDrain` in its own finally — which runs
-   * before the promise resolves — so an `await` followed by re-draining
-   * can never observe a stale resolved handle.
+   * running. The handle is cleared by a .finally() attached to the stored
+   * promise — a microtask that runs only after the assignment here — so a
+   * synchronously-completing drain (e.g. flushNow with nothing queued) can
+   * never leave a stale resolved promise parked in `activeDrain`.
    */
   private requestDrain(): Promise<void> {
-    if (!this.activeDrain) this.activeDrain = this.drain();
+    if (!this.activeDrain) {
+      this.activeDrain = this.drain().finally(() => {
+        this.activeDrain = undefined;
+      });
+    }
     return this.activeDrain;
   }
 
@@ -158,7 +163,6 @@ export class SavePipeline<T> {
       }
     } finally {
       this.inFlight = false;
-      this.activeDrain = undefined;
     }
   }
 }

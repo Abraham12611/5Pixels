@@ -201,6 +201,27 @@ describe("SavePipeline", () => {
     expect(pipeline.hasUnsaved()).toBe(false);
   });
 
+  it("an edit after an empty flushNow still autosaves and is acknowledged", async () => {
+    // Regression (#126 review): flushing with nothing queued made drain()
+    // complete synchronously, so its cleanup ran before requestDrain()
+    // assigned activeDrain — a stale resolved promise then swallowed every
+    // later autosave.
+    const save = vi.fn(async (s: Snap) => ok(s.doc === "later" ? 3 : 1));
+    const { pipeline, savedVersions, states } = makePipeline(save);
+
+    // Save with no pending edits — the synchronous no-op drain.
+    expect(await pipeline.flushNow("manual")).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+
+    // A new edit must still schedule and complete a real autosave.
+    pipeline.queue({ doc: "later" });
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(save).toHaveBeenCalledWith({ doc: "later" }, "autosave");
+    expect(savedVersions).toEqual([3]);
+    expect(states.at(-1)).toBe("saved");
+  });
+
   it("flushNow during a slow save resolves false when it ends in conflict", async () => {
     const first = deferred();
     const save = vi

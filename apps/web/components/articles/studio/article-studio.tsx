@@ -31,6 +31,10 @@ import {
 import { cn } from "@/lib/utils";
 import { ArticleEditor, type ArticleEditorChange } from "../editor/index";
 import {
+  consumeDuplicateWarning,
+  stashDuplicateWarning,
+} from "@/lib/articles/duplicate-flash";
+import {
   SavePipeline,
   type StudioSaveResult,
   type StudioSaveState,
@@ -54,9 +58,6 @@ type ConfirmKind =
   | "unarchive"
   | "reload"
   | null;
-
-/** sessionStorage hand-off for the post-duplicate media warning. */
-const DUPLICATE_FLASH_KEY = "article-studio-duplicate-flash";
 
 const STATUS_LABEL: Record<Article["status"], string> = {
   draft: "Draft",
@@ -213,23 +214,11 @@ export function ArticleStudio({
   }, []);
 
   // A duplicate lands here with any media-copy warning in sessionStorage —
-  // surface it once, then clear it so refreshes don't repeat it. Deferred
-  // to a microtask so hydration isn't a mismatch and the effect stays a
-  // pure external-system read.
+  // surface it once. Deferred to a microtask so hydration isn't a mismatch
+  // and the effect stays a pure external-system read.
   useEffect(() => {
-    const raw = sessionStorage.getItem(DUPLICATE_FLASH_KEY);
-    sessionStorage.removeItem(DUPLICATE_FLASH_KEY);
-    if (!raw) return;
-    queueMicrotask(() => {
-      try {
-        const parsed = JSON.parse(raw) as { warning?: unknown };
-        if (typeof parsed.warning === "string") {
-          setFlashWarning(parsed.warning);
-        }
-      } catch {
-        // Malformed hand-off — nothing worth surfacing.
-      }
-    });
+    const warning = consumeDuplicateWarning();
+    if (warning) queueMicrotask(() => setFlashWarning(warning));
   }, []);
 
   const markChanged = useCallback(() => {
@@ -325,12 +314,7 @@ export function ArticleStudio({
     }
     // The new editor mounts fresh — hand the media-copy warning over so it
     // isn't silently swallowed by the navigation.
-    if (result.warning) {
-      sessionStorage.setItem(
-        DUPLICATE_FLASH_KEY,
-        JSON.stringify({ warning: result.warning })
-      );
-    }
+    stashDuplicateWarning(result.warning);
     router.push(`/admin/articles/${result.article.id}/edit`);
   }, [current.id, router]);
 
