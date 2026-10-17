@@ -26,6 +26,7 @@ import {
   Crown,
   Lightning,
   Wrench,
+  Newspaper,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { signOut } from "@/app/actions/auth";
@@ -248,13 +249,27 @@ export function UserDropdown({
             Settings
           </Link>
         </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/articles" className={ITEM_CLASS}>
+            <Newspaper size={16} weight="bold" />
+            Articles
+          </Link>
+        </DropdownMenuItem>
         {isAdmin && (
-          <DropdownMenuItem asChild>
-            <Link href="/admin" className={ITEM_CLASS}>
-              <Wrench size={16} weight="bold" />
-              Admin console
-            </Link>
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem asChild>
+              <Link href="/admin" className={ITEM_CLASS}>
+                <Wrench size={16} weight="bold" />
+                Admin console
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/articles" className={ITEM_CLASS}>
+                <Newspaper size={16} weight="bold" />
+                Manage articles
+              </Link>
+            </DropdownMenuItem>
+          </>
         )}
 
         <DropdownMenuSeparator className="bg-cream-100/10 my-2" />

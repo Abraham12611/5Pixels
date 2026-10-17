@@ -27,6 +27,7 @@ import {
   Trash,
   CaretRight,
   Gift,
+  Newspaper,
 } from "@phosphor-icons/react/dist/ssr";
 
 export default async function AccountPage() {
@@ -163,6 +164,17 @@ export default async function AccountPage() {
                 href: "/app/account/privacy",
                 icon: LockSimple,
                 label: "Privacy & data",
+                value: "",
+              },
+            ],
+          },
+          {
+            heading: "Learn",
+            rows: [
+              {
+                href: "/articles",
+                icon: Newspaper,
+                label: "Articles",
                 value: "",
               },
             ],
@@ -357,6 +369,30 @@ export default async function AccountPage() {
                     <p className="text-text-secondary mt-0.5 text-xs">
                       {activePlan ? activePlan.name : "Free"} ·{" "}
                       {balance} credits
+                    </p>
+                  </div>
+                </div>
+                <CaretRight
+                  size={16}
+                  className="text-text-muted group-hover:text-cream-100 mt-1 transition-colors"
+                />
+              </div>
+            </SettingCard>
+          </Link>
+
+          <Link href="/articles" className="group">
+            <SettingCard className="group-hover:border-cream-100/20 h-full transition-colors">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="bg-charcoal-800 text-text-secondary rounded-[10px] p-2.5">
+                    <Newspaper size={18} weight="regular" />
+                  </span>
+                  <div>
+                    <p className="text-cream-50 text-sm font-medium">
+                      Articles
+                    </p>
+                    <p className="text-text-secondary mt-0.5 text-xs">
+                      How-it&rsquo;s-made guides and preset walkthroughs
                     </p>
                   </div>
                 </div>

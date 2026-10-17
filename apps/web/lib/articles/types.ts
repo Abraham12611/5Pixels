@@ -82,7 +82,15 @@ export interface PublicArticleSummary {
   author_display_name: string;
   author_avatar: PublicAssetRef | null;
   published_at: string;
+  /** Visible-text word count of the snapshot — feeds "N min read" labels. */
+  word_count: number;
   total_count?: number;
+}
+
+/** Topic facet row from get_public_article_topics(). */
+export interface PublicArticleTopic {
+  topic: string;
+  article_count: number;
 }
 
 /**

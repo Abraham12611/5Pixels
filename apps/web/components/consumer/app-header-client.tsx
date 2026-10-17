@@ -65,6 +65,11 @@ const AFTER_EXPLORE: NavItem[] = [
     label: "Favorites",
     isActive: (p) => p.startsWith("/app/favorites"),
   },
+  {
+    href: "/articles",
+    label: "Articles",
+    isActive: (p) => p.startsWith("/articles"),
+  },
 ];
 
 function isExploreActive(pathname: string): boolean {

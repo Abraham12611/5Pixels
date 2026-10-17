@@ -50,7 +50,7 @@ export async function withDbClients<T>(
   }
 }
 
-export type JwtRole = "authenticated" | "service_role";
+export type JwtRole = "authenticated" | "service_role" | "anon";
 
 /**
  * Runs `fn` inside one transaction as `role` with `auth.uid()` = userId.
@@ -89,4 +89,9 @@ export function asUser<T>(
 
 export function asService<T>(client: Client, fn: () => Promise<T>): Promise<T> {
   return asRole(client, "service_role", null, fn);
+}
+
+/** Anonymous PostgREST request — no JWT claims, `anon` role. */
+export function asAnon<T>(client: Client, fn: () => Promise<T>): Promise<T> {
+  return asRole(client, "anon", null, fn);
 }
