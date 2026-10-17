@@ -9,6 +9,9 @@ export interface CatalogPageQuery {
   type?: ProductType | null;
   category?: string | null;
   search?: string | null;
+  /** Restrict the page to these product ids — used by the article preset
+   * block to resolve a block's canonical reference (#127). */
+  productIds?: string[] | null;
   sort?: CatalogSort;
   page?: number;
   pageSize?: number;
@@ -31,7 +34,10 @@ export async function fetchCatalogPage(
   const { data, error } = await supabase.rpc("get_public_catalog", {
     p_type: query.type ?? null,
     p_category_slug: query.category ?? null,
-    p_product_ids: null,
+    p_product_ids:
+      query.productIds && query.productIds.length > 0
+        ? query.productIds
+        : null,
     p_search: query.search?.trim() || null,
     p_sort: query.sort ?? "featured",
     p_page: query.page ?? 1,

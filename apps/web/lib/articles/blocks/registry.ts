@@ -49,7 +49,7 @@ export const CUSTOM_ARTICLE_BLOCKS: ArticleBlockRegistration[] = [
     group: "5Pixels",
     subtext: "Embed a 5Pixels preset with a Try This Look link",
     aliases: ["preset", "filter", "poster", "try this look"],
-    status: "placeholder",
+    status: "implemented",
     implementedIn: "#127",
   },
   {
@@ -132,7 +132,21 @@ export function isCustomArticleBlockType(type: string): boolean {
  */
 export const ARTICLE_CUSTOM_PROP_SCHEMAS: Record<string, z.ZodTypeAny> = {
   preset: z
-    .object({ productSlug: z.string().max(120).default("") })
+    .object({
+      /** products.id — the canonical reference; "" while unconfigured. */
+      presetId: z.union([z.literal(""), z.string().uuid()]).default(""),
+      /** Cached deep-link slug — display only; the server always resolves
+       * current public metadata, so a stale/forged slug can never leak
+       * private fields or trust client-supplied copy. */
+      slug: z.string().max(120).default(""),
+      /** Optional pin to a product_versions.id. Must be the product's ACTIVE
+       * (public) version — a retired/hidden pin fails publish validation and
+       * degrades to the current public version on read. */
+      selectedPublicVersionId: z
+        .union([z.literal(""), z.string().uuid()])
+        .default(""),
+      displayVariant: z.enum(["card", "compact"]).default("card"),
+    })
     .strip(),
   promptRecipe: z
     .object({

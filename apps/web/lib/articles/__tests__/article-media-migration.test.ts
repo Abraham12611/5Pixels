@@ -13,7 +13,8 @@ const sql = readFileSync(
     "../../../../../supabase/migrations/20261020000002_article_media.sql"
   ),
   "utf-8"
-);
+  // Windows checkouts give CRLF — normalize so multi-line indexOf matches.
+).replace(/\r\n/g, "\n");
 
 /** Slice a CREATE FUNCTION body: from its declaration to the closing $$;. */
 function fnBody(name: string): string {
