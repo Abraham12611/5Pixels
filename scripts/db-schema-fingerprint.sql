@@ -11,9 +11,13 @@
 --   docker exec -i supabase_db_5pixels psql -U postgres -At < scripts/db-schema-fingerprint.sql
 --   # and the equivalent psql invocation against the hosted DB.
 --
+-- Function bodies are hashed after stripping `--` comments and collapsing
+-- whitespace: SQL applied through the Supabase MCP arrives comment-stripped,
+-- so raw pg_get_functiondef hashes would flag comment-only differences.
 with fp(k, h) as (
   select 'fn:' || p.oid::regprocedure::text,
-         md5(pg_get_functiondef(p.oid) || p.prosecdef::text || coalesce(p.proconfig::text, ''))
+         md5(btrim(regexp_replace(regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g'), '\s+', ' ', 'g'))
+             || p.prosecdef::text || coalesce(p.proconfig::text, ''))
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.prokind in ('f', 'p')
     and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
