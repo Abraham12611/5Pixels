@@ -21,6 +21,10 @@ const STATIC_ROUTES = [
 ];
 
 const SITEMAP_PAGE_SIZE = 50;
+// TODO(#121): temporary bound — published articles beyond the first 1000
+// (newest-first) are not listed. When the dedicated GTM/indexing ticket
+// lands, replace this with sitemap index pagination
+// (sitemap-articles-<n>.xml) so coverage scales with the catalog.
 const SITEMAP_MAX_ARTICLES = 1000;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
