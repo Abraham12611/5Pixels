@@ -5,6 +5,7 @@ import {
   isAllowedExternalMediaUrl,
   parseAssetUri,
 } from "./media";
+import { parsePromptReferences } from "./blocks/prompt-settings";
 import type { ArticleBlockJson } from "./document";
 
 /**
@@ -79,6 +80,14 @@ function walkTransform(
     if (b.type === "generation" && b.props) {
       const gid = parseAssetUri(`asset://${String(b.props.assetId ?? "")}`);
       if (gid) assetIds.add(gid);
+    }
+    // promptRecipe 'asset'-kind references are article media ids too (#128).
+    if (b.type === "promptRecipe" && b.props) {
+      for (const ref of parsePromptReferences(
+        String(b.props.references ?? "")
+      )) {
+        if (ref.kind === "asset") assetIds.add(ref.id);
+      }
     }
     if (next.children?.length) {
       const child = walkTransform(next.children, fn, assetIds);
@@ -157,6 +166,15 @@ export function collectDocumentAssetIds(blocks: ArticleBlockJson[]): string[] {
       if (b.type === "generation" && b.props) {
         const raw = String(b.props.assetId ?? "");
         if (/^[0-9a-f-]{36}$/i.test(raw)) ids.add(raw);
+      }
+      // promptRecipe 'asset'-kind references count as media references —
+      // they must be staged and promoted exactly like asset:// urls (#128).
+      if (b.type === "promptRecipe" && b.props) {
+        for (const ref of parsePromptReferences(
+          String(b.props.references ?? "")
+        )) {
+          if (ref.kind === "asset") ids.add(ref.id);
+        }
       }
       if (b.children) walk(b.children);
     }

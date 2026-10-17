@@ -104,4 +104,36 @@ describe("collectDocumentAssetIds", () => {
       [ASSET_A, ASSET_B, GEN_ASSET].sort()
     );
   });
+
+  it("collects promptRecipe 'asset'-kind references (#128)", () => {
+    const doc: ArticleBlockJson[] = [
+      {
+        type: "promptRecipe",
+        props: {
+          presetId: "",
+          recipeText: "steps",
+          references: JSON.stringify([
+            { id: ASSET_B, label: "Source", kind: "asset" },
+            // 'generation'-kind ids are share provenance — not assets.
+            { id: GEN_ASSET, label: "Shared", kind: "generation" },
+          ]),
+        },
+      },
+    ];
+    expect(collectDocumentAssetIds(doc)).toEqual([ASSET_B]);
+  });
+
+  it("prepareDocumentForStorage counts promptRecipe refs as media refs", () => {
+    const doc: ArticleBlockJson[] = [
+      {
+        type: "promptRecipe",
+        props: {
+          references: JSON.stringify([
+            { id: ASSET_A, label: "Source", kind: "asset" },
+          ]),
+        },
+      },
+    ];
+    expect(prepareDocumentForStorage(doc).assetIds).toEqual([ASSET_A]);
+  });
 });
