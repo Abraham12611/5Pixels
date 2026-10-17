@@ -85,6 +85,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     name: product.name,
     short_description: product.short_description ?? undefined,
     long_description: product.long_description ?? undefined,
+    public_prompt_recipe: product.public_prompt_recipe ?? undefined,
     category_id: product.category_id ?? undefined,
     public_status: product.public_status,
     visibility: product.visibility,

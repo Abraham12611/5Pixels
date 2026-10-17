@@ -27,7 +27,10 @@ describe("article document validation", () => {
       SAMPLE_ARTICLE_DOCUMENT.map((b) => b.id)
     );
     expect(restored.find((b) => b.type === "preset")!.props).toEqual({
-      productSlug: "film-grain-portrait",
+      presetId: "",
+      slug: "",
+      selectedPublicVersionId: "",
+      displayVariant: "card",
     });
   });
 

@@ -39,7 +39,14 @@ export const SAMPLE_ARTICLE_DOCUMENT: ArticleBlockJson[] = [
   {
     id: "fixture-preset-1",
     type: "preset",
-    props: { productSlug: "film-grain-portrait" },
+    // Unconfigured — renders the "Choose a preset" prompt in the editor and
+    // documents the persisted prop contract (#127).
+    props: {
+      presetId: "",
+      slug: "",
+      selectedPublicVersionId: "",
+      displayVariant: "card",
+    },
     content: undefined,
     children: [],
   },

@@ -88,11 +88,13 @@ const MOBILE_LINKS = [
   { label: "Categories", href: "/categories" },
   { label: "Filters", href: "/explore?type=filter" },
   { label: "Posters", href: "/explore?type=poster" },
+  { label: "Articles", href: "/articles" },
   { label: "How it works", href: "/#how-it-works" },
   { label: "Pricing", href: "/pricing" },
 ];
 
 const navLinks = [
+  { label: "Articles", href: "/articles" },
   { label: "How it works", href: "/#how-it-works" },
   { label: "Pricing", href: "/pricing" },
 ];

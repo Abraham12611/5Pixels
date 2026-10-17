@@ -344,6 +344,7 @@ export async function duplicateProduct(id: string) {
       name: newName,
       short_description: original.short_description,
       long_description: original.long_description,
+      public_prompt_recipe: original.public_prompt_recipe,
       category_id: original.category_id,
       public_status: "draft",
       visibility: original.visibility,
