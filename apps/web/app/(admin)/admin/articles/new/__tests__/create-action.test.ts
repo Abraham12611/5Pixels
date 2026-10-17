@@ -19,6 +19,10 @@ import { createAndOpenArticleAction } from "../create-action";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdminOrOwner.mockResolvedValue({});
+  // Next.js redirect() terminates the Server Action by throwing NEXT_REDIRECT.
+  mocks.redirect.mockImplementation(() => {
+    throw new Error("NEXT_REDIRECT");
+  });
 });
 
 describe("createAndOpenArticleAction", () => {
@@ -28,7 +32,9 @@ describe("createAndOpenArticleAction", () => {
       article: { id: "new-article-id" },
     });
 
-    await createAndOpenArticleAction();
+    await expect(createAndOpenArticleAction()).rejects.toThrow(
+      "NEXT_REDIRECT"
+    );
 
     expect(mocks.requireAdminOrOwner).toHaveBeenCalledOnce();
     expect(mocks.createArticleAction).toHaveBeenCalledOnce();
@@ -44,7 +50,9 @@ describe("createAndOpenArticleAction", () => {
       error: "Database unavailable",
     });
 
-    await createAndOpenArticleAction();
+    await expect(createAndOpenArticleAction()).rejects.toThrow(
+      "NEXT_REDIRECT"
+    );
 
     expect(mocks.redirect).toHaveBeenCalledWith(
       "/admin/articles/new?error=create"
