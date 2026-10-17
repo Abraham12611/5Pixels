@@ -137,4 +137,12 @@ export interface ArticleWriteResult {
   article?: Article;
   code?: ArticleWriteErrorCode;
   error?: string;
+  /** Non-fatal notice, e.g. a media clone that stayed pending on duplicate. */
+  warning?: string;
+}
+
+/** Staff list row — the article plus resolved author/editor identities. */
+export interface StaffArticle extends Article {
+  author_email: string | null;
+  editor_email: string | null;
 }

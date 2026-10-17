@@ -74,6 +74,9 @@ vi.mock("../media-lifecycle", () => ({
   removeStagedPublicCopies: (keys: string[]) => removeMock(keys),
   revokeArticleMedia: (articleId: string) => revokeMock(articleId),
 }));
+vi.mock("@/lib/db/audit", () => ({ logAdminAction: vi.fn(async () => {}) }));
+vi.mock("@/lib/db/admin", () => ({ requireAdminOrOwner: vi.fn() }));
+vi.mock("../queries", () => ({ getArticleForEditor: vi.fn() }));
 
 const { publishArticleAction } = await import("../actions");
 
