@@ -386,32 +386,34 @@ describe("publish_article promptRecipe/settings gate", () => {
           await publishErr(client, staffId, articleId, editVersion)
         ).toContain("media_ref_not_ready");
       }
-      // Non-string prop type — bypass save-layer conventions with a direct
-      // draft_content update so publish_article sees the raw shape.
-      const draft = await makeArticle(client, staffId, [paragraph]);
-      await client.query(
-        `UPDATE public.articles SET draft_content = $2::jsonb WHERE id = $1`,
-        [
-          draft.articleId,
-          JSON.stringify([
-            paragraph,
-            {
-              type: "promptRecipe",
-              props: {
-                presetId: "",
-                slug: "",
-                recipeText: "steps",
-                source: "manual",
-                capturedAt: "",
-                references: { not: "a string" },
+      // Non-string prop types, including explicit JSON null, must be
+      // rejected even when the save-layer schema is bypassed.
+      for (const invalidReferences of [{ not: "a string" }, null]) {
+        const draft = await makeArticle(client, staffId, [paragraph]);
+        await client.query(
+          `UPDATE public.articles SET draft_content = $2::jsonb WHERE id = $1`,
+          [
+            draft.articleId,
+            JSON.stringify([
+              paragraph,
+              {
+                type: "promptRecipe",
+                props: {
+                  presetId: "",
+                  slug: "",
+                  recipeText: "steps",
+                  source: "manual",
+                  capturedAt: "",
+                  references: invalidReferences,
+                },
               },
-            },
-          ]),
-        ]
-      );
-      expect(
-        await publishErr(client, staffId, draft.articleId, draft.editVersion)
-      ).toContain("media_ref_not_ready");
+            ]),
+          ]
+        );
+        expect(
+          await publishErr(client, staffId, draft.articleId, draft.editVersion)
+        ).toContain("media_ref_not_ready");
+      }
     });
   });
 
@@ -558,6 +560,22 @@ describe("publish_article settings fields gate", () => {
           await publishErr(client, staffId, articleId, editVersion)
         ).toContain("settings_fields_invalid");
       }
+      // A JSON null prop is not an omitted snapshot: direct RPC callers
+      // must not bypass the required string/array contract.
+      const draft = await makeArticle(client, staffId, [paragraph]);
+      await client.query(
+        `UPDATE public.articles SET draft_content = $2::jsonb WHERE id = $1`,
+        [
+          draft.articleId,
+          JSON.stringify([
+            paragraph,
+            { type: "settings", props: { presetId: productId, fields: null } },
+          ]),
+        ]
+      );
+      expect(
+        await publishErr(client, staffId, draft.articleId, draft.editVersion)
+      ).toContain("settings_fields_invalid");
     });
   });
 
