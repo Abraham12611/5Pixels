@@ -372,6 +372,49 @@ describe("publish_article promptRecipe/settings gate", () => {
     });
   });
 
+  it("rejects non-array reference payloads instead of treating them as empty", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      // Valid JSON, wrong top-level type — previously these decoded through
+      // the '[]' fallback and silently passed.
+      for (const references of ["{}", "42", "\"a string\"", "true"]) {
+        const { articleId, editVersion } = await makeArticle(client, staffId, [
+          paragraph,
+          promptRecipeBlock({ references }),
+        ]);
+        expect(
+          await publishErr(client, staffId, articleId, editVersion)
+        ).toContain("media_ref_not_ready");
+      }
+      // Non-string prop type — bypass save-layer conventions with a direct
+      // draft_content update so publish_article sees the raw shape.
+      const draft = await makeArticle(client, staffId, [paragraph]);
+      await client.query(
+        `UPDATE public.articles SET draft_content = $2::jsonb WHERE id = $1`,
+        [
+          draft.articleId,
+          JSON.stringify([
+            paragraph,
+            {
+              type: "promptRecipe",
+              props: {
+                presetId: "",
+                slug: "",
+                recipeText: "steps",
+                source: "manual",
+                capturedAt: "",
+                references: { not: "a string" },
+              },
+            },
+          ]),
+        ]
+      );
+      expect(
+        await publishErr(client, staffId, draft.articleId, draft.editVersion)
+      ).toContain("media_ref_not_ready");
+    });
+  });
+
   it("rejects semantically malformed reference elements", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);
@@ -499,6 +542,22 @@ describe("publish_article settings fields gate", () => {
       expect(await publishErr(client, staffId, articleId, editVersion)).toContain(
         "settings_fields_invalid"
       );
+    });
+  });
+
+  it("rejects non-array fields payloads instead of treating them as empty", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { productId } = await makeProduct(client);
+      for (const fields of ["{}", "42", "\"a string\"", "true"]) {
+        const { articleId, editVersion } = await makeArticle(client, staffId, [
+          paragraph,
+          settingsBlock(productId, fields),
+        ]);
+        expect(
+          await publishErr(client, staffId, articleId, editVersion)
+        ).toContain("settings_fields_invalid");
+      }
     });
   });
 

@@ -74,7 +74,18 @@ describe("article editorial blocks migration", () => {
     expect(sql).toContain("RAISE EXCEPTION 'media_ref_not_ready'");
     // The references JSON-string prop is decoded and walked.
     expect(sql).toContain("->> 'references'");
-    // Element shape is validated semantically, not just syntactically.
+    // A present non-empty prop must decode to an ARRAY — objects/scalars/
+    // non-string prop types are rejected, not treated as empty.
+    expect(sql).toContain(
+      "jsonb_typeof((n.node -> 'props' ->> 'references')::jsonb)"
+    );
+    expect(sql).toContain("IS DISTINCT FROM 'array'");
+    // Element shape is validated semantically, not just syntactically —
+    // a missing/null `kind` is rejected via the type check (NOT IN alone
+    // evaluates NULL and wouldn't flag it).
+    expect(sql).toContain(
+      "jsonb_typeof(ref.ref -> 'kind') IS DISTINCT FROM 'string'"
+    );
     expect(sql).toContain("(ref.ref ->> 'kind') NOT IN ('asset', 'generation')");
     // Only this article's own verified media may be referenced.
     expect(sql).toContain("aa.article_id = p_article_id");
@@ -92,6 +103,11 @@ describe("article editorial blocks migration", () => {
     // Rows decode from the serialized `fields` prop and join the preset's
     // active product_fields — keys and values are checked server-side.
     expect(sql).toContain("->> 'fields'");
+    // Same top-level contract: present non-empty `fields` must be a string
+    // decoding to a JSON array.
+    expect(sql).toContain(
+      "jsonb_typeof((n.node -> 'props' ->> 'fields')::jsonb)"
+    );
     expect(sql).toContain("f.product_id = p.preset_id::uuid");
     expect(sql).toContain("f.field_key = row.row ->> 'key'");
     expect(sql).toContain("f.active = TRUE");

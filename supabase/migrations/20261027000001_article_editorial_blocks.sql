@@ -299,6 +299,30 @@ BEGIN
   -- Malformed JSON, wrong element shapes, forged or no-longer-public
   -- references all surface as media_ref_not_ready — never a raw cast error.
   BEGIN
+    -- A present non-empty `references` prop must be a STRING that decodes to
+    -- a JSON array — objects, scalars or non-string prop types are rejected
+    -- instead of silently degrading to an empty reference list.
+    IF EXISTS (
+      SELECT 1
+      FROM jsonb_path_query(v_article.draft_content, '$.**') n(node)
+      WHERE jsonb_typeof(n.node) = 'object'
+        AND n.node ->> 'type' = 'promptRecipe'
+        AND (n.node -> 'props' -> 'references') IS NOT NULL
+        AND jsonb_typeof(n.node -> 'props' -> 'references')
+              IS DISTINCT FROM 'null'
+        AND (
+          jsonb_typeof(n.node -> 'props' -> 'references')
+            IS DISTINCT FROM 'string'
+          OR (
+            (n.node -> 'props' ->> 'references') <> ''
+            AND jsonb_typeof((n.node -> 'props' ->> 'references')::jsonb)
+                  IS DISTINCT FROM 'array'
+          )
+        )
+    ) THEN
+      RAISE EXCEPTION 'media_ref_not_ready' USING ERRCODE = 'P0001';
+    END IF;
+
     IF EXISTS (
       SELECT 1
       FROM jsonb_path_query(v_article.draft_content, '$.**') n(node)
@@ -326,6 +350,7 @@ BEGIN
           OR (ref.ref ->> 'id') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
           OR jsonb_typeof(ref.ref -> 'label') IS DISTINCT FROM 'string'
           OR char_length(ref.ref ->> 'label') NOT BETWEEN 1 AND 200
+          OR jsonb_typeof(ref.ref -> 'kind') IS DISTINCT FROM 'string'
           OR (ref.ref ->> 'kind') NOT IN ('asset', 'generation')
           OR (
             ref.ref ->> 'kind' = 'asset'
@@ -363,6 +388,30 @@ BEGIN
   -- stay inside the documented options/range/format for its field type —
   -- matching the editor's settingsValueError rules at the server boundary.
   BEGIN
+    -- A present non-empty `fields` prop must be a STRING that decodes to a
+    -- JSON array — objects, scalars or non-string prop types are rejected
+    -- instead of silently degrading to an empty snapshot.
+    IF EXISTS (
+      SELECT 1
+      FROM jsonb_path_query(v_article.draft_content, '$.**') n(node)
+      WHERE jsonb_typeof(n.node) = 'object'
+        AND n.node ->> 'type' = 'settings'
+        AND (n.node -> 'props' -> 'fields') IS NOT NULL
+        AND jsonb_typeof(n.node -> 'props' -> 'fields')
+              IS DISTINCT FROM 'null'
+        AND (
+          jsonb_typeof(n.node -> 'props' -> 'fields')
+            IS DISTINCT FROM 'string'
+          OR (
+            (n.node -> 'props' ->> 'fields') <> ''
+            AND jsonb_typeof((n.node -> 'props' ->> 'fields')::jsonb)
+                  IS DISTINCT FROM 'array'
+          )
+        )
+    ) THEN
+      RAISE EXCEPTION 'settings_fields_invalid' USING ERRCODE = 'P0001';
+    END IF;
+
     IF EXISTS (
       SELECT 1
       FROM jsonb_path_query(v_article.draft_content, '$.**') n(node)
