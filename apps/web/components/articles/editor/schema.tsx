@@ -12,6 +12,7 @@ import {
 } from "@/lib/articles/blocks/registry";
 import { GenerationBlock } from "./generation-block";
 import { PlaceholderBlock } from "./placeholder-block";
+import { PresetBlock } from "./preset-block";
 
 /**
  * The article editor schema: all default BlockNote blocks plus the 5Pixels
@@ -37,10 +38,22 @@ const customBlockSpecs = {
   preset: createReactBlockSpec(
     {
       type: "preset",
-      propSchema: { productSlug: { default: "" } },
+      propSchema: {
+        presetId: { default: "" },
+        slug: { default: "" },
+        selectedPublicVersionId: { default: "" },
+        displayVariant: {
+          default: "card",
+          values: ["card", "compact"],
+        },
+      },
       content: "none",
     },
-    { render: () => <PlaceholderBlock registration={spec("preset")} /> }
+    {
+      render: ({ block, editor }) => (
+        <PresetBlock block={block as never} editor={editor as never} />
+      ),
+    }
   )(),
   promptRecipe: createReactBlockSpec(
     {

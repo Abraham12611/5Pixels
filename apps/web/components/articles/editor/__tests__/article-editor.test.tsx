@@ -36,8 +36,9 @@ describe("ArticleEditor", () => {
     );
     // Custom blocks render through React portals — they land a tick later.
     const placeholders = await screen.findAllByText(/Full editor ships with #/);
-    // All 3 fixture custom blocks (callout, preset, workflow).
-    expect(placeholders.length).toBe(3);
+    // The fixture's still-placeholder custom blocks (callout, workflow);
+    // preset has shipped (#127) and renders its own picker prompt.
+    expect(placeholders.length).toBe(2);
   });
 
   it("headless editor accepts the schema and round-trips documents", () => {
