@@ -11,6 +11,40 @@ import type { PublicProductField } from "@/types/catalog";
  * Shared contract helpers for the promptRecipe + settings article blocks
  * (#128). Client-safe: pure functions over public catalog shapes only.
  *
+ * CANONICAL READER CONTRACT (#131 owns the public reader wiring):
+ *
+ *   promptRecipe props:
+ *     presetId     — canonical products.id; '' = preset-less manual copy.
+ *                    Reader resolves live via get_public_product_editorial /
+ *                    the preset-card resolver; never trusts `slug` for copy.
+ *     slug         — cached display/deep-link slug (may be stale).
+ *     recipeText   — article-local recipe copy (<= 4000 chars).
+ *     source       — 'approved_template' | 'manual' provenance label.
+ *     capturedAt   — ISO timestamp of last approved-template capture, '' ok.
+ *     references   — JSON STRING of PromptReference[] (<= 10):
+ *                    { id: uuid, label: 1..200, kind: 'asset'|'generation' }.
+ *                    'asset' ids are this article's media; 'generation' ids
+ *                    are publicly shared generations (reader links, never
+ *                    copies). Parse with parsePromptReferences / decode via
+ *                    promptReferencesPropSchema — malformed input => [].
+ *     recipe / presetSlug — LEGACY props from pre-#128 docs; keep declared
+ *                    and fall back to them when recipeText/slug are empty.
+ *
+ *   settings props:
+ *     presetId     — canonical products.id, required at publish.
+ *     slug         — cached display/deep-link slug (may be stale).
+ *     fields       — JSON STRING of SettingsFieldRow[] (<= 30):
+ *                    { key: <=80, label: <=200, value: <=200 } — values are
+ *                    validated at publish against the product's CURRENT
+ *                    public field schema (options/range/toggle/color).
+ *                    Parse with parseSettingsFieldRows — malformed => [].
+ *                    Reader must label values as examples, not replay data.
+ *     productSlug  — LEGACY prop; fall back when slug is empty.
+ *
+ * Rendering: components/articles/blocks/{prompt-recipe-card,settings-card}
+ * are the shared read-only cards — same component for editor preview and
+ * the public reader, matching the ArticlePresetCard contract from #127.
+ *
  * BlockNote props are primitive-only, so the structured snapshots these
  * blocks carry (references, settings rows) persist as JSON strings. The
  * codecs below are the single parse/validate point used by the editor, the

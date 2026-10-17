@@ -49,6 +49,8 @@ describe("article editorial blocks migration", () => {
     );
     expect(sql).toContain("'preset', 'settings'");
     expect(sql).toContain("pr.public_status = 'active'");
+    // Catalog visibility rules — an active-but-hidden preset cannot publish.
+    expect(sql).toContain("pr.visibility = 'public'");
   });
 
   it("lets promptRecipe blocks be preset-less but validates a non-empty id", () => {
@@ -57,17 +59,47 @@ describe("article editorial blocks migration", () => {
     expect(sql).toContain("RAISE EXCEPTION 'preset_unavailable'");
   });
 
-  it("rejects forged/malformed promptRecipe asset references without cast errors", () => {
+  it("extends the shared asset collector to promptRecipe references", () => {
+    expect(sql).toContain(
+      "CREATE OR REPLACE FUNCTION public.article_document_asset_ids(p_content JSONB)"
+    );
+    // 'asset'-kind prompt-recipe references join the same collection —
+    // publish promotion + live-publication delete protection follow for free.
+    expect(sql).toContain("r.val ->> 'kind' = 'asset'");
+    // The collector must not crash on a malformed serialized prop.
+    expect(sql).toContain("LANGUAGE plpgsql");
+  });
+
+  it("rejects forged/malformed promptRecipe references without cast errors", () => {
     expect(sql).toContain("RAISE EXCEPTION 'media_ref_not_ready'");
     // The references JSON-string prop is decoded and walked.
     expect(sql).toContain("->> 'references'");
+    // Element shape is validated semantically, not just syntactically.
+    expect(sql).toContain("(ref.ref ->> 'kind') NOT IN ('asset', 'generation')");
     // Only this article's own verified media may be referenced.
     expect(sql).toContain("aa.article_id = p_article_id");
     expect(sql).toContain("aa.state IN ('ready', 'published')");
+    // Generation refs must resolve to a currently publicly-shared result.
+    expect(sql).toContain("g.public_share_id IS NOT NULL");
     // Malformed JSON surfaces the controlled error, not invalid_text_representation.
     expect(sql).toContain(
       "WHEN invalid_text_representation OR syntax_error THEN"
     );
+  });
+
+  it("validates settings rows against the live public control schema", () => {
+    expect(sql).toContain("RAISE EXCEPTION 'settings_fields_invalid'");
+    // Rows decode from the serialized `fields` prop and join the preset's
+    // active product_fields — keys and values are checked server-side.
+    expect(sql).toContain("->> 'fields'");
+    expect(sql).toContain("f.product_id = p.preset_id::uuid");
+    expect(sql).toContain("f.field_key = row.row ->> 'key'");
+    expect(sql).toContain("f.active = TRUE");
+    // Value semantics match the editor's settingsValueError rules.
+    expect(sql).toContain("'select','radio','layout','background','wardrobe','era','mood'");
+    expect(sql).toContain("f.field_type = 'intensity'");
+    expect(sql).toContain("f.field_type = 'toggle'");
+    expect(sql).toContain("f.field_type = 'color'");
   });
 
   it("keeps the publish_article grants intact", () => {

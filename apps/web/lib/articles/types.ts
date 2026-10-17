@@ -113,6 +113,7 @@ export type ArticleWriteErrorCode =
   | "cannot_publish_archived"
   | "preset_unavailable"
   | "preset_version_unavailable"
+  | "settings_fields_invalid"
   | "unknown";
 
 export interface ArticleWriteResult {
