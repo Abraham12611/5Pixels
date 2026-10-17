@@ -158,6 +158,23 @@ describe("publish_article preset gate", () => {
     });
   });
 
+  it("rejects an active-but-hidden product (visibility != public)", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { productId } = await makeProduct(client);
+      await client.query(
+        `UPDATE public.products SET visibility = 'internal' WHERE id = $1`,
+        [productId]
+      );
+      const { articleId, editVersion } = await makeArticle(client, staffId, [
+        paragraph,
+        presetBlock(productId),
+      ]);
+      const err = await publishErr(client, staffId, articleId, editVersion);
+      expect(err).toContain("preset_unavailable");
+    });
+  });
+
   it("rejects a pin to a non-active version", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);

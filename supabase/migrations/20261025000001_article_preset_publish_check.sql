@@ -1,7 +1,8 @@
 -- Article preset blocks (#127): publish-time catalog validation
 -- ------------------------------------------------------------
 -- publish_article gains a check that every `preset` block in the document
--- references a CURRENTLY PUBLIC product (products.public_status='active'),
+-- references a CURRENTLY PUBLIC product (products.public_status='active' AND
+-- products.visibility='public', matching the catalog visibility rules),
 -- and that an optional selectedPublicVersionId pin still points at that
 -- product's active (public) version.
 --
@@ -90,6 +91,7 @@ BEGIN
           FROM public.products pr
           WHERE pr.id = p.preset_id::uuid
             AND pr.public_status = 'active'
+            AND pr.visibility = 'public'
         )
       )
   ) THEN

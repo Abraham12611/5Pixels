@@ -31,8 +31,10 @@ describe("article preset publish-check migration", () => {
     // Every `preset` node in the whole document tree is examined.
     expect(sql).toContain("$.**");
     expect(sql).toContain("n.node ->> 'type' = 'preset'");
-    // Product must exist AND be public.
+    // Product must exist AND be public (status + visibility, matching the
+    // catalog rules — an active-but-hidden preset cannot publish).
     expect(sql).toContain("pr.public_status = 'active'");
+    expect(sql).toContain("pr.visibility = 'public'");
     // Non-uuid text is validated before the cast — no cast error leak.
     expect(sql).toMatch(
       /preset_id !~ '\^\[0-9a-fA-F\]\{8\}/
