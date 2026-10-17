@@ -12,6 +12,9 @@ import {
 } from "@/lib/articles/blocks/registry";
 import { GenerationBlock } from "./generation-block";
 import { PlaceholderBlock } from "./placeholder-block";
+import { PresetBlock } from "./preset-block";
+import { PromptRecipeBlock } from "./prompt-recipe-block";
+import { SettingsBlock } from "./settings-block";
 
 /**
  * The article editor schema: all default BlockNote blocks plus the 5Pixels
@@ -37,29 +40,64 @@ const customBlockSpecs = {
   preset: createReactBlockSpec(
     {
       type: "preset",
-      propSchema: { productSlug: { default: "" } },
+      propSchema: {
+        presetId: { default: "" },
+        slug: { default: "" },
+        selectedPublicVersionId: { default: "" },
+        displayVariant: {
+          default: "card",
+          values: ["card", "compact"],
+        },
+      },
       content: "none",
     },
-    { render: () => <PlaceholderBlock registration={spec("preset")} /> }
+    {
+      render: ({ block, editor }) => (
+        <PresetBlock block={block as never} editor={editor as never} />
+      ),
+    }
   )(),
   promptRecipe: createReactBlockSpec(
     {
       type: "promptRecipe",
       propSchema: {
+        presetId: { default: "" },
+        slug: { default: "" },
+        recipeText: { default: "" },
+        source: {
+          default: "manual",
+          values: ["approved_template", "manual"],
+        },
+        capturedAt: { default: "" },
+        references: { default: "" },
+        // Legacy props — declared so pre-#128 documents don't lose data.
         recipe: { default: "" },
         presetSlug: { default: "" },
       },
       content: "none",
     },
-    { render: () => <PlaceholderBlock registration={spec("promptRecipe")} /> }
+    {
+      render: ({ block, editor }) => (
+        <PromptRecipeBlock block={block as never} editor={editor as never} />
+      ),
+    }
   )(),
   settings: createReactBlockSpec(
     {
       type: "settings",
-      propSchema: { productSlug: { default: "" } },
+      propSchema: {
+        presetId: { default: "" },
+        slug: { default: "" },
+        fields: { default: "" },
+        productSlug: { default: "" },
+      },
       content: "none",
     },
-    { render: () => <PlaceholderBlock registration={spec("settings")} /> }
+    {
+      render: ({ block, editor }) => (
+        <SettingsBlock block={block as never} editor={editor as never} />
+      ),
+    }
   )(),
   generation: createReactBlockSpec(
     {

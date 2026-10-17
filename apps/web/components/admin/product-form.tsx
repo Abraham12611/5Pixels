@@ -331,6 +331,22 @@ export function ProductForm({
             className="mt-2"
           />
         </div>
+
+        <div className="mt-6">
+          <Label htmlFor="public_prompt_recipe">Public prompt recipe</Label>
+          <Textarea
+            id="public_prompt_recipe"
+            {...register("public_prompt_recipe")}
+            className="mt-2 font-mono"
+            rows={5}
+            placeholder="Write the steps/creative prompt a reader could reuse — public editorial copy only."
+          />
+          <p className="text-text-muted mt-1.5 text-xs">
+            Optional. Shown in articles as a prefilled prompt recipe readers
+            can copy. This is public editorial copy — never paste the real
+            generation prompt or any private instructions here.
+          </p>
+        </div>
       </section>
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">

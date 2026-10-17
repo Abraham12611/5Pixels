@@ -82,14 +82,30 @@ export interface PublicArticleSummary {
   author_display_name: string;
   author_avatar: PublicAssetRef | null;
   published_at: string;
+  /** Visible-text word count of the snapshot — feeds "N min read" labels. */
+  word_count: number;
   total_count?: number;
 }
 
-/** Public detail row from get_public_article_by_slug(). */
+/** Topic facet row from get_public_article_topics(). */
+export interface PublicArticleTopic {
+  topic: string;
+  article_count: number;
+}
+
+/**
+ * Public detail row from get_public_article_by_slug().
+ *
+ * `media` maps lowercase assetId -> public bucket ref for the article's
+ * currently published article_assets only — it is how the public renderer
+ * resolves `asset://` embeds without ever exposing private storage paths.
+ */
 export interface PublicArticle extends Omit<PublicArticleSummary, "total_count"> {
   content: ArticleBlockJson[];
+  media: Record<string, PublicAssetRef>;
   schema_version: number;
   publication_number: number;
+  first_published_at: string | null;
 }
 
 /** Error codes raised by the articles RPCs (RAISE ... ERRCODE/message). */
@@ -111,6 +127,9 @@ export type ArticleWriteErrorCode =
   | "title_required"
   | "content_required"
   | "cannot_publish_archived"
+  | "preset_unavailable"
+  | "preset_version_unavailable"
+  | "settings_fields_invalid"
   | "unknown";
 
 export interface ArticleWriteResult {

@@ -8,6 +8,7 @@ import type {
   ArticleStatus,
   PublicArticle,
   PublicArticleSummary,
+  PublicArticleTopic,
 } from "./types";
 
 const GENERIC_ERROR = "Unable to load articles. Please try again.";
@@ -108,12 +109,15 @@ export const getPublishedArticles = cache(async function getPublishedArticles(op
   page?: number;
   pageSize?: number;
   topic?: string;
+  /** Free-text search over the published snapshot's title/summary/tags. */
+  query?: string;
 }): Promise<ArticlesResult<PublicArticleSummary[]>> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_public_articles", {
     p_page: options?.page ?? 1,
     p_page_size: options?.pageSize ?? 12,
     p_topic: options?.topic ?? null,
+    p_query: options?.query ?? null,
   });
 
   if (error) {
@@ -133,6 +137,22 @@ export const getPublishedArticles = cache(async function getPublishedArticles(op
   };
 });
 
+/** Distinct topics across live publications — feeds directory filter chips. */
+export const getPublishedArticleTopics = cache(
+  async function getPublishedArticleTopics(): Promise<
+    ArticlesResult<PublicArticleTopic[]>
+  > {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("get_public_article_topics");
+
+    if (error) {
+      console.error("[getPublishedArticleTopics] RPC failed", error);
+      return { data: [], error: GENERIC_ERROR };
+    }
+    return { data: (data ?? []) as PublicArticleTopic[] };
+  }
+);
+
 /**
  * Published article by slug. Returns null for unpublished, archived or
  * missing slugs — callers render a 404.
@@ -151,6 +171,8 @@ export const getPublishedArticleBySlug = cache(
       return null;
     }
     const rows = (data ?? []) as PublicArticle[];
-    return rows[0] ?? null;
+    const row = rows[0];
+    if (!row) return null;
+    return { ...row, media: row.media ?? {} };
   }
 );
