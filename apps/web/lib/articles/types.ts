@@ -111,6 +111,8 @@ export type ArticleWriteErrorCode =
   | "title_required"
   | "content_required"
   | "cannot_publish_archived"
+  | "preset_unavailable"
+  | "preset_version_unavailable"
   | "unknown";
 
 export interface ArticleWriteResult {

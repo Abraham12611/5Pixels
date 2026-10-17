@@ -38,6 +38,10 @@ export function articleErrorMessage(
       return "This article isn't published.";
     case "cannot_publish_archived":
       return "Unarchive the article before publishing it.";
+    case "preset_unavailable":
+      return "A preset block links to a preset that isn't published anymore — pick a different preset or remove the block.";
+    case "preset_version_unavailable":
+      return "A preset block is pinned to a version that is no longer public — re-pick the preset to pin its current version.";
     case "forbidden":
       return "You don't have permission to edit articles.";
     default:

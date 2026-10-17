@@ -67,6 +67,9 @@ function mapRpcError(error: { message?: string; code?: string } | null): {
   else if (m.includes("media_ref_not_ready")) code = "media_not_ready";
   else if (m.includes("media_not_promoted")) code = "media_not_promoted";
   else if (m.includes("media_in_use")) code = "media_in_use";
+  else if (m.includes("preset_version_unavailable"))
+    code = "preset_version_unavailable";
+  else if (m.includes("preset_unavailable")) code = "preset_unavailable";
   else if (m.includes("title_required")) code = "title_required";
   else if (m.includes("content_required")) code = "content_required";
   else if (m.includes("cannot_publish_archived"))
