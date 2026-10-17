@@ -176,6 +176,9 @@ export const baseProductSchema = z.object({
   name: z.string().min(1).max(120),
   short_description: z.string().max(300).optional(),
   long_description: z.string().max(5000).optional(),
+  /** Approved public editorial recipe for article promptRecipe blocks (#128).
+   * Hand-written editorial copy — NEVER the private generation recipe. */
+  public_prompt_recipe: z.string().max(8000).optional(),
   category_id: z.string().uuid().optional(),
   public_status: productStatusSchema.default("draft"),
   visibility: visibilitySchema.default("public"),

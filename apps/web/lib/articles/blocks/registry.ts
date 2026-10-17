@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  promptReferencesPropSchema,
+  promptRecipeSourceSchema,
+  settingsFieldsPropSchema,
+} from "@/lib/articles/blocks/prompt-settings";
 
 /**
  * Typed block registry for the 5Pixels article editor.
@@ -58,7 +63,7 @@ export const CUSTOM_ARTICLE_BLOCKS: ArticleBlockRegistration[] = [
     group: "5Pixels",
     subtext: "Public-safe editorial prompt recipe (never the private system prompt)",
     aliases: ["prompt", "recipe", "prompt recipe"],
-    status: "placeholder",
+    status: "implemented",
     implementedIn: "#128",
   },
   {
@@ -67,7 +72,7 @@ export const CUSTOM_ARTICLE_BLOCKS: ArticleBlockRegistration[] = [
     group: "5Pixels",
     subtext: "Preset settings/controls table for a preset",
     aliases: ["settings", "controls", "parameters"],
-    status: "placeholder",
+    status: "implemented",
     implementedIn: "#128",
   },
   {
@@ -150,12 +155,36 @@ export const ARTICLE_CUSTOM_PROP_SCHEMAS: Record<string, z.ZodTypeAny> = {
     .strip(),
   promptRecipe: z
     .object({
+      /** products.id of the preset this recipe references; "" = manual,
+       * preset-less copy. Resolved through the public-safe resolver. */
+      presetId: z.union([z.literal(""), z.string().uuid()]).default(""),
+      slug: z.string().max(120).default(""),
+      /** The editable article-local recipe copy — an immutable snapshot; it
+       * never tracks later catalog edits. NEVER the private system prompt. */
+      recipeText: z.string().max(4000).default(""),
+      source: promptRecipeSourceSchema.default("manual"),
+      /** ISO timestamp of when the recipe copy was captured. */
+      capturedAt: z.string().max(40).default(""),
+      /** JSON-stringified PromptReference[] — @reference attachments
+       * (article assets / public generation shares, id+label only). */
+      references: promptReferencesPropSchema,
+      /** Legacy props — documents written before #128; read as fallback. */
       recipe: z.string().max(4000).default(""),
       presetSlug: z.string().max(120).default(""),
     })
     .strip(),
   settings: z
-    .object({ productSlug: z.string().max(120).default("") })
+    .object({
+      /** products.id — required at publish (a settings block without a
+       * preset has no documented controls). */
+      presetId: z.union([z.literal(""), z.string().uuid()]).default(""),
+      slug: z.string().max(120).default(""),
+      /** JSON-stringified SettingsFieldRow[] snapshot — labelled examples
+       * captured from the preset's publicly documented controls. */
+      fields: settingsFieldsPropSchema,
+      /** Legacy prop — pre-#128 documents resolved by slug. */
+      productSlug: z.string().max(120).default(""),
+    })
     .strip(),
   generation: z
     .object({
