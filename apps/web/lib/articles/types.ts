@@ -85,11 +85,19 @@ export interface PublicArticleSummary {
   total_count?: number;
 }
 
-/** Public detail row from get_public_article_by_slug(). */
+/**
+ * Public detail row from get_public_article_by_slug().
+ *
+ * `media` maps lowercase assetId -> public bucket ref for the article's
+ * currently published article_assets only — it is how the public renderer
+ * resolves `asset://` embeds without ever exposing private storage paths.
+ */
 export interface PublicArticle extends Omit<PublicArticleSummary, "total_count"> {
   content: ArticleBlockJson[];
+  media: Record<string, PublicAssetRef>;
   schema_version: number;
   publication_number: number;
+  first_published_at: string | null;
 }
 
 /** Error codes raised by the articles RPCs (RAISE ... ERRCODE/message). */

@@ -151,6 +151,8 @@ export const getPublishedArticleBySlug = cache(
       return null;
     }
     const rows = (data ?? []) as PublicArticle[];
-    return rows[0] ?? null;
+    const row = rows[0];
+    if (!row) return null;
+    return { ...row, media: row.media ?? {} };
   }
 );
