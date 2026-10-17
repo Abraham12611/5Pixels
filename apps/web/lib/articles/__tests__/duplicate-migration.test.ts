@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 const sql = readFileSync(
   join(
     __dirname,
-    "../../../../../supabase/migrations/20261021000001_duplicate_article.sql"
+    "../../../../../supabase/migrations/20261024000001_duplicate_article.sql"
   ),
   "utf-8"
 ).replace(/\r\n/g, "\n"); // tolerate CRLF checkouts on Windows dev machines
