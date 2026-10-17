@@ -131,6 +131,13 @@ export function PresetPicker({
         pageSize: PAGE_SIZE,
       });
       if (seq !== requestSeq.current) return; // stale response
+      if (result.error) {
+        // A failed RPC is NOT an empty catalog — show the error state.
+        setError(true);
+        setProducts([]);
+        setLoading(false);
+        return;
+      }
       if (result.products.length === 0 && result.totalCount === 0 && page > 1) {
         // Page out of range after a filter change — the same async
         // continuation may setState; react-hooks only bans sync calls.

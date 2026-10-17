@@ -20,6 +20,10 @@ export interface CatalogPageQuery {
 export interface CatalogPage {
   products: PublicProductSummary[];
   totalCount: number;
+  /** Set when the catalog RPC failed — distinguishes a failed request from
+   * a genuinely empty page (the article preset picker needs this to show
+   * its error/retry state, #127). */
+  error?: "catalog_query_failed";
 }
 
 /**
@@ -46,7 +50,7 @@ export async function fetchCatalogPage(
 
   if (error) {
     console.error("[fetchCatalogPage] catalog RPC failed", error);
-    return { products: [], totalCount: 0 };
+    return { products: [], totalCount: 0, error: "catalog_query_failed" };
   }
 
   const rows = (data ?? []) as (PublicProductSummary & {

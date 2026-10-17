@@ -169,6 +169,32 @@ describe("PresetPicker", () => {
     expect(screen.getByText(/Only published filters/)).toBeInTheDocument();
   });
 
+  it("shows the error state on a failed request and retries", async () => {
+    // fetchCatalogPage swallows RPC failures into a typed error field — the
+    // picker must surface it rather than fake an empty catalog.
+    fetchMock.mockResolvedValue({
+      products: [],
+      totalCount: 0,
+      error: "catalog_query_failed",
+    });
+    render(<PresetPicker open onOpenChange={vi.fn()} onPick={vi.fn()} />);
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Couldn't load the catalog/)
+      ).toBeInTheDocument()
+    );
+    // It must NOT claim an empty catalog.
+    expect(
+      screen.queryByText(/No presets match/)
+    ).not.toBeInTheDocument();
+
+    fetchMock.mockResolvedValue(page(2, 2));
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() =>
+      expect(screen.getByText("Preset 1")).toBeInTheDocument()
+    );
+  });
+
   it("exposes a labelled listbox for assistive tech", async () => {
     render(<PresetPicker open onOpenChange={vi.fn()} onPick={vi.fn()} />);
     const listbox = await screen.findByRole("listbox", {

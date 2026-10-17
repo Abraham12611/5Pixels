@@ -48,18 +48,22 @@ async function makeArticle(
   staffId: string,
   content: unknown[]
 ): Promise<{ articleId: string; editVersion: number }> {
+  // edit_version starts at 0 on a fresh article — read it back rather than
+  // assuming, so a schema default change can't silently desync this fixture.
   const { rows } = await asUser(client, staffId, () =>
     client.query(
-      `SELECT (public.create_article('Preset gate test')).id AS id`
+      `SELECT a.id, a.edit_version
+       FROM public.create_article('Preset gate test') a`
     )
   );
   const articleId = rows[0].id as string;
+  const baseVersion = Number(rows[0].edit_version);
   const saved = await asUser(client, staffId, () =>
     client.query(
-      `SELECT (public.save_article_draft($1, 1, NULL, NULL, NULL, NULL, NULL,
-                                        NULL, FALSE, $2::jsonb, 1, 'manual')
+      `SELECT (public.save_article_draft($1, $2, NULL, NULL, NULL, NULL, NULL,
+                                        NULL, FALSE, $3::jsonb, 1, 'manual')
               ).edit_version AS v`,
-      [articleId, JSON.stringify(content)]
+      [articleId, baseVersion, JSON.stringify(content)]
     )
   );
   const editVersion = Number(saved.rows[0].v);
