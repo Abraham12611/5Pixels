@@ -575,9 +575,6 @@ function PresetRow({
           NEW
         </span>
       )}
-      <span className="text-text-muted shrink-0 font-mono text-xs">
-        {preset.creditCost} cr
-      </span>
     </Command.Item>
   );
 }
