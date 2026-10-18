@@ -154,6 +154,7 @@ function renderForm(
       blocked={blocked}
       offer={null}
       topUp={null}
+      promptReleased
       {...overrides}
     />
   );
@@ -232,6 +233,22 @@ describe("create form — prompt composer", () => {
     expect(
       screen.queryByLabelText("Describe your changes")
     ).toBeNull();
+  });
+
+  it("stays hidden while the prompt release flag is off, even on an eligible preset", () => {
+    renderForm({ promptReleased: false });
+    // Admin `prompt_override_enabled` alone must not expose the composer —
+    // the public release gate is a second, independent precondition.
+    expect(screen.queryByRole("switch", { name: "Prompt" })).toBeNull();
+    expect(screen.queryByLabelText("Describe your changes")).toBeNull();
+  });
+
+  it("explains a carried prompt that the unreleased composer can't take", () => {
+    renderForm({ promptReleased: false, initialPrompt: "add neon glow" });
+    expect(screen.queryByRole("switch", { name: "Prompt" })).toBeNull();
+    expect(
+      screen.getByText(/isn't used by this look/i)
+    ).toBeInTheDocument();
   });
 
   it("submits the typed prompt — and only after a quote covers it", async () => {

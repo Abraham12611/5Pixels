@@ -219,6 +219,7 @@ interface CreateGenerationFormProps {
    *  capability is a precondition; while the provider pipeline (#193)
    *  isn't live, multi presets render the one-photo experience. */
   multiInputReleased?: boolean;
+  promptReleased?: boolean;
   initialOptions?: Record<string, unknown> | null;
   initialSize?: OutputSizeOption | null;
   /** The owner's own prompt from an earlier run (Adjust flow) — seeds the
@@ -308,6 +309,7 @@ export function CreateGenerationForm({
   initialSource,
   initialInputs,
   multiInputReleased = false,
+  promptReleased = false,
   initialOptions,
   initialSize,
   initialPrompt,
@@ -327,7 +329,11 @@ export function CreateGenerationForm({
   // Prompt eligibility is strictly per preset/version (#182) — never a
   // global flag, and ineligible presets render no actionable control and
   // submit no custom text.
-  const promptAllowed = inputCapability?.prompt.enabled === true;
+  // Release-gated (#189 flag): the admin capability alone never exposes the
+  // composer — until the provider/legal approval lands, prompt overrides
+  // stay server-rejected and the UI matches that state.
+  const promptAllowed =
+    promptReleased && inputCapability?.prompt.enabled === true;
   const promptMaxChars = Math.max(1, inputCapability?.prompt.max_chars || 0);
   /** Multi-image slots — inactive for single-image presets, which keep the
    *  original one-photo path untouched (#178). */

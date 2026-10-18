@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
+import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
@@ -54,6 +55,10 @@ export default async function CreatePage({
   // sibling/adjust inputs aren't even resolved and the form renders the
   // one-photo experience.
   const multiReleased = isMultiInputReleased();
+  // Prompt release gate (#182): admin `prompt_override_enabled` is a
+  // precondition — while PRESET_USER_PROMPT_ENABLED is off (pending
+  // provider/legal approval) no preset exposes the composer.
+  const promptReleased = isUserPromptReleased();
 
   // Blocked-credit routing (06 §2): who the user is decides which recovery
   // surface the Generate gate opens — subscriber top-up, weekly repurchase,
@@ -217,6 +222,7 @@ export default async function CreatePage({
         initialSource={initialSource}
         initialInputs={initialInputs}
         multiInputReleased={multiReleased}
+        promptReleased={promptReleased}
         initialOptions={initialOptions}
         initialSize={initialSize}
         initialPrompt={initialPrompt}
