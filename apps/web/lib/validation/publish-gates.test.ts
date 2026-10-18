@@ -272,7 +272,7 @@ describe("validatePublishGates — preset family + capability (#177)", () => {
   const rootParent = {
     id: "p0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
     type: "filter",
-    public_status: "published",
+    public_status: "active",
     parent_preset_id: null,
   };
 
@@ -282,6 +282,20 @@ describe("validatePublishGates — preset family + capability (#177)", () => {
     accepted_roles: null,
     source: "test",
   };
+
+  it("allows a dependent child when its parent has the real active status", () => {
+    const result = validatePublishGates(
+      {
+        ...validProduct(),
+        parent_preset_id: rootParent.id,
+        standalone_discoverable: false,
+      },
+      validVersion(),
+      [],
+      { parent: rootParent, routeCapability: verifiedRoute }
+    );
+    expect(result.ok).toBe(true);
+  });
 
   it("rejects a variant whose parent is retired", () => {
     const result = validatePublishGates(
