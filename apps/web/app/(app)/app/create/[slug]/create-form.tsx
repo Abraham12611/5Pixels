@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
@@ -36,6 +37,7 @@ import {
   shouldConfirmCost,
   SKIP_COST_CONFIRM_KEY,
 } from "@/lib/generation/credit-confirm";
+import { quoteFingerprintKey } from "@/lib/generation/quote-fingerprint";
 import {
   finalizeSourceUpload,
   prepareSourceUpload,
@@ -57,6 +59,19 @@ interface ReusedSource {
   assetId: string;
   url: string;
   name: string;
+}
+
+type PricingStatus = "loading" | "ready" | "unavailable" | "failed";
+
+/** Server-price lifecycle for the configured generation. Generate and the
+ * cost confirmation only trust `ready`, and only while `fingerprint` still
+ * matches the inputs on screen — a stale response can never price new
+ * inputs, and an unknown price is never treated as zero. */
+interface PriceQuote {
+  status: PricingStatus;
+  /** Quoted credits — only set when status is "ready". */
+  credits: number | null;
+  fingerprint: string;
 }
 
 interface CreateGenerationFormProps {
@@ -184,7 +199,9 @@ export function CreateGenerationForm({
     width: number;
     height: number;
   } | null>(null);
-  const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [priceQuote, setPriceQuote] = useState<PriceQuote | null>(null);
+  /** Bump to refetch after a failed/unavailable attempt. */
+  const [priceRetryKey, setPriceRetryKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const online = useOnline();
   const [progress, setProgress] = useState<string>("");
@@ -196,18 +213,68 @@ export function CreateGenerationForm({
   /** Last submit died during upload — the same file can retry without re-picking. */
   const [uploadFailed, setUploadFailed] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [insufficientOpen, setInsufficientOpen] = useState(false);
+  /** The verified quote a confirmation/top-up was opened for — closed,
+   * never repriced, when the configured inputs drift from it. */
+  const [confirmQuote, setConfirmQuote] = useState<{
+    credits: number;
+    fingerprint: string;
+  } | null>(null);
+  const [insufficientQuote, setInsufficientQuote] = useState<{
+    credits: number;
+    fingerprint: string;
+  } | null>(null);
   const [authGateOpen, setAuthGateOpen] = useState(false);
-  const [pricingUnavailable, setPricingUnavailable] = useState(false);
-
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
-  const canAfford = isAnonymous
-    ? true
-    : estimatedCost !== null && estimatedCost > 0
-      ? initialBalance >= estimatedCost
-      : true;
+
+  // "Match photo" is billed on the resolved source dims — the estimate and
+  // the fingerprint both use the measured photo size when we have it.
+  const estimateSize = useMemo(
+    () =>
+      selectedSize.match_source && sourceDims
+        ? { ...selectedSize, ...sourceDims }
+        : selectedSize,
+    [selectedSize, sourceDims]
+  );
+  // "Match photo" quotes need the real photo dims — while a source is
+  // present but still decoding, fallback dims can't safely price this run.
+  const dimsPending = Boolean(
+    selectedSize.match_source && hasSource && sourceDims === null
+  );
+  const quoteFingerprint = quoteFingerprintKey({
+    productVersionId: product.version_id ?? "none",
+    outputSize: estimateSize,
+    sourceDimsPending: dimsPending,
+  });
+  // A quote only counts while it still describes the inputs on screen —
+  // anything else (in-flight fetch, stale response) reads as loading.
+  const pricingStatus: PricingStatus = dimsPending
+    ? "loading"
+    : !isAnonymous && !product.version_id
+      ? "unavailable"
+      : priceQuote?.fingerprint === quoteFingerprint
+        ? priceQuote.status
+        : "loading";
+  const displayCost =
+    pricingStatus === "ready" ? (priceQuote?.credits ?? null) : null;
+  const pricingReady = displayCost !== null;
+  // An unknown price is not "insufficient balance" — they are distinct
+  // states, and only a real quote can put the user behind it.
+  const canAfford =
+    isAnonymous || !pricingReady ? true : initialBalance >= displayCost;
+
+  // A confirmation or top-up surface only ever shows the price it was
+  // opened with — the moment the configured inputs drift from that quote
+  // it closes rather than silently repricing an open consent surface.
+  if (confirmQuote && confirmQuote.fingerprint !== quoteFingerprint) {
+    setConfirmQuote(null);
+  }
+  if (
+    insufficientQuote &&
+    insufficientQuote.fingerprint !== quoteFingerprint
+  ) {
+    setInsufficientQuote(null);
+  }
 
   const outputSizes = useMemo(
     () =>
@@ -366,37 +433,44 @@ export function CreateGenerationForm({
   }, [isAnonymous, file, options, selectedSize, product.slug]);
 
   useEffect(() => {
+    // Anonymous visitors can't hold a quote — the server won't price a
+    // session that doesn't exist. Pricing only gates the charged submit,
+    // which anonymous users can't reach (the auth gate intercepts first).
+    if (isAnonymous || !product.version_id || dimsPending) return;
+    const fingerprint = quoteFingerprint;
     let cancelled = false;
 
-    async function loadEstimate() {
-      if (!product.version_id) return;
-      // "Match photo" is billed on the resolved source dims — estimate with
-      // the measured photo size when we have it.
-      const estimateSize =
-        selectedSize.match_source && sourceDims
-          ? { ...selectedSize, ...sourceDims }
-          : selectedSize;
-      const { estimatedCredits, unavailable } =
-        await estimateGenerationCost({
-          productVersionId: product.version_id,
-          outputSize: estimateSize,
-        });
+    void estimateGenerationCost({
+      productVersionId: product.version_id,
+      outputSize: estimateSize,
+    })
+      .then(({ estimatedCredits, unavailable }) => {
+        if (cancelled) return;
+        // Fail closed: missing or non-positive pricing is unquotable,
+        // never free — zero would bypass confirmation and misstate consent.
+        setPriceQuote(
+          !unavailable && estimatedCredits > 0
+            ? { status: "ready", credits: estimatedCredits, fingerprint }
+            : { status: "unavailable", credits: null, fingerprint }
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPriceQuote({ status: "failed", credits: null, fingerprint });
+        }
+      });
 
-      if (cancelled) return;
-
-      // Fail-closed: no verified price means no generation. The static
-      // product credit_cost is no longer a valid price hint.
-      setPricingUnavailable(unavailable);
-      setEstimatedCost(
-        !unavailable && estimatedCredits > 0 ? estimatedCredits : null
-      );
-    }
-
-    loadEstimate();
     return () => {
       cancelled = true;
     };
-  }, [product.version_id, selectedSize, sourceDims]);
+  }, [
+    isAnonymous,
+    product.version_id,
+    dimsPending,
+    estimateSize,
+    quoteFingerprint,
+    priceRetryKey,
+  ]);
 
   const handleFileSelected = useCallback((selected: File | null) => {
     setError("");
@@ -479,8 +553,19 @@ export function CreateGenerationForm({
       return;
     }
 
-    if (!canAfford) {
-      setInsufficientOpen(true);
+    // Fail closed: a charged submit needs a fresh server quote for the
+    // exact inputs on screen. No quote, no action — never a zero fallback.
+    if (
+      priceQuote?.status !== "ready" ||
+      priceQuote.fingerprint !== quoteFingerprint ||
+      priceQuote.credits === null
+    ) {
+      return;
+    }
+    const cost = priceQuote.credits;
+
+    if (initialBalance < cost) {
+      setInsufficientQuote({ credits: cost, fingerprint: quoteFingerprint });
       return;
     }
 
@@ -492,7 +577,6 @@ export function CreateGenerationForm({
       // storage unavailable — treat as not skipped
     }
 
-    const cost = estimatedCost ?? 0;
     if (
       shouldConfirmCost({
         cost,
@@ -500,7 +584,7 @@ export function CreateGenerationForm({
         skipPreference,
       })
     ) {
-      setConfirmOpen(true);
+      setConfirmQuote({ credits: cost, fingerprint: quoteFingerprint });
       return;
     }
 
@@ -508,6 +592,17 @@ export function CreateGenerationForm({
   };
 
   const runGeneration = async () => {
+    // The charged path re-verifies the quote before any work — the confirm
+    // dialog and the upload-retry both land here, and inputs may have
+    // changed since the quote resolved.
+    if (
+      !isAnonymous &&
+      (priceQuote?.status !== "ready" ||
+        priceQuote.fingerprint !== quoteFingerprint ||
+        priceQuote.credits === null)
+    ) {
+      return;
+    }
     setLoading(true);
 
     try {
@@ -591,22 +686,32 @@ export function CreateGenerationForm({
     }
   };
 
-  const displayCost = estimatedCost;
+  const retryPricing = useCallback(() => {
+    setPriceQuote({
+      status: "loading",
+      credits: null,
+      fingerprint: quoteFingerprint,
+    });
+    setPriceRetryKey((k) => k + 1);
+  }, [quoteFingerprint]);
+
   const stepIndex = submitStepIndex(progress);
   const creditUnit = displayCost === 1 ? "credit" : "credits";
   const generateLabel =
     displayCost !== null
       ? `Generate · ${displayCost} ${creditUnit}`
       : "Generate";
+  // Anonymous visitors aren't gated on price — they can't be charged, so
+  // their Generate opens the auth sheet instead.
   const generateDisabled =
     loading ||
     !hasSource ||
     generationPaused ||
     !online ||
-    pricingUnavailable;
+    (!isAnonymous && !pricingReady);
   // Every disabled state names its blocker; while submitting, the reason
-  // line doubles as honest progress.
-  const disabledReason = loading
+  // line doubles as honest progress. Pricing failures carry a retry.
+  const disabledReason: ReactNode = loading
     ? progress || "Starting…"
     : !hasSource
       ? "Add a photo to generate"
@@ -614,8 +719,23 @@ export function CreateGenerationForm({
         ? "Generation is paused — try again shortly"
         : !online
           ? "You're offline — reconnect to generate"
-          : pricingUnavailable
-            ? "Temporarily unavailable — pricing refresh in progress"
+          : !isAnonymous && !pricingReady
+            ? pricingStatus === "loading" ? (
+                "Checking the current price…"
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  {pricingStatus === "failed"
+                    ? "Couldn't load the price."
+                    : "This look can't be priced right now."}
+                  <button
+                    type="button"
+                    onClick={retryPricing}
+                    className="text-lime-400 font-semibold underline underline-offset-2"
+                  >
+                    Retry
+                  </button>
+                </span>
+              )
             : undefined;
 
   const submitError = error ? (
@@ -770,7 +890,7 @@ export function CreateGenerationForm({
                 canAfford ? "text-cream-50" : "text-error"
               )}
             >
-              {displayCost} {creditUnit}
+              {displayCost !== null ? `${displayCost} ${creditUnit}` : "—"}
             </span>
           </div>
           {!isAnonymous && (
@@ -839,7 +959,7 @@ export function CreateGenerationForm({
         className="order-last"
         info={
           <>
-            Cost {displayCost} {creditUnit}
+            Cost {displayCost !== null ? `${displayCost} ${creditUnit}` : "—"}
             {!isAnonymous && <> · Balance {initialBalance}</>}
           </>
         }
@@ -850,20 +970,30 @@ export function CreateGenerationForm({
       </DockedActionBar>
 
       <CreditConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        cost={displayCost ?? 0}
+        open={
+          confirmQuote !== null &&
+          confirmQuote.fingerprint === quoteFingerprint
+        }
+        onOpenChange={(open) => {
+          if (!open) setConfirmQuote(null);
+        }}
+        cost={confirmQuote?.credits ?? 0}
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
       {blocked && (
         <BlockedCreditSurface
-          open={insufficientOpen}
-          onOpenChange={setInsufficientOpen}
+          open={
+            insufficientQuote !== null &&
+            insufficientQuote.fingerprint === quoteFingerprint
+          }
+          onOpenChange={(open) => {
+            if (!open) setInsufficientQuote(null);
+          }}
           segment={blocked.segment}
           offer={offer}
           plans={plans}
-          required={displayCost ?? 0}
+          required={insufficientQuote?.credits ?? 0}
           balance={initialBalance}
           presetName={product.name}
           presetThumbUrl={presetThumb}
