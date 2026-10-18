@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import { describe, expect, it } from "vitest";
-import { asAnon, asUser, withDb } from "./helpers/db";
+import { asAnon, asService, asUser, withDb } from "./helpers/db";
 import { makeUser } from "./helpers/fixtures";
 
 /**
@@ -131,6 +131,59 @@ describe("save_article_draft cover integrity (#139)", () => {
 });
 
 describe("sweep_stale_article_uploads grants (#139)", () => {
+  it("service_role can run the sweep (the cleanup cron's real path)", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const articleId = await makeArticle(client, staffId);
+      const readyAssetId = await makeArticleAsset(client, articleId, staffId);
+      const mkPending = async (age: string) => {
+        const assetId = randomUUID();
+        const key = `staff/${staffId}/articles/${articleId}/${assetId}.png`;
+        await client.query(
+          `INSERT INTO public.assets (
+             id, owner_user_id, storage_provider, storage_key, bucket,
+             media_type, mime_type, width, height
+           ) VALUES ($1, $2, 'supabase', $3, 'article-media',
+                     'image', 'image/png', 640, 480)`,
+          [assetId, staffId, key]
+        );
+        await client.query(
+          `INSERT INTO public.article_assets (
+             article_id, asset_id, uploader_user_id, kind, state, staging_key,
+             created_at
+           ) VALUES ($1, $2, $3, 'upload', 'pending', $4, NOW() - $5::interval)`,
+          [articleId, assetId, staffId, key, age]
+        );
+        return { assetId, key };
+      };
+      const stale = await mkPending("48 hours");
+      const fresh = await mkPending("1 hour");
+
+      const res = await asService(client, () =>
+        client.query(`SELECT public.sweep_stale_article_uploads() AS out`)
+      );
+      expect(res.rows[0].out.deleted_keys).toEqual([stale.key]);
+
+      const remaining = await client.query(
+        `SELECT asset_id::text FROM public.article_assets
+         WHERE article_id = $1 ORDER BY asset_id`,
+        [articleId]
+      );
+      // Stale pending row + its asset are gone; fresh pending and ready rows survive.
+      expect(remaining.rows.map((r) => r.asset_id).sort()).toEqual(
+        [fresh.assetId, readyAssetId].sort()
+      );
+      expect(
+        (
+          await client.query(
+            `SELECT count(*)::int AS n FROM public.assets WHERE id = $1`,
+            [stale.assetId]
+          )
+        ).rows[0].n
+      ).toBe(0);
+    });
+  });
+
   it("is callable by authenticated (reaches the staff check), denied to anon", async () => {
     await withDb(async (client) => {
       const { userId } = await makeUser(client);
