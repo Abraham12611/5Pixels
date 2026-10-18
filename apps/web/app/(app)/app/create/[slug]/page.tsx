@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
+import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
@@ -54,6 +55,10 @@ export default async function CreatePage({
   // sibling/adjust inputs aren't even resolved and the form renders the
   // one-photo experience.
   const multiReleased = isMultiInputReleased();
+  // Prompt release gate (#182): admin `prompt_override_enabled` is a
+  // precondition — while PRESET_USER_PROMPT_ENABLED is off (pending
+  // provider/legal approval) no preset exposes the composer.
+  const promptReleased = isUserPromptReleased();
 
   // Blocked-credit routing (06 §2): who the user is decides which recovery
   // surface the Generate gate opens — subscriber top-up, weekly repurchase,
@@ -85,6 +90,10 @@ export default async function CreatePage({
     null;
   let initialOptions: Record<string, unknown> | null = null;
   let initialSize: OutputSizeOption | null = null;
+  /** The owner's own prompt text from a previous run (Adjust) — private,
+   *  only ever restored for them and only applied on prompt-eligible
+   *  presets (the form gates it). */
+  let initialPrompt: string | null = null;
   /** Additional staged inputs handed across a sibling-variant switch
    *  (?inputs=a1,a2) or restored from a multi-input Adjust. The signed-url
    *  lookup enforces ownership — foreign ids are skipped, never shown. */
@@ -93,7 +102,9 @@ export default async function CreatePage({
   if (from && user) {
     const { data: previous } = await supabase
       .from("generations")
-      .select("product_id, source_asset_id, requested_options, progress")
+      .select(
+        "product_id, source_asset_id, requested_options, progress, user_prompt"
+      )
       .eq("id", from)
       .eq("user_id", user.id)
       .single();
@@ -145,6 +156,9 @@ export default async function CreatePage({
         typeof previous.requested_options === "object"
       ) {
         initialOptions = previous.requested_options as Record<string, unknown>;
+      }
+      if (typeof previous.user_prompt === "string" && previous.user_prompt) {
+        initialPrompt = previous.user_prompt;
       }
       const progress = previous.progress as Record<string, unknown> | null;
       const prevW = Number(progress?.output_width);
@@ -208,8 +222,10 @@ export default async function CreatePage({
         initialSource={initialSource}
         initialInputs={initialInputs}
         multiInputReleased={multiReleased}
+        promptReleased={promptReleased}
         initialOptions={initialOptions}
         initialSize={initialSize}
+        initialPrompt={initialPrompt}
         plans={plans}
         blocked={blocked}
         offer={offer}
