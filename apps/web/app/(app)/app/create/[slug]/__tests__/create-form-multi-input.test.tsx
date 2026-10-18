@@ -172,6 +172,7 @@ function renderForm(
     <CreateGenerationForm
       userId="user-1"
       product={multiProduct}
+      multiInputReleased
       initialBalance={100}
       hasPriorGenerations
       plans={[]}
@@ -242,6 +243,17 @@ describe("create form — multi-image inputs", () => {
 
   it("renders the original one-photo experience on a single-image preset", async () => {
     renderForm({ product: singleProduct });
+    expect(screen.queryByText(/of 3 photos/i)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Add photo" })
+    ).toBeNull();
+    await waitFor(() => expect(mocks.estimate).toHaveBeenCalled());
+  });
+
+  it("keeps a multi-capable preset on the one-photo flow while the pipeline release is off", async () => {
+    renderForm({ multiInputReleased: false });
+    // Admin capability is a precondition, not the release — no rail, no
+    // slot affordances, the form behaves as single-image end to end.
     expect(screen.queryByText(/of 3 photos/i)).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Add photo" })

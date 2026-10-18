@@ -6,6 +6,7 @@ import { getPublicProductBySlug } from "@/lib/db/explore";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
+import { isMultiInputReleased } from "@/lib/generation/release-gates";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
@@ -48,6 +49,11 @@ export default async function CreatePage({
   ]);
 
   const generationPaused = process.env.GENERATION_PAUSED === "true";
+  // Multi-image release gate (#178): the admin capability is a
+  // precondition — while the provider pipeline (#193) isn't live, carried
+  // sibling/adjust inputs aren't even resolved and the form renders the
+  // one-photo experience.
+  const multiReleased = isMultiInputReleased();
 
   // Blocked-credit routing (06 §2): who the user is decides which recovery
   // surface the Generate gate opens — subscriber top-up, weekly repurchase,
@@ -108,11 +114,13 @@ export default async function CreatePage({
       // Multi-input presets (#178): Adjust re-stages the full ordered input
       // set, not just the ordinal-1 projection. Rows are immutable and
       // owner-scoped, so this can only ever return the caller's own assets.
-      const { data: inputRows } = await supabase
-        .from("generation_input_assets")
-        .select("asset_id, ordinal")
-        .eq("generation_id", from)
-        .order("ordinal", { ascending: true });
+      const { data: inputRows } = multiReleased
+        ? await supabase
+            .from("generation_input_assets")
+            .select("asset_id, ordinal")
+            .eq("generation_id", from)
+            .order("ordinal", { ascending: true })
+        : { data: null };
       if (inputRows && inputRows.length > 1) {
         for (const row of inputRows) {
           if (row.asset_id === previous.source_asset_id) continue;
@@ -153,7 +161,7 @@ export default async function CreatePage({
   // Sibling-variant carry (?inputs=a1,a2): a family switch hands already-
   // uploaded input assets forward; roles resolve positionally in the form
   // against the target version's declared capability (#178/#180).
-  if (!from && inputsParam && user) {
+  if (!from && inputsParam && user && multiReleased) {
     const ids = inputsParam
       .split(",")
       .map((s) => s.trim())
@@ -199,6 +207,7 @@ export default async function CreatePage({
         generationPaused={generationPaused}
         initialSource={initialSource}
         initialInputs={initialInputs}
+        multiInputReleased={multiReleased}
         initialOptions={initialOptions}
         initialSize={initialSize}
         plans={plans}

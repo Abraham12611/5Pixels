@@ -215,6 +215,10 @@ interface CreateGenerationFormProps {
    *  Adjust restore. Ownership was already enforced when the signed URLs
    *  were minted server-side. */
   initialInputs?: ReusedSource[] | null;
+  /** Deploy-level release for multi-image inputs (#178) — the admin
+   *  capability is a precondition; while the provider pipeline (#193)
+   *  isn't live, multi presets render the one-photo experience. */
+  multiInputReleased?: boolean;
   initialOptions?: Record<string, unknown> | null;
   initialSize?: OutputSizeOption | null;
   /** Purchasable plans for the credits paywall (insufficient balance). */
@@ -300,6 +304,7 @@ export function CreateGenerationForm({
   generationPaused = false,
   initialSource,
   initialInputs,
+  multiInputReleased = false,
   initialOptions,
   initialSize,
   plans,
@@ -309,7 +314,11 @@ export function CreateGenerationForm({
 }: CreateGenerationFormProps) {
   const isAnonymous = userId === null;
   const inputCapability = product.input_capability ?? null;
-  const isMulti = (inputCapability?.max_images ?? 1) > 1;
+  // The admin capability is a precondition, not the release — while the
+  // provider pipeline can't honor the full input set, a multi-capable
+  // preset degrades to the one-photo flow rather than erroring on submit.
+  const isMulti =
+    multiInputReleased && (inputCapability?.max_images ?? 1) > 1;
   const minImages = Math.max(1, inputCapability?.min_images ?? 1);
   /** Multi-image slots — inactive for single-image presets, which keep the
    *  original one-photo path untouched (#178). */
