@@ -73,3 +73,19 @@ export function filterLibrary(
 ): SearchLibraryItem[] {
   return items.filter((i) => matchesQuery(i.productName, query));
 }
+
+/** Subtitle prefix for a library row — terminal states are not "in progress". */
+export function libraryStatusLabel(status: string): string {
+  switch (status) {
+    case "completed":
+      return "Result";
+    case "failed":
+      return "Failed";
+    case "blocked":
+      return "Blocked";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return "In progress";
+  }
+}
