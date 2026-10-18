@@ -10,13 +10,23 @@ import {
   isRetryableSubmitError,
   type ProviderStrategy,
 } from "@/lib/ai/provider-routing";
-import { compilePrompt, referencePromptClause } from "@/lib/ai/prompt";
-import { extractUserText, screenUserText } from "@/lib/moderation/creem";
+import { getRouteCapability } from "@/lib/ai/route-capabilities";
+import {
+  compilePrompt,
+  referencePromptClause,
+  userPromptSection,
+} from "@/lib/ai/prompt";
+import {
+  extractUserText,
+  screenUserPrompt,
+  screenUserText,
+} from "@/lib/moderation/creem";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getSignedReferenceAssets } from "./reference-assets";
 import { resolveOutputSize } from "./output-size";
 import { createGenerationQuote } from "@/lib/pricing/quote";
+import { promptCapabilityOf, validateUserPrompt } from "./user-prompt";
 import type { CreateGenerationInput } from "./types";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
@@ -46,6 +56,14 @@ interface PrivateRecipe {
   provider_strategy: ProviderStrategy;
   model_config: Record<string, unknown>;
   post_process_config: Record<string, unknown>;
+  /** Per-version prompt capability (#176) — immutable while the version is
+   *  active; absent/false means custom prompting is disabled. */
+  prompt_override_enabled: boolean;
+  prompt_max_chars: number;
+  products: {
+    type: "filter" | "poster";
+    metadata: Record<string, unknown> | null;
+  };
 }
 
 async function getPrivateRecipe(
@@ -67,7 +85,9 @@ async function getPrivateRecipe(
       provider_strategy,
       model_config,
       post_process_config,
-      products!inner(public_status, visibility, type)
+      prompt_override_enabled,
+      prompt_max_chars,
+      products!inner(public_status, visibility, type, metadata)
     `
     )
     .eq("id", versionId)
@@ -83,6 +103,16 @@ async function getPrivateRecipe(
   }
 
   return data as unknown as PrivateRecipe;
+}
+
+/** products.metadata->filter_config->identity_preservation, when declared. */
+function identityPreservationOf(recipe: PrivateRecipe): string | undefined {
+  const filterConfig = recipe.products?.metadata?.filter_config;
+  const level =
+    filterConfig && typeof filterConfig === "object"
+      ? (filterConfig as Record<string, unknown>).identity_preservation
+      : undefined;
+  return typeof level === "string" ? level : undefined;
 }
 
 function userFacingError(): string {
@@ -117,22 +147,17 @@ export async function createAndSubmitGeneration(
   if (inputs.length === 0) {
     return { error: "A source image is required." };
   }
-  const userPrompt = input.prompt?.trim() || null;
 
-  // Fail-closed guard (#176 review): the provider pipeline still submits
-  // only the primary image, and user-prompt composition/moderation lands
-  // in #183. Reject before moderation/quoting so no credits can be held
-  // for functionality the pipeline cannot honor. The create_generation
-  // RPC enforces the same guard for direct callers — removal of both
-  // guards is owned by #179 (multi-image) and #183 (prompt).
+  // Fail-closed guard (#176 review, removal owned by #179): the provider
+  // pipeline still submits only the primary image — multi-input requests
+  // are rejected before moderation/quoting so no credits can be held for
+  // functionality the pipeline cannot honor. The create_generation RPC
+  // enforces the same guard for direct callers.
+  // The prompt guard that stood here was lifted by #183: prompt requests
+  // now flow through validateUserPrompt + screenUserPrompt below.
   if (inputs.length > 1) {
     return {
       error: "Multi-image generation is not yet available for this preset.",
-    };
-  }
-  if (userPrompt) {
-    return {
-      error: "Custom prompts are not yet available for this preset.",
     };
   }
 
@@ -142,10 +167,11 @@ export async function createAndSubmitGeneration(
   // verbatim; image-only requests send a fixed neutral descriptor so the
   // call still happens (repeat payloads are cached/free server-side).
   // deny/flag → blocked; an unreachable moderator fails closed.
+  // The optional user-edited prompt is intentionally screened separately
+  // below via the guarded fail-closed path (#183).
   const userText = extractUserText(input.options).join("\n");
   const screening = await screenUserText(
-    [userText, userPrompt].filter(Boolean).join("\n") ||
-      "user photo transformation",
+    userText || "user photo transformation",
     `user_${user.id}:product_${input.productId}`
   );
   if (screening.kind === "blocked") {
@@ -177,6 +203,57 @@ export async function createAndSubmitGeneration(
   const recipe = await getPrivateRecipe(input.productId, input.productVersionId);
   if (!recipe) {
     return { error: userFacingError() };
+  }
+
+  // User-edited preset prompt (#183): the PINNED version's capability and
+  // the server release gate decide — a hand-crafted `prompt` field on an
+  // ineligible preset/version is rejected here, before any quote or charge.
+  const promptValidation = validateUserPrompt(
+    input.prompt,
+    promptCapabilityOf(recipe)
+  );
+  if (!promptValidation.ok) {
+    return { error: promptValidation.error };
+  }
+  const userPrompt = promptValidation.prompt;
+
+  if (userPrompt) {
+    // Route compatibility (#183): the version capability only declares the
+    // preset eligible — every route that could serve the request must also
+    // honor an appended user edit. Unknown/unsupported endpoints fail
+    // closed before any quote or credit reservation.
+    const routesAllowPrompt =
+      getRouteCapability(
+        recipe.provider_strategy.primary_provider,
+        recipe.provider_strategy.primary_model
+      )?.supports_prompt_edit === true &&
+      (!recipe.provider_strategy.fallback_provider ||
+        getRouteCapability(
+          recipe.provider_strategy.fallback_provider,
+          recipe.provider_strategy.fallback_model
+        )?.supports_prompt_edit === true);
+    if (!routesAllowPrompt) {
+      return { error: "Custom prompts are not enabled for this preset." };
+    }
+
+    // Custom prompts take the guarded fail-closed path: the legacy
+    // flag-off "allow" inside screenUserText must never authorize them.
+    const promptScreen = await screenUserPrompt(
+      userPrompt,
+      `user_${user.id}:product_${input.productId}`
+    );
+    if (promptScreen.kind === "blocked") {
+      return {
+        error:
+          "That text can't be used — it violates our content policy. Please revise it and try again.",
+      };
+    }
+    if (promptScreen.kind === "unavailable") {
+      return {
+        error:
+          "We couldn't verify your input right now. Please try again in a moment.",
+      };
+    }
   }
 
   const endpoint = getProviderEndpoint(recipe.provider_strategy);
@@ -280,7 +357,13 @@ export async function createAndSubmitGeneration(
 
     const prompt =
       compilePrompt(recipe.private_instruction_template, input.options) +
-      referencePromptClause(references.flatMap((r) => r.roles));
+      referencePromptClause(references.flatMap((r) => r.roles)) +
+      (userPrompt
+        ? userPromptSection(userPrompt, {
+            productType: recipe.products?.type,
+            identityPreservation: identityPreservationOf(recipe),
+          })
+        : "");
 
     const modelConfig: Record<string, unknown> = {
       ...recipe.model_config,
