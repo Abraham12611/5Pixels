@@ -18,10 +18,7 @@ import {
   DockedActionBar,
   MobilePageBottomSpacer,
 } from "@/components/consumer/mobile/docked-action-bar";
-import {
-  AspectRatioMenu,
-  outputSizeKey,
-} from "@/components/consumer/aspect-ratio-menu";
+import { AspectRatioMenu } from "@/components/consumer/aspect-ratio-menu";
 import { SettingTile } from "@/components/consumer/setting-tile";
 import { CreditConfirmDialog } from "@/components/consumer/credit-confirm-dialog";
 import { BlockedCreditSurface } from "@/components/consumer/blocked-credit-surface";
@@ -40,6 +37,7 @@ import {
   shouldConfirmCost,
   SKIP_COST_CONFIRM_KEY,
 } from "@/lib/generation/credit-confirm";
+import { quoteFingerprintKey } from "@/lib/generation/quote-fingerprint";
 import {
   finalizeSourceUpload,
   prepareSourceUpload,
@@ -215,8 +213,16 @@ export function CreateGenerationForm({
   /** Last submit died during upload — the same file can retry without re-picking. */
   const [uploadFailed, setUploadFailed] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [insufficientOpen, setInsufficientOpen] = useState(false);
+  /** The verified quote a confirmation/top-up was opened for — closed,
+   * never repriced, when the configured inputs drift from it. */
+  const [confirmQuote, setConfirmQuote] = useState<{
+    credits: number;
+    fingerprint: string;
+  } | null>(null);
+  const [insufficientQuote, setInsufficientQuote] = useState<{
+    credits: number;
+    fingerprint: string;
+  } | null>(null);
   const [authGateOpen, setAuthGateOpen] = useState(false);
   const isPoster = product.type === "poster";
   const hasSource = Boolean(file) || Boolean(reusedSource);
@@ -230,11 +236,21 @@ export function CreateGenerationForm({
         : selectedSize,
     [selectedSize, sourceDims]
   );
-  const quoteFingerprint = `${product.version_id ?? "none"}:${outputSizeKey(estimateSize)}`;
+  // "Match photo" quotes need the real photo dims — while a source is
+  // present but still decoding, fallback dims can't safely price this run.
+  const dimsPending = Boolean(
+    selectedSize.match_source && hasSource && sourceDims === null
+  );
+  const quoteFingerprint = quoteFingerprintKey({
+    productVersionId: product.version_id ?? "none",
+    outputSize: estimateSize,
+    sourceDimsPending: dimsPending,
+  });
   // A quote only counts while it still describes the inputs on screen —
   // anything else (in-flight fetch, stale response) reads as loading.
-  const pricingStatus: PricingStatus =
-    !isAnonymous && !product.version_id
+  const pricingStatus: PricingStatus = dimsPending
+    ? "loading"
+    : !isAnonymous && !product.version_id
       ? "unavailable"
       : priceQuote?.fingerprint === quoteFingerprint
         ? priceQuote.status
@@ -246,6 +262,19 @@ export function CreateGenerationForm({
   // states, and only a real quote can put the user behind it.
   const canAfford =
     isAnonymous || !pricingReady ? true : initialBalance >= displayCost;
+
+  // A confirmation or top-up surface only ever shows the price it was
+  // opened with — the moment the configured inputs drift from that quote
+  // it closes rather than silently repricing an open consent surface.
+  if (confirmQuote && confirmQuote.fingerprint !== quoteFingerprint) {
+    setConfirmQuote(null);
+  }
+  if (
+    insufficientQuote &&
+    insufficientQuote.fingerprint !== quoteFingerprint
+  ) {
+    setInsufficientQuote(null);
+  }
 
   const outputSizes = useMemo(
     () =>
@@ -407,7 +436,7 @@ export function CreateGenerationForm({
     // Anonymous visitors can't hold a quote — the server won't price a
     // session that doesn't exist. Pricing only gates the charged submit,
     // which anonymous users can't reach (the auth gate intercepts first).
-    if (isAnonymous || !product.version_id) return;
+    if (isAnonymous || !product.version_id || dimsPending) return;
     const fingerprint = quoteFingerprint;
     let cancelled = false;
 
@@ -437,6 +466,7 @@ export function CreateGenerationForm({
   }, [
     isAnonymous,
     product.version_id,
+    dimsPending,
     estimateSize,
     quoteFingerprint,
     priceRetryKey,
@@ -535,7 +565,7 @@ export function CreateGenerationForm({
     const cost = priceQuote.credits;
 
     if (initialBalance < cost) {
-      setInsufficientOpen(true);
+      setInsufficientQuote({ credits: cost, fingerprint: quoteFingerprint });
       return;
     }
 
@@ -554,7 +584,7 @@ export function CreateGenerationForm({
         skipPreference,
       })
     ) {
-      setConfirmOpen(true);
+      setConfirmQuote({ credits: cost, fingerprint: quoteFingerprint });
       return;
     }
 
@@ -940,20 +970,30 @@ export function CreateGenerationForm({
       </DockedActionBar>
 
       <CreditConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        cost={displayCost ?? 0}
+        open={
+          confirmQuote !== null &&
+          confirmQuote.fingerprint === quoteFingerprint
+        }
+        onOpenChange={(open) => {
+          if (!open) setConfirmQuote(null);
+        }}
+        cost={confirmQuote?.credits ?? 0}
         balance={initialBalance}
         onConfirm={() => void runGeneration()}
       />
       {blocked && (
         <BlockedCreditSurface
-          open={insufficientOpen}
-          onOpenChange={setInsufficientOpen}
+          open={
+            insufficientQuote !== null &&
+            insufficientQuote.fingerprint === quoteFingerprint
+          }
+          onOpenChange={(open) => {
+            if (!open) setInsufficientQuote(null);
+          }}
           segment={blocked.segment}
           offer={offer}
           plans={plans}
-          required={displayCost ?? 0}
+          required={insufficientQuote?.credits ?? 0}
           balance={initialBalance}
           presetName={product.name}
           presetThumbUrl={presetThumb}

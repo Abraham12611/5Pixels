@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { CreateGenerationForm } from "../create-form";
 import { SKIP_COST_CONFIRM_KEY } from "@/lib/generation/credit-confirm";
 import type { OutputSizeOption, PublicProductDetail } from "@/types/catalog";
@@ -88,26 +95,6 @@ vi.mock(
   }
 );
 
-vi.mock("@/components/consumer/credit-confirm-dialog", () => ({
-  CreditConfirmDialog: ({
-    open,
-    cost,
-    onConfirm,
-  }: {
-    open: boolean;
-    cost: number;
-    onConfirm: () => void;
-  }) =>
-    open ? (
-      <div role="dialog">
-        <span data-testid="confirm-cost">{cost}</span>
-        <button type="button" onClick={onConfirm}>
-          Confirm
-        </button>
-      </div>
-    ) : null,
-}));
-
 vi.mock("@/components/consumer/blocked-credit-surface", () => ({
   BlockedCreditSurface: ({
     open,
@@ -161,6 +148,21 @@ const product: PublicProductDetail = {
   active_fields: [],
 };
 
+/** Same preset with a single "Match photo" size — the estimate must wait
+ * for real source dims instead of pricing the 1024² fallback. */
+const matchProduct: PublicProductDetail = {
+  ...product,
+  output_sizes: [
+    {
+      name: "Match photo",
+      width: 1024,
+      height: 1024,
+      is_default: true,
+      match_source: true,
+    },
+  ],
+};
+
 const blocked: BlockedCreditContext = {
   segment: "subscriber",
   isReferred: false,
@@ -207,13 +209,18 @@ function renderForm(overrides: Partial<
   );
 }
 
+/** Form Generate buttons only — the real confirmation dialog has its own
+ * "Generate" confirm action that must not collide with queries. */
 function generateButtons() {
-  return screen.getAllByRole("button", { name: /^generate/i });
+  return screen
+    .getAllByRole("button", { name: /^generate/i })
+    .filter((b) => b.closest('[role="dialog"]') === null);
 }
 
 describe("create form — pricing readiness", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.unstubAllGlobals();
     localStorage.clear();
     mocks.loadDraft.mockResolvedValue(null);
     mocks.createAndSubmit.mockResolvedValue({});
@@ -246,14 +253,16 @@ describe("create form — pricing readiness", () => {
     fireEvent.click(ready);
 
     // First run → confirmation with the real server price, not a submit.
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByTestId("confirm-cost")).toHaveTextContent("5");
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/5 credits/i)).toBeInTheDocument();
     expect(mocks.createAndSubmit).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    // The real dialog's Confirm action closes itself and starts the run.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Generate" }));
     await waitFor(() =>
       expect(mocks.createAndSubmit).toHaveBeenCalledTimes(1)
     );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("invalidates the previous quote the moment inputs change", async () => {
@@ -312,7 +321,7 @@ describe("create form — pricing readiness", () => {
     await screen.findAllByRole("button", { name: /generate · 8 credits/i });
   });
 
-  it("re-verifies the quote when confirming — stale inputs can't generate", async () => {
+  it("closes an open confirmation when its quote goes stale — the fresh price needs a new explicit confirm", async () => {
     const dA = deferred<Estimate>();
     const dB = deferred<Estimate>();
     mocks.estimate
@@ -323,24 +332,29 @@ describe("create form — pricing readiness", () => {
     await act(async () =>
       dA.resolve({ estimatedCredits: 5, unavailable: false })
     );
-    fireEvent.click(
-      screen.getAllByRole("button", { name: /generate · 5 credits/i })[0]
-    );
-    await screen.findByRole("dialog");
+    fireEvent.click(generateButtons()[0]);
 
-    // Inputs changed while the dialog was open — the approval is stale.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/5 credits/i)).toBeInTheDocument();
+
+    // Inputs changed while the dialog was open — it must close, not
+    // quietly reprice an approval the user gave for different inputs.
     fireEvent.click(screen.getByRole("button", { name: "Portrait (4:5)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() =>
-      expect(mocks.createAndSubmit).not.toHaveBeenCalled()
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mocks.createAndSubmit).not.toHaveBeenCalled();
 
-    // Once the fresh quote lands, the same dialog re-prices and works.
+    // Once the fresh quote lands, Generate re-asks with the new price.
     await act(async () =>
       dB.resolve({ estimatedCredits: 8, unavailable: false })
     );
-    expect(screen.getByTestId("confirm-cost")).toHaveTextContent("8");
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    fireEvent.click(generateButtons()[0]);
+    const reopened = await screen.findByRole("dialog");
+    expect(within(reopened).getByText(/8 credits/i)).toBeInTheDocument();
+    expect(within(reopened).queryByText(/5 credits/i)).toBeNull();
+
+    fireEvent.click(
+      within(reopened).getByRole("button", { name: "Generate" })
+    );
     await waitFor(() =>
       expect(mocks.createAndSubmit).toHaveBeenCalledTimes(1)
     );
@@ -420,6 +434,35 @@ describe("create form — pricing readiness", () => {
     expect(mocks.createAndSubmit).not.toHaveBeenCalled();
   });
 
+  it("dismisses the top-up surface when the priced configuration changes", async () => {
+    const dA = deferred<Estimate>();
+    const dB = deferred<Estimate>();
+    mocks.estimate
+      .mockReturnValueOnce(dA.promise)
+      .mockReturnValueOnce(dB.promise);
+    renderForm({ initialBalance: 2 });
+
+    await act(async () =>
+      dA.resolve({ estimatedCredits: 5, unavailable: false })
+    );
+    fireEvent.click(generateButtons()[0]);
+    await screen.findByTestId("insufficient-surface");
+
+    // The surface described a specific priced configuration — changing it
+    // dismisses the surface rather than showing a fabricated requirement.
+    fireEvent.click(screen.getByRole("button", { name: "Portrait (4:5)" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("insufficient-surface")).toBeNull()
+    );
+
+    await act(async () =>
+      dB.resolve({ estimatedCredits: 7, unavailable: false })
+    );
+    fireEvent.click(generateButtons()[0]);
+    const reopened = await screen.findByTestId("insufficient-surface");
+    expect(reopened).toHaveAttribute("data-required", "7");
+  });
+
   it("lets anonymous users reach the auth gate without a price", async () => {
     renderForm({
       userId: null,
@@ -442,6 +485,101 @@ describe("create form — pricing readiness", () => {
     // that doesn't exist, and intent here is only sign-in.
     expect(mocks.estimate).not.toHaveBeenCalled();
     expect(mocks.createAndSubmit).not.toHaveBeenCalled();
+  });
+
+  it("waits for real photo dims before pricing a match-photo size", async () => {
+    const bmp = deferred<{ width: number; height: number; close(): void }>();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(() => bmp.promise)
+    );
+    const dFallback = deferred<Estimate>();
+    const dMatch = deferred<Estimate>();
+    mocks.estimate
+      .mockReturnValueOnce(dFallback.promise)
+      .mockReturnValueOnce(dMatch.promise);
+    renderForm({ product: matchProduct, initialSource: null });
+
+    // No source yet — the display estimate can quote the fallback dims.
+    await act(async () =>
+      dFallback.resolve({ estimatedCredits: 4, unavailable: false })
+    );
+    expect(mocks.estimate).toHaveBeenCalledTimes(1);
+
+    // A picked photo whose dims are still decoding can't be priced on
+    // fallbacks — Generate stays off and no new estimate fires.
+    fireEvent.click(screen.getByTestId("pick-file"));
+    expect(generateButtons()[0]).toBeDisabled();
+    expect(
+      screen.getAllByText("Checking the current price…").length
+    ).toBeGreaterThan(0);
+    expect(mocks.estimate).toHaveBeenCalledTimes(1);
+
+    // Decode lands → the estimate refetches on the real dims.
+    await act(async () =>
+      bmp.resolve({ width: 800, height: 1200, close() {} })
+    );
+    await waitFor(() => expect(mocks.estimate).toHaveBeenCalledTimes(2));
+    expect(mocks.estimate).toHaveBeenLastCalledWith({
+      productVersionId: "ver-1",
+      outputSize: expect.objectContaining({ width: 800, height: 1200 }),
+    });
+
+    await act(async () =>
+      dMatch.resolve({ estimatedCredits: 6, unavailable: false })
+    );
+    await screen.findAllByRole("button", { name: /generate · 6 credits/i });
+  });
+
+  it("re-prices when the source photo is replaced mid-quote", async () => {
+    const bmpA = deferred<{ width: number; height: number; close(): void }>();
+    const bmpB = deferred<{ width: number; height: number; close(): void }>();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockReturnValueOnce(bmpA.promise).mockReturnValueOnce(bmpB.promise)
+    );
+    const dFallback = deferred<Estimate>();
+    const dA = deferred<Estimate>();
+    const dB = deferred<Estimate>();
+    mocks.estimate
+      .mockReturnValueOnce(dFallback.promise)
+      .mockReturnValueOnce(dA.promise)
+      .mockReturnValueOnce(dB.promise);
+    renderForm({ product: matchProduct, initialSource: null });
+    await act(async () =>
+      dFallback.resolve({ estimatedCredits: 4, unavailable: false })
+    );
+
+    // First photo decodes → a quote for its dims goes in flight.
+    fireEvent.click(screen.getByTestId("pick-file"));
+    await act(async () =>
+      bmpA.resolve({ width: 800, height: 1200, close() {} })
+    );
+    await waitFor(() => expect(mocks.estimate).toHaveBeenCalledTimes(2));
+
+    // Replacing the photo mid-quote resets dims — the in-flight price can't
+    // enable Generate for the new source.
+    fireEvent.click(screen.getByTestId("pick-file"));
+    expect(generateButtons()[0]).toBeDisabled();
+    await act(async () =>
+      dA.resolve({ estimatedCredits: 9, unavailable: false })
+    );
+    expect(screen.queryByRole("button", { name: /9 credits/i })).toBeNull();
+    expect(generateButtons()[0]).toBeDisabled();
+
+    // The replacement decodes → a fresh quote lands for its dims.
+    await act(async () =>
+      bmpB.resolve({ width: 1000, height: 1000, close() {} })
+    );
+    await waitFor(() => expect(mocks.estimate).toHaveBeenCalledTimes(3));
+    expect(mocks.estimate).toHaveBeenLastCalledWith({
+      productVersionId: "ver-1",
+      outputSize: expect.objectContaining({ width: 1000, height: 1000 }),
+    });
+    await act(async () =>
+      dB.resolve({ estimatedCredits: 6, unavailable: false })
+    );
+    await screen.findAllByRole("button", { name: /generate · 6 credits/i });
   });
 
   it("honors the skip-confirmation preference on a charged submit", async () => {
