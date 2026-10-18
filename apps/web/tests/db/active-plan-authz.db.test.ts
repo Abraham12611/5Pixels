@@ -121,6 +121,43 @@ describe("get_active_plan_id authorization (#139)", () => {
     });
   });
 
+  it("denies an admin/owner the cross-account path — they must use service_role", async () => {
+    await withDb(async (client) => {
+      const { userId: admin } = await makeUser(client);
+      const { userId: target } = await makeUser(client);
+      // Seed is_admin/is_owner under replica role — the privilege-escalation
+      // trigger correctly refuses privilege changes otherwise.
+      await client.query("SET session_replication_role = 'replica'");
+      try {
+        await client.query(
+          `UPDATE public.profiles SET is_admin = TRUE, is_owner = TRUE WHERE id = $1`,
+          [admin]
+        );
+      } finally {
+        await client.query("SET session_replication_role = 'origin'");
+      }
+      const planId = await makePlan(client, "monthly");
+      await giveSubscription(client, target, planId);
+
+      // An admin's ordinary session is still a user session: cross-account
+      // lookups are denied even for privileged profiles.
+      const err = await asUser(client, admin, () =>
+        client.query(planOf, [target])
+      ).catch((e) => e);
+      expect(err.code).toBe("42501");
+
+      // The admin's own plan lookup still works…
+      const ownPlan = await makePlan(client, "monthly");
+      await giveSubscription(client, admin, ownPlan);
+      const res = await asUser(client, admin, () => client.query(planOf, [admin]));
+      expect(res.rows[0].plan_id).toBe(ownPlan);
+
+      // …and the legitimate cross-account path (service client) still works.
+      const svc = await asService(client, () => client.query(planOf, [target]));
+      expect(svc.rows[0].plan_id).toBe(planId);
+    });
+  });
+
   it("rejects a NULL p_user_id", async () => {
     await withDb(async (client) => {
       const { userId } = await makeUser(client);
