@@ -12,7 +12,7 @@ import {
   Sparkle,
   Warning,
 } from "@phosphor-icons/react";
-import { GenerationControls } from "@/components/consumer/generation-controls";
+import { PresetPromptComposer } from "@/components/consumer/preset-prompt-composer";
 import { StudioStage } from "@/components/consumer/studio-stage";
 import {
   PresetImageInputs,
@@ -221,6 +221,9 @@ interface CreateGenerationFormProps {
   multiInputReleased?: boolean;
   initialOptions?: Record<string, unknown> | null;
   initialSize?: OutputSizeOption | null;
+  /** The owner's own prompt from an earlier run (Adjust flow) — seeds the
+   *  composer on prompt-eligible presets only, never rendered elsewhere. */
+  initialPrompt?: string | null;
   /** Purchasable plans for the credits paywall (insufficient balance). */
   plans: PlanForPurchase[];
   /** Segment-resolved billing context — null when anonymous. */
@@ -307,6 +310,7 @@ export function CreateGenerationForm({
   multiInputReleased = false,
   initialOptions,
   initialSize,
+  initialPrompt,
   plans,
   blocked,
   offer,
@@ -320,6 +324,11 @@ export function CreateGenerationForm({
   const isMulti =
     multiInputReleased && (inputCapability?.max_images ?? 1) > 1;
   const minImages = Math.max(1, inputCapability?.min_images ?? 1);
+  // Prompt eligibility is strictly per preset/version (#182) — never a
+  // global flag, and ineligible presets render no actionable control and
+  // submit no custom text.
+  const promptAllowed = inputCapability?.prompt.enabled === true;
+  const promptMaxChars = Math.max(1, inputCapability?.prompt.max_chars || 0);
   /** Multi-image slots — inactive for single-image presets, which keep the
    *  original one-photo path untouched (#178). */
   const [slots, setSlots] = useState<InputSlot[]>(() => {
@@ -389,6 +398,24 @@ export function CreateGenerationForm({
   } | null>(null);
   const [authGateOpen, setAuthGateOpen] = useState(false);
   const [draftSaveWarning, setDraftSaveWarning] = useState(false);
+  // Prompt composer (#182): opt-in per preset — the typed draft survives
+  // collapse and drafts persist it, but only prompt-eligible presets ever
+  // let it reach the request.
+  const [promptOn, setPromptOn] = useState(
+    () => promptAllowed && Boolean(initialPrompt?.trim())
+  );
+  const [promptText, setPromptText] = useState(
+    () => (promptAllowed ? (initialPrompt?.trim() ?? "") : "")
+  );
+  /** Explains a carried/saved prompt that this preset can't apply. */
+  const [promptNotice, setPromptNotice] = useState(
+    () =>
+      !promptAllowed && initialPrompt?.trim()
+        ? "Your previous changes text isn't used by this look."
+        : ""
+  );
+  /** Pinned moderation/validation message for the composer. */
+  const [promptError, setPromptError] = useState("");
   const isPoster = product.type === "poster";
   const filledSlots = useMemo(
     () => slots.filter((s) => s.file !== null || s.reused !== null),
@@ -435,11 +462,27 @@ export function CreateGenerationForm({
       role: s.role,
     }));
   }, [isMulti, reusedSource, file, filledSlots]);
+  /** The prompt exactly as it would submit — only ever non-empty on
+   *  prompt-eligible presets with the composer on. The server quote binds
+   *  its hash, so the client fingerprint must cover it too (#182). */
+  const submitPrompt = promptAllowed && promptOn ? promptText.trim() : "";
+  const promptOver =
+    promptAllowed && promptOn && promptText.length > promptMaxChars;
+  /** Structural key — everything cost-bearing *except* the prompt. Lets
+   *  the quote effect tell a prompt keystroke (debounce the fetch) from a
+   *  real configuration change (fetch immediately). */
+  const structuralKey = quoteFingerprintKey({
+    productVersionId: product.version_id ?? "none",
+    outputSize: estimateSize,
+    sourceDimsPending: dimsPending,
+    inputs: fingerprintInputs,
+  });
   const quoteFingerprint = quoteFingerprintKey({
     productVersionId: product.version_id ?? "none",
     outputSize: estimateSize,
     sourceDimsPending: dimsPending,
     inputs: fingerprintInputs,
+    prompt: submitPrompt || undefined,
   });
   // A quote only counts while it still describes the inputs on screen —
   // anything else (in-flight fetch, stale response) reads as loading.
@@ -826,6 +869,15 @@ export function CreateGenerationForm({
       }
       setDraftRestored(true);
       setOptions((prev) => ({ ...prev, ...draft.options }));
+      // Saved prompt only applies when this preset can take it — a sibling
+      // variant without the capability gets an explanation, not silence.
+      const savedPrompt = draft.prompt?.trim() ?? "";
+      if (savedPrompt && promptAllowed) {
+        setPromptText(savedPrompt);
+        setPromptOn(true);
+      } else if (savedPrompt) {
+        setPromptNotice("Your saved changes text isn't used by this look.");
+      }
       if (draft.sizeName) {
         const match = product.output_sizes?.find(
           (s) => s.name === draft.sizeName
@@ -872,7 +924,7 @@ export function CreateGenerationForm({
         files: draftFiles,
         options,
         sizeName: selectedSize.name ?? null,
-        prompt: null,
+        prompt: submitPrompt || null,
       }).then((ok) => setDraftSaveWarning(!ok));
     }, 400);
     return () => clearTimeout(handle);
@@ -883,41 +935,62 @@ export function CreateGenerationForm({
     file,
     options,
     selectedSize,
+    submitPrompt,
     product.slug,
     product.id,
     product.family_id,
   ]);
 
+  /** Last structural key a quote fetch was scheduled for — prompt-only
+   *  changes against the same structure settle for 350ms rather than
+   *  hitting the estimator per keystroke. */
+  const lastQuoteStructural = useRef<string | null>(null);
+
   useEffect(() => {
     // Anonymous visitors can't hold a quote — the server won't price a
     // session that doesn't exist. Pricing only gates the charged submit,
     // which anonymous users can't reach (the auth gate intercepts first).
-    if (isAnonymous || !product.version_id || dimsPending) return;
+    const versionId = product.version_id;
+    if (isAnonymous || !versionId || dimsPending) return;
     const fingerprint = quoteFingerprint;
+    // Prompt typing still invalidates instantly (fingerprint moves), but
+    // the *fetch* settles — size/input changes fetch right away as before.
+    const promptOnly = lastQuoteStructural.current === structuralKey;
+    lastQuoteStructural.current = structuralKey;
     let cancelled = false;
 
-    void estimateGenerationCost({
-      productVersionId: product.version_id,
-      outputSize: estimateSize,
-    })
-      .then(({ estimatedCredits, unavailable }) => {
-        if (cancelled) return;
-        // Fail closed: missing or non-positive pricing is unquotable,
-        // never free — zero would bypass confirmation and misstate consent.
-        setPriceQuote(
-          !unavailable && estimatedCredits > 0
-            ? { status: "ready", credits: estimatedCredits, fingerprint }
-            : { status: "unavailable", credits: null, fingerprint }
-        );
+    const fetchQuote = () => {
+      void estimateGenerationCost({
+        productVersionId: versionId,
+        outputSize: estimateSize,
       })
-      .catch(() => {
-        if (!cancelled) {
-          setPriceQuote({ status: "failed", credits: null, fingerprint });
-        }
-      });
+        .then(({ estimatedCredits, unavailable }) => {
+          if (cancelled) return;
+          // Fail closed: missing or non-positive pricing is unquotable,
+          // never free — zero would bypass confirmation and misstate consent.
+          setPriceQuote(
+            !unavailable && estimatedCredits > 0
+              ? { status: "ready", credits: estimatedCredits, fingerprint }
+              : { status: "unavailable", credits: null, fingerprint }
+          );
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPriceQuote({ status: "failed", credits: null, fingerprint });
+          }
+        });
+    };
 
+    if (!promptOnly) {
+      fetchQuote();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const timer = setTimeout(fetchQuote, 350);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [
     isAnonymous,
@@ -925,6 +998,7 @@ export function CreateGenerationForm({
     dimsPending,
     estimateSize,
     quoteFingerprint,
+    structuralKey,
     priceRetryKey,
   ]);
 
@@ -1172,6 +1246,12 @@ export function CreateGenerationForm({
     if (generationPaused) {
       return;
     }
+    // Over-length prompt never submits — the counter/error live in the
+    // composer; this is the backstop for programmatic paths.
+    if (promptOver) {
+      setPromptError(`Keep it under ${promptMaxChars} characters.`);
+      return;
+    }
 
     const validation = validateGenerationOptions(
       product.active_fields,
@@ -1203,7 +1283,7 @@ export function CreateGenerationForm({
         files: draftFiles,
         options,
         sizeName: selectedSize.name ?? null,
-        prompt: null,
+        prompt: submitPrompt || null,
       }).then((ok) => setDraftSaveWarning(!ok));
       setAuthGateOpen(true);
       return;
@@ -1325,6 +1405,9 @@ export function CreateGenerationForm({
         options,
         outputSize: selectedSize,
         idempotencyKey,
+        // Contract-shaped prompt — only prompt-eligible presets ever send
+        // it; the server still composes/moderates it against the recipe.
+        ...(submitPrompt ? { prompt: submitPrompt } : {}),
       });
 
       if (result?.error) {
@@ -1357,10 +1440,14 @@ export function CreateGenerationForm({
               files: draftFiles,
               options,
               sizeName: selectedSize.name ?? null,
-              prompt: null,
+              prompt: submitPrompt || null,
             });
           }
           setAuthGateOpen(true);
+        } else if (submitPrompt && result.error.includes("content policy")) {
+          // A prompt moderation block belongs on the composer — revise the
+          // text and Generate again; the setup (photos/options) is untouched.
+          setPromptError(result.error);
         } else {
           setError(result.error);
         }
@@ -1408,6 +1495,7 @@ export function CreateGenerationForm({
     !inputsReady ||
     generationPaused ||
     !online ||
+    promptOver ||
     (!isAnonymous && !pricingReady);
   // Every disabled state names its blocker; while submitting, the reason
   // line doubles as honest progress. Pricing failures carry a retry.
@@ -1425,6 +1513,8 @@ export function CreateGenerationForm({
             ? "Fix or remove the flagged photo to continue"
             : inputsPending
               ? "Photos are still uploading…"
+              : promptOver
+                ? `Keep your changes under ${promptMaxChars} characters`
               : !isAnonymous && !pricingReady
             ? pricingStatus === "loading" ? (
                 "Checking the current price…"
@@ -1568,30 +1658,44 @@ export function CreateGenerationForm({
             )}
           </div>
 
-          {/* Preset controls */}
-          <div>
-            <div className="mb-2.5 flex items-baseline justify-between">
-              <p className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
-                Adjust the look
-              </p>
-              {!hasSource && (
-                <span className="text-text-muted text-[11px]">
-                  Add a photo first
-                </span>
+          {/* Prompt — opt-in, admin-enabled per preset (#182). The legacy
+              GenerationControls panel is retired; saved option data still
+              reads back on legacy result adjusts. */}
+          {(promptAllowed || promptNotice) && (
+            <div>
+              <div className="mb-2.5 flex items-baseline justify-between">
+                <p className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
+                  Prompt
+                </p>
+                {!hasSource && (
+                  <span className="text-text-muted text-[11px]">
+                    Add a photo first
+                  </span>
+                )}
+              </div>
+              {promptAllowed ? (
+                <PresetPromptComposer
+                  enabled={promptOn}
+                  value={promptText}
+                  maxChars={promptMaxChars}
+                  disabled={!hasSource || loading}
+                  error={promptError || null}
+                  onToggle={setPromptOn}
+                  onChange={(v) => {
+                    setPromptText(v);
+                    if (promptError) setPromptError("");
+                  }}
+                />
+              ) : (
+                <p className="text-text-muted text-[12px]">{promptNotice}</p>
               )}
             </div>
-            <GenerationControls
-              fields={product.active_fields}
-              values={options}
-              disabled={!hasSource || loading}
-              onChange={setOptions}
-            />
-            {isPoster && (
-              <p className="text-text-muted mt-3 text-[11px]">
-                Posters include text rendered over the finished image.
-              </p>
-            )}
-          </div>
+          )}
+          {isPoster && (
+            <p className="text-text-muted text-[11px]">
+              Posters include text rendered over the finished image.
+            </p>
+          )}
 
           {/* Output size */}
           <SettingTile label="Output size" disabled={loading}>

@@ -85,6 +85,10 @@ export default async function CreatePage({
     null;
   let initialOptions: Record<string, unknown> | null = null;
   let initialSize: OutputSizeOption | null = null;
+  /** The owner's own prompt text from a previous run (Adjust) — private,
+   *  only ever restored for them and only applied on prompt-eligible
+   *  presets (the form gates it). */
+  let initialPrompt: string | null = null;
   /** Additional staged inputs handed across a sibling-variant switch
    *  (?inputs=a1,a2) or restored from a multi-input Adjust. The signed-url
    *  lookup enforces ownership — foreign ids are skipped, never shown. */
@@ -93,7 +97,9 @@ export default async function CreatePage({
   if (from && user) {
     const { data: previous } = await supabase
       .from("generations")
-      .select("product_id, source_asset_id, requested_options, progress")
+      .select(
+        "product_id, source_asset_id, requested_options, progress, user_prompt"
+      )
       .eq("id", from)
       .eq("user_id", user.id)
       .single();
@@ -145,6 +151,9 @@ export default async function CreatePage({
         typeof previous.requested_options === "object"
       ) {
         initialOptions = previous.requested_options as Record<string, unknown>;
+      }
+      if (typeof previous.user_prompt === "string" && previous.user_prompt) {
+        initialPrompt = previous.user_prompt;
       }
       const progress = previous.progress as Record<string, unknown> | null;
       const prevW = Number(progress?.output_width);
@@ -210,6 +219,7 @@ export default async function CreatePage({
         multiInputReleased={multiReleased}
         initialOptions={initialOptions}
         initialSize={initialSize}
+        initialPrompt={initialPrompt}
         plans={plans}
         blocked={blocked}
         offer={offer}
