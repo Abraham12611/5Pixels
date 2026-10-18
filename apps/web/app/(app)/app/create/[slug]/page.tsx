@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
 import { getPublicProductBySlug } from "@/lib/db/explore";
+import { getPresetFamilyRail } from "@/lib/catalog/family";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
@@ -22,10 +23,10 @@ export default async function CreatePage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string; inputs?: string }>;
+  searchParams: Promise<{ from?: string; inputs?: string; roles?: string }>;
 }) {
   const { slug } = await params;
-  const { from, inputs: inputsParam } = await searchParams;
+  const { from, inputs: inputsParam, roles: rolesParam } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -97,7 +98,12 @@ export default async function CreatePage({
   /** Additional staged inputs handed across a sibling-variant switch
    *  (?inputs=a1,a2) or restored from a multi-input Adjust. The signed-url
    *  lookup enforces ownership — foreign ids are skipped, never shown. */
-  const initialInputs: { assetId: string; url: string; name: string }[] = [];
+  const initialInputs: {
+    assetId: string;
+    url: string;
+    name: string;
+    role?: string | null;
+  }[] = [];
 
   if (from && user) {
     const { data: previous } = await supabase
@@ -172,25 +178,37 @@ export default async function CreatePage({
     }
   }
 
-  // Sibling-variant carry (?inputs=a1,a2): a family switch hands already-
-  // uploaded input assets forward; roles resolve positionally in the form
-  // against the target version's declared capability (#178/#180).
+  // Sibling-variant carry (?inputs=a1,a2&roles=r1,,r3): a family switch
+  // hands already-uploaded input assets forward with the roles the
+  // switch-time assessment resolved against the target capability —
+  // parallel positional lists, empty role = unassigned (#178/#180).
   if (!from && inputsParam && user && multiReleased) {
     const ids = inputsParam
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    for (const id of ids) {
+    const roles = (rolesParam ?? "").split(",");
+    for (const [i, id] of ids.entries()) {
       try {
         const url = await getSignedSourceUrlByAssetId(id);
         if (url) {
-          initialInputs.push({ assetId: id, url, name: "Kept photo" });
+          const role = roles[i]?.trim();
+          initialInputs.push({
+            assetId: id,
+            url,
+            name: "Kept photo",
+            role: role || null,
+          });
         }
       } catch {
         // Unresolvable/foreign asset — skip rather than fail the page.
       }
     }
   }
+
+  // The rail needs a thumbnail + the target's input capability per member —
+  // one family RPC + per-member detail fetches; degrades to [] on error.
+  const { data: familyMembers } = await getPresetFamilyRail(product);
 
   return (
     <main className="flex flex-1 flex-col lg:max-h-[calc(100dvh-3.5rem)]">
@@ -221,6 +239,7 @@ export default async function CreatePage({
         generationPaused={generationPaused}
         initialSource={initialSource}
         initialInputs={initialInputs}
+        family={familyMembers}
         multiInputReleased={multiReleased}
         promptReleased={promptReleased}
         initialOptions={initialOptions}
