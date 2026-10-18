@@ -5,7 +5,14 @@ import {
   productFieldSchema,
   PRODUCT_TYPES,
   PRODUCT_STATUSES,
+  type VersionInputCapability,
 } from "@5pixels/shared";
+import type { RouteCapability } from "@/lib/ai/route-capabilities";
+import {
+  validateCapabilityForRoute,
+  validateFamilyAssignment,
+  type ParentCandidate,
+} from "@/lib/validation/preset-family";
 
 /**
  * Pure, deterministic publish-gate validation for a product version.
@@ -36,6 +43,15 @@ export const PUBLISH_GATES = {
   INVALID_PRODUCT_STATUS: (status: string) =>
     `Product status '${status}' is not valid.`,
   VERSION_PRODUCT_MISMATCH: "Version does not belong to the specified product.",
+  INVALID_FAMILY: (detail: string) => `Preset family: ${detail}`,
+  ORPHANED_VARIANT:
+    "This variant only appears inside its parent family, but the parent is not published — publish the parent or enable standalone discovery.",
+  ROUTE_CAPABILITY_MISMATCH: (detail: string) =>
+    `Route capability: ${detail}`,
+  MULTI_IMAGE_NOT_EXECUTABLE:
+    "Multi-image inputs are configured, but the generation pipeline cannot execute them yet — publication is blocked until #179 lands provider multi-input submission (the create_generation RPC rejects them regardless).",
+  PROMPT_RELEASE_GATED:
+    "Custom prompt edits are configured, but the preset_user_prompt release gate is OFF — publication is blocked until merchant/legal approvals and the protected server/database gates are enabled (PRESET_USER_PROMPT_ENABLED + release_gates).",
 } as const;
 
 export type PublishGateFailure = {
@@ -56,6 +72,8 @@ type ProductLike = {
   hero_asset_id?: string | null;
   poster_asset_id?: string | null;
   metadata?: { filter_config?: unknown; poster_config?: unknown };
+  parent_preset_id?: string | null;
+  standalone_discoverable?: boolean;
 };
 
 type VersionLike = {
@@ -75,12 +93,39 @@ type VersionLike = {
     block_minors?: unknown;
   };
   credit_cost?: number;
+  // #176 input-capability columns, read straight off product_versions.
+  input_mode?: "single" | "multi";
+  input_min_images?: number;
+  input_max_images?: number;
+  input_image_roles?: VersionInputCapability["input_image_roles"];
+  prompt_override_enabled?: boolean;
+  prompt_max_chars?: number;
 };
+
+/**
+ * Publish-gate context that cannot be derived from the product row itself:
+ * the resolved parent for family rules and the verified route capability
+ * from `lib/ai/route-capabilities` (#177).
+ */
+export interface PublishGateContext {
+  /** Resolved parent row — required when product.parent_preset_id is set. */
+  parent?: ParentCandidate | null;
+  routeCapability?: RouteCapability | null;
+  adminReferenceCount?: number;
+  /**
+   * Whether the preset_user_prompt release flag is enabled server-side
+   * (`isUserPromptReleased()`). Defaults to false — prompt-enabled versions
+   * stay unpublishable until merchant/legal approval + the protected DB
+   * gate are both on (#183).
+   */
+  userPromptReleased?: boolean;
+}
 
 export function validatePublishGates(
   product: ProductLike,
   version: VersionLike,
-  fields: Array<z.infer<typeof productFieldSchema>> = []
+  fields: Array<z.infer<typeof productFieldSchema>> = [],
+  context: PublishGateContext = {}
 ): PublishGateResult {
   const failures: PublishGateFailure[] = [];
 
@@ -219,6 +264,87 @@ export function validatePublishGates(
         field: "filter_config.style_archetype",
       });
     }
+  }
+
+  // Preset family consistency (#177): single-level parents, no retired or
+  // nested parents, and a family-dependent variant cannot publish into an
+  // unreachable orphaned state.
+  for (const detail of validateFamilyAssignment({
+    productId: product.id,
+    type: product.type,
+    parentPresetId: product.parent_preset_id ?? null,
+    hasChildren: false,
+    parent: context.parent,
+  })) {
+    failures.push({
+      code: "INVALID_FAMILY",
+      message: PUBLISH_GATES.INVALID_FAMILY(detail),
+      field: "parent_preset_id",
+    });
+  }
+  if (
+    product.parent_preset_id &&
+    !product.standalone_discoverable &&
+    context.parent &&
+    context.parent.public_status !== "published"
+  ) {
+    failures.push({
+      code: "ORPHANED_VARIANT",
+      message: PUBLISH_GATES.ORPHANED_VARIANT,
+      field: "standalone_discoverable",
+    });
+  }
+
+  // Route capability (#177): multi-image inputs, declared roles, and prompt
+  // overrides may only publish on routes with a verified registry entry.
+  const capabilityErrors = validateCapabilityForRoute({
+    capability: {
+      input_mode: version.input_mode ?? "single",
+      input_min_images: version.input_min_images ?? 1,
+      input_max_images: version.input_max_images ?? 1,
+      input_image_roles: version.input_image_roles ?? [],
+      prompt_override_enabled: version.prompt_override_enabled ?? false,
+      prompt_max_chars: version.prompt_max_chars ?? 0,
+    },
+    routeCapability: context.routeCapability ?? null,
+    endpoint:
+      version.provider_strategy?.primary_model != null
+        ? `${version.provider_strategy.primary_provider}/${version.provider_strategy.primary_model}`
+        : null,
+    adminReferenceCount: context.adminReferenceCount ?? 0,
+  });
+  for (const detail of capabilityErrors) {
+    failures.push({
+      code: "ROUTE_CAPABILITY_MISMATCH",
+      message: PUBLISH_GATES.ROUTE_CAPABILITY_MISMATCH(detail),
+      field: "version.input_capability",
+    });
+  }
+
+  // Release readiness (#177): drafts may declare capabilities the pipeline
+  // cannot yet execute, but they must not publish. Multi-image is blocked
+  // outright until #179 ships provider multi-input submission (the
+  // create_generation RPC rejects >1 inputs unconditionally); custom
+  // prompts additionally require the protected release gates enabled.
+  if (
+    version.input_mode === "multi" ||
+    (version.input_max_images ?? 1) > 1
+  ) {
+    failures.push({
+      code: "MULTI_IMAGE_NOT_EXECUTABLE",
+      message: PUBLISH_GATES.MULTI_IMAGE_NOT_EXECUTABLE,
+      field: "version.input_capability.input_mode",
+    });
+  }
+  if (
+    version.prompt_override_enabled &&
+    context.userPromptReleased !== true
+  ) {
+    failures.push({
+      code: "PROMPT_RELEASE_GATED",
+      message: PUBLISH_GATES.PROMPT_RELEASE_GATED,
+      field: "version.input_capability.prompt_override_enabled",
+    });
   }
 
   if (failures.length > 0) {

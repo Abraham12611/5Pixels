@@ -2,15 +2,16 @@ import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { requireAdmin } from "@/lib/db/admin";
 import { getCategories } from "@/lib/db/categories";
-import { createProduct } from "@/lib/db/products";
+import { createProduct, getEligibleParentPresets } from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { ProductForm } from "@/components/admin/product-form";
 
 export default async function NewPosterPage() {
   await requireAdmin();
-  const [categories, modelCatalog] = await Promise.all([
+  const [categories, modelCatalog, eligibleParents] = await Promise.all([
     getCategories(),
     getProviderModelCatalog(),
+    getEligibleParentPresets("poster"),
   ]);
 
   return (
@@ -33,6 +34,7 @@ export default async function NewPosterPage() {
         type="poster"
         categories={categories}
         modelCatalog={modelCatalog}
+        eligibleParents={eligibleParents}
         onSubmit={createProduct}
       />
     </>

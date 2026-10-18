@@ -1,7 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import type { ProductCreateInput } from "@5pixels/shared";
+import { createServiceClient } from "@/lib/supabase/service";
+import type { ProductCreateInput, VersionInputCapability } from "@5pixels/shared";
 import type { PublicProductDetail } from "@/types/catalog";
 import { coerceCreditCost } from "@/lib/admin/coerce";
 import { logAdminAction } from "./audit";
@@ -11,6 +12,123 @@ import {
   rollbackProductVersionSchema,
   productStatusTransitionSchema,
 } from "@/lib/validation/admin-actions";
+import {
+  validateCapabilityForRoute,
+  validateFamilyAssignment,
+  type ParentCandidate,
+} from "@/lib/validation/preset-family";
+import {
+  getProviderEndpoint,
+  type ProviderStrategy,
+} from "@/lib/ai/provider-routing";
+import { getRouteCapability } from "@/lib/ai/route-capabilities";
+import { assertVersionQuotable } from "@/lib/validation/route-publish-check";
+import { isUserPromptReleased } from "@/lib/generation/user-prompt";
+
+const REFERENCE_ASSET_ROLES = [
+  "style_reference",
+  "composition_reference",
+  "layout_reference",
+] as const;
+
+type FamilyParentRow = ParentCandidate | null;
+
+async function getFamilyParentRow(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  parentId: string
+): Promise<FamilyParentRow> {
+  const { data } = await supabase
+    .from("products")
+    .select("id, type, public_status, parent_preset_id")
+    .eq("id", parentId)
+    .maybeSingle();
+  return (data as FamilyParentRow) ?? null;
+}
+
+async function getChildCount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  productId: string
+): Promise<number> {
+  const { count } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("parent_preset_id", productId);
+  return count ?? 0;
+}
+
+async function getAdminReferenceCount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  productId: string
+): Promise<number> {
+  const { count } = await supabase
+    .from("product_assets")
+    .select("id", { count: "exact", head: true })
+    .eq("product_id", productId)
+    .in("role", [...REFERENCE_ASSET_ROLES]);
+  return count ?? 0;
+}
+
+/**
+ * Server enforcement for family assignment + route capability — identical
+ * rules to the form-side helpers, so an admin cannot bypass them through a
+ * direct request. Throws with actionable messages; never silently rewrites
+ * the declared configuration.
+ */
+async function assertProductConfigAllowed(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: ProductCreateInput,
+  opts: { productId?: string }
+): Promise<void> {
+  const strategy = input.version.provider_strategy;
+
+  let parent: FamilyParentRow = null;
+  if (input.parent_preset_id) {
+    parent = await getFamilyParentRow(supabase, input.parent_preset_id);
+  }
+  const hasChildren = opts.productId
+    ? (await getChildCount(supabase, opts.productId)) > 0
+    : false;
+
+  const familyErrors = validateFamilyAssignment({
+    productId: opts.productId,
+    type: input.type,
+    parentPresetId: input.parent_preset_id ?? null,
+    hasChildren,
+    parent,
+  });
+  if (familyErrors.length > 0) {
+    throw new Error(familyErrors.join(" "));
+  }
+
+  const adminReferenceCount = opts.productId
+    ? await getAdminReferenceCount(supabase, opts.productId)
+    : 0;
+  const capabilityErrors = validateCapabilityForRoute({
+    capability: input.version.input_capability,
+    routeCapability: getRouteCapability(
+      strategy.primary_provider,
+      strategy.primary_model
+    ),
+    endpoint: getProviderEndpoint(strategy),
+    adminReferenceCount,
+  });
+  if (capabilityErrors.length > 0) {
+    throw new Error(capabilityErrors.join(" "));
+  }
+}
+
+function versionRowToCapability(row: Record<string, unknown>): VersionInputCapability {
+  return {
+    input_mode: (row.input_mode as "single" | "multi") ?? "single",
+    input_min_images: Number(row.input_min_images ?? 1),
+    input_max_images: Number(row.input_max_images ?? 1),
+    input_image_roles: Array.isArray(row.input_image_roles)
+      ? (row.input_image_roles as VersionInputCapability["input_image_roles"])
+      : [],
+    prompt_override_enabled: Boolean(row.prompt_override_enabled),
+    prompt_max_chars: Number(row.prompt_max_chars ?? 0),
+  };
+}
 
 export async function getProducts(type: "filter" | "poster") {
   const supabase = await createClient();
@@ -86,8 +204,11 @@ export async function createProduct(input: ProductCreateInput) {
     filter_config,
     poster_config,
     credit_cost,
+    prompt_ui,
     ...productData
   } = input;
+
+  await assertProductConfigAllowed(supabase, input, {});
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -96,6 +217,7 @@ export async function createProduct(input: ProductCreateInput) {
       metadata: {
         filter_config,
         poster_config,
+        prompt_ui,
       },
     })
     .select()
@@ -174,8 +296,11 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
     filter_config,
     poster_config,
     credit_cost,
+    prompt_ui,
     ...productData
   } = input;
+
+  await assertProductConfigAllowed(supabase, input, { productId: id });
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -184,6 +309,7 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
       metadata: {
         filter_config,
         poster_config,
+        prompt_ui,
       },
     })
     .eq("id", id)
@@ -282,6 +408,87 @@ export async function publishProductVersion(
   });
 
   const supabase = await createClient();
+
+  // Server-side publish gate (#177): family consistency, verified route
+  // capability, and read-only quotability checks mirror the frontend gates —
+  // the RPC cannot be reached with an unpublishable recipe, even by a
+  // direct request. Read-only; creates no quote rows.
+  const product = await getProductById(input.productId);
+  const version = Array.isArray(product.product_versions)
+    ? product.product_versions.find(
+        (v: { id: string; state?: string }) => v.id === input.versionId
+      )
+    : null;
+  if (!version) {
+    throw new Error("Cannot publish: version not found on this product.");
+  }
+
+  const parent = product.parent_preset_id
+    ? await getFamilyParentRow(supabase, product.parent_preset_id)
+    : null;
+  const familyErrors = validateFamilyAssignment({
+    productId: input.productId,
+    type: product.type,
+    parentPresetId: product.parent_preset_id,
+    hasChildren: false,
+    parent,
+  });
+  if (familyErrors.length > 0) {
+    throw new Error(`Cannot publish: ${familyErrors.join(" ")}`);
+  }
+  // A family-dependent variant is only reachable through its parent — refuse
+  // to publish it into an orphaned state where no customer can reach it.
+  if (
+    product.parent_preset_id &&
+    !product.standalone_discoverable &&
+    parent &&
+    parent.public_status !== "published"
+  ) {
+    throw new Error(
+      "Cannot publish: this variant is only shown with its parent, which is not published. Publish the parent first or enable standalone discovery."
+    );
+  }
+
+  const capability = versionRowToCapability(version);
+  const capabilityErrors = validateCapabilityForRoute({
+    capability,
+    routeCapability: getRouteCapability(
+      version.provider_strategy?.primary_provider,
+      version.provider_strategy?.primary_model
+    ),
+    endpoint: getProviderEndpoint(
+      version.provider_strategy as ProviderStrategy
+    ),
+    adminReferenceCount: await getAdminReferenceCount(supabase, input.productId),
+  });
+  if (capabilityErrors.length > 0) {
+    throw new Error(`Cannot publish: ${capabilityErrors.join(" ")}`);
+  }
+
+  // Release readiness (#177): admins may prepare drafts, but a preset must
+  // not publish capabilities the backend cannot execute.
+  // - Multi-image: create_generation rejects >1 inputs unconditionally until
+  //   #179 ships provider multi-input submission — removal owned by #179.
+  // - Custom prompts: require the release flag (and the protected
+  //   release_gates DB row, enforced inside the RPC) to be enabled —
+  //   approval-gated by merchant/legal signoff (#183).
+  if (capability.input_mode === "multi" || capability.input_max_images > 1) {
+    throw new Error(
+      "Cannot publish: multi-image inputs are not yet executable — publication is blocked until #179 lands provider multi-input submission."
+    );
+  }
+  if (capability.prompt_override_enabled && !isUserPromptReleased()) {
+    throw new Error(
+      "Cannot publish: custom prompts are gated off until merchant/legal approval enables the protected preset_user_prompt release gates."
+    );
+  }
+
+  await assertVersionQuotable(createServiceClient(), {
+    provider_strategy: version.provider_strategy,
+    model_config: version.model_config,
+    output_sizes: version.output_sizes,
+  });
+
   const { error } = await supabase.rpc("publish_product_version", {
     p_product_id: input.productId,
     p_version_id: input.versionId,
@@ -759,5 +966,382 @@ export async function getProductReferenceAssets(productId: string) {
       public_url: publicUrl,
       mime_type: asset.mime_type,
     };
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * Preset family operations (#177) — single-level parent → children.
+ * Server-enforced: a variant can never become a parent, children default to
+ * family-dependent discovery, and every mutation is audited.
+ * ---------------------------------------------------------------------- */
+
+export interface EligibleParentPreset {
+  id: string;
+  slug: string;
+  name: string;
+  public_status: string;
+  hero_asset_id: string | null;
+}
+
+/**
+ * Root presets eligible to parent a new variant: same type, not retired, not
+ * itself a variant, and not the product being edited.
+ */
+export async function getEligibleParentPresets(
+  type: "filter" | "poster",
+  excludeProductId?: string
+): Promise<EligibleParentPreset[]> {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("products")
+    .select("id, slug, name, public_status, hero_asset_id")
+    .eq("type", type)
+    .is("parent_preset_id", null)
+    .neq("public_status", "retired")
+    .order("name", { ascending: true });
+  if (excludeProductId) {
+    query = query.neq("id", excludeProductId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as EligibleParentPreset[];
+}
+
+export interface PresetFamilyMember {
+  id: string;
+  slug: string;
+  name: string;
+  public_status: string;
+  parent_preset_id: string | null;
+  standalone_discoverable: boolean;
+  variant_display_name: string | null;
+  variant_sort_order: number;
+  hero_asset_id: string | null;
+}
+
+export interface PresetFamily {
+  root: PresetFamilyMember;
+  /** Direct children ordered by admin-managed display order. */
+  children: PresetFamilyMember[];
+}
+
+/**
+ * The family a product belongs to — itself when it's a root without
+ * children. Admin-only; used by the edit page's family panel.
+ */
+export async function getPresetFamilyForAdmin(
+  productId: string
+): Promise<PresetFamily | null> {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  const { data: self, error: selfError } = await supabase
+    .from("products")
+    .select(
+      "id, slug, name, public_status, parent_preset_id, standalone_discoverable, variant_display_name, variant_sort_order, hero_asset_id"
+    )
+    .eq("id", productId)
+    .single();
+  if (selfError || !self) return null;
+
+  const rootId = (self.parent_preset_id as string | null) ?? self.id;
+  const { data: members, error: membersError } = await supabase
+    .from("products")
+    .select(
+      "id, slug, name, public_status, parent_preset_id, standalone_discoverable, variant_display_name, variant_sort_order, hero_asset_id"
+    )
+    .or(`id.eq.${rootId},parent_preset_id.eq.${rootId}`)
+    .order("variant_sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  if (membersError) throw membersError;
+
+  const rows = (members ?? []) as PresetFamilyMember[];
+  const root = rows.find((m) => m.id === rootId);
+  if (!root) return null;
+  return {
+    root,
+    children: rows.filter((m) => m.id !== rootId),
+  };
+}
+
+/**
+ * Explicit copy-draft flow: create a new variant that duplicates the
+ * parent's catalog fields, editable version recipe, fields, and reference
+ * assets as independent rows. Nothing is linked — the variant owns its own
+ * draft version and never shares the parent's mutable configuration.
+ */
+export async function duplicateProductAsVariant(
+  parentId: string,
+  opts: { slug?: string; variantDisplayName?: string } = {}
+) {
+  await requireAdminOrOwner();
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const parent = await getProductById(parentId);
+  if (!parent) throw new Error("Parent preset not found");
+
+  const familyErrors = validateFamilyAssignment({
+    type: parent.type,
+    parentPresetId: parentId,
+    hasChildren: false,
+    parent: {
+      id: parent.id,
+      type: parent.type,
+      public_status: parent.public_status,
+      parent_preset_id: parent.parent_preset_id,
+    },
+  });
+  if (familyErrors.length > 0) {
+    throw new Error(familyErrors.join(" "));
+  }
+
+  const siblingCount = await getChildCount(supabase, parentId);
+  const slug =
+    opts.slug ?? `${parent.slug}-variant-${siblingCount + 1}-${Date.now()}`;
+  const displayName = opts.variantDisplayName ?? null;
+
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .insert({
+      type: parent.type,
+      slug,
+      name: displayName ?? `${parent.name} — Variant`,
+      short_description: parent.short_description,
+      long_description: parent.long_description,
+      public_prompt_recipe: parent.public_prompt_recipe,
+      category_id: parent.category_id,
+      public_status: "draft",
+      visibility: parent.visibility,
+      likeness_level: parent.likeness_level,
+      featured_rank: parent.featured_rank,
+      hero_asset_id: parent.hero_asset_id,
+      poster_asset_id: parent.poster_asset_id,
+      preview_video_asset_id: parent.preview_video_asset_id,
+      preview_gif_asset_id: parent.preview_gif_asset_id,
+      metadata: parent.metadata,
+      parent_preset_id: parentId,
+      standalone_discoverable: false,
+      variant_display_name: displayName,
+      variant_sort_order: siblingCount,
+    })
+    .select()
+    .single();
+  if (productError) throw productError;
+
+  const editable = Array.isArray(parent.product_versions)
+    ? await selectEditableVersion(parent.product_versions)
+    : null;
+  const sourceVersion = editable
+    ? parent.product_versions.find(
+        (v: { id: string }) => v.id === editable.id
+      )
+    : null;
+
+  if (sourceVersion) {
+    const { error: versionError } = await supabase
+      .from("product_versions")
+      .insert({
+        product_id: product.id,
+        version_number: 1,
+        state: "draft",
+        private_instruction_template:
+          sourceVersion.private_instruction_template,
+        private_negative_instruction:
+          sourceVersion.private_negative_instruction,
+        provider_strategy: sourceVersion.provider_strategy,
+        model_config: sourceVersion.model_config,
+        output_sizes: sourceVersion.output_sizes,
+        input_validation_config: sourceVersion.input_validation_config,
+        input_mode: sourceVersion.input_mode,
+        input_min_images: sourceVersion.input_min_images,
+        input_max_images: sourceVersion.input_max_images,
+        input_image_roles: sourceVersion.input_image_roles,
+        prompt_override_enabled: sourceVersion.prompt_override_enabled,
+        prompt_max_chars: sourceVersion.prompt_max_chars,
+        post_process_config: sourceVersion.post_process_config,
+        safety_config: sourceVersion.safety_config,
+        credit_cost: sourceVersion.credit_cost,
+        created_by_admin_id: user.id,
+      });
+    if (versionError) throw versionError;
+  }
+
+  const parentFields = Array.isArray(parent.product_fields)
+    ? parent.product_fields
+    : [];
+  if (parentFields.length > 0) {
+    const { error: fieldsError } = await supabase
+      .from("product_fields")
+      .insert(
+        parentFields.map(
+          (field: {
+            field_key: string;
+            label: string;
+            help_text: string | null;
+            field_type: string;
+            required: boolean;
+            sort_order: number;
+            config: unknown;
+            validation: unknown;
+            active: boolean;
+          }) => ({
+            product_id: product.id,
+            field_key: field.field_key,
+            label: field.label,
+            help_text: field.help_text,
+            field_type: field.field_type,
+            required: field.required,
+            sort_order: field.sort_order,
+            config: field.config,
+            validation: field.validation,
+            active: field.active,
+          })
+        )
+      );
+    if (fieldsError) throw fieldsError;
+  }
+
+  // Reference assets are copied as new product_assets rows — the asset files
+  // are immutable, but the variant owns its links so later parent edits
+  // never mutate the variant's inputs.
+  const { data: parentAssets, error: assetsReadError } = await supabase
+    .from("product_assets")
+    .select("asset_id, role, sort_order, internal_only")
+    .eq("product_id", parentId);
+  if (assetsReadError) throw assetsReadError;
+  if (parentAssets && parentAssets.length > 0) {
+    const { error: assetsError } = await supabase.from("product_assets").insert(
+      parentAssets.map((row: Record<string, unknown>) => ({
+        product_id: product.id,
+        asset_id: row.asset_id,
+        role: row.role,
+        sort_order: row.sort_order,
+        internal_only: row.internal_only,
+      }))
+    );
+    if (assetsError) throw assetsError;
+  }
+
+  await logAdminAction({
+    action: "product.duplicate",
+    entityType: "product",
+    entityId: parentId,
+    after: {
+      new_product_id: product.id,
+      family: { parent_id: parentId, variant_sort_order: siblingCount },
+    },
+  });
+
+  return product;
+}
+
+/**
+ * Persist a child ordering for a root preset. `orderedChildIds` must contain
+ * exactly the current children — a partial list is rejected so reorder can
+ * never silently drop a variant.
+ */
+export async function reorderFamilyVariants(
+  parentId: string,
+  orderedChildIds: string[]
+): Promise<void> {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  const parent = await getFamilyParentRow(supabase, parentId);
+  if (!parent) throw new Error("Parent preset not found");
+  if (parent.parent_preset_id != null) {
+    throw new Error("Only a root preset's children can be reordered.");
+  }
+
+  const { data: children, error: childrenError } = await supabase
+    .from("products")
+    .select("id")
+    .eq("parent_preset_id", parentId);
+  if (childrenError) throw childrenError;
+
+  const currentIds = (children ?? []).map((c: { id: string }) => c.id).sort();
+  const nextIds = [...orderedChildIds].sort();
+  if (
+    currentIds.length !== nextIds.length ||
+    currentIds.some((id, i) => id !== nextIds[i])
+  ) {
+    throw new Error(
+      "Reorder must include every variant of this family exactly once."
+    );
+  }
+
+  for (const [index, childId] of orderedChildIds.entries()) {
+    const { error } = await supabase
+      .from("products")
+      .update({ variant_sort_order: index })
+      .eq("id", childId)
+      .eq("parent_preset_id", parentId);
+    if (error) throw error;
+  }
+
+  await logAdminAction({
+    action: "product.family.reorder",
+    entityType: "product",
+    entityId: parentId,
+    after: { ordered_child_ids: orderedChildIds },
+  });
+}
+
+/**
+ * Inline variant summary edit (display name + standalone discovery). Only
+ * valid on products that already belong to a family.
+ */
+export async function updateVariantSummary(
+  productId: string,
+  patch: {
+    variantDisplayName?: string | null;
+    standaloneDiscoverable?: boolean;
+  }
+) {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  const { data: self, error: selfError } = await supabase
+    .from("products")
+    .select("id, parent_preset_id")
+    .eq("id", productId)
+    .single();
+  if (selfError) throw selfError;
+  if (!self?.parent_preset_id) {
+    throw new Error("Variant fields only apply to a preset with a parent.");
+  }
+
+  if (patch.variantDisplayName != null && patch.variantDisplayName.length > 120) {
+    throw new Error("Variant display name must be 120 characters or fewer.");
+  }
+
+  const update: Record<string, unknown> = {};
+  if ("variantDisplayName" in patch) {
+    update.variant_display_name = patch.variantDisplayName;
+  }
+  if ("standaloneDiscoverable" in patch) {
+    update.standalone_discoverable = patch.standaloneDiscoverable;
+  }
+  if (Object.keys(update).length === 0) return;
+
+  const { error } = await supabase
+    .from("products")
+    .update(update)
+    .eq("id", productId);
+  if (error) throw error;
+
+  await logAdminAction({
+    action: "product.update",
+    entityType: "product",
+    entityId: productId,
+    after: update,
   });
 }
