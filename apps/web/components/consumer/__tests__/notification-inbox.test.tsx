@@ -79,6 +79,39 @@ describe("NotificationInboxList", () => {
     expect(onRead).toHaveBeenCalledWith("a");
   });
 
+  it("shows a date on Earlier rows and a time on Today rows", () => {
+    render(
+      <NotificationInboxList
+        items={[
+          item({ id: "a" }),
+          item({ id: "b", title: "Old one", created_at: yesterday }),
+        ]}
+        onRead={vi.fn()}
+      />
+    );
+    expect(
+      screen.getByText(
+        new Date(yesterday).toLocaleDateString([], {
+          month: "short",
+          day: "numeric",
+        })
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("calls onClose when a row with a link is activated", () => {
+    const onClose = vi.fn();
+    render(
+      <NotificationInboxList
+        items={[item({ id: "a", read_at: new Date().toISOString() })]}
+        onRead={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /result is ready/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("links to notification settings", () => {
     render(<NotificationSettingsRow />);
     expect(

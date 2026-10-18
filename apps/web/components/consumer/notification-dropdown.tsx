@@ -34,9 +34,14 @@ const TYPE_ICON = {
 export function NotificationRow({
   n,
   onRead,
+  onClose,
+  showDate = false,
 }: {
   n: NotificationItem;
   onRead: (id: string) => void;
+  onClose?: () => void;
+  /** Earlier-group rows show a date; today rows show a clock time. */
+  showDate?: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -50,7 +55,10 @@ export function NotificationRow({
         void markNotificationRead(n.id);
       });
     }
-    if (n.link) router.push(n.link);
+    if (n.link) {
+      onClose?.();
+      router.push(n.link);
+    }
   };
 
   return (
@@ -77,10 +85,15 @@ export function NotificationRow({
         >
           <span className="truncate text-sm font-medium">{n.title}</span>
           <span className="text-text-muted mt-0.5 shrink-0 text-xs">
-            {new Date(n.created_at).toLocaleTimeString([], {
-              hour: "numeric",
-              minute: "2-digit",
-            })}
+            {showDate
+              ? new Date(n.created_at).toLocaleDateString([], {
+                  month: "short",
+                  day: "numeric",
+                })
+              : new Date(n.created_at).toLocaleTimeString([], {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
           </span>
         </span>
         {n.body && (
@@ -110,9 +123,11 @@ export function NotificationRow({
 export function NotificationInboxList({
   items,
   onRead,
+  onClose,
 }: {
   items: NotificationItem[];
   onRead: (id: string) => void;
+  onClose?: () => void;
 }) {
   const { today, earlier } = groupByDay(items);
   const empty = items.length === 0;
@@ -133,7 +148,7 @@ export function NotificationInboxList({
             Today
           </h3>
           {today.map((n) => (
-            <NotificationRow key={n.id} n={n} onRead={onRead} />
+            <NotificationRow key={n.id} n={n} onRead={onRead} onClose={onClose} />
           ))}
         </section>
       )}
@@ -143,7 +158,13 @@ export function NotificationInboxList({
             Earlier
           </h3>
           {earlier.map((n) => (
-            <NotificationRow key={n.id} n={n} onRead={onRead} />
+            <NotificationRow
+              key={n.id}
+              n={n}
+              onRead={onRead}
+              onClose={onClose}
+              showDate
+            />
           ))}
         </section>
       )}
@@ -272,19 +293,27 @@ export function NotificationDropdown({
             </div>
           }
         >
-          <NotificationInboxList items={items} onRead={markOne} />
+          <NotificationInboxList
+            items={items}
+            onRead={markOne}
+            onClose={() => setOpen(false)}
+          />
         </Sheet>
       </>
     );
   }
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent className="w-96 p-0" align="end">
         {header}
         <div className="max-h-96 overflow-y-auto">
-          <NotificationInboxList items={items} onRead={markOne} />
+          <NotificationInboxList
+            items={items}
+            onRead={markOne}
+            onClose={() => setOpen(false)}
+          />
         </div>
         <div className="border-cream-100/10 border-t p-2">
           <NotificationSettingsRow />
