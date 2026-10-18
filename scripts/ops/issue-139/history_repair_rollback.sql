@@ -1,5 +1,6 @@
--- Rollback for history_repair_v3.sql: restores the 60 deleted rows from
--- schema_migrations_backup_139_v3 and removes the 9 inserted canonical rows.
+-- Rollback for history_repair.sql v4: restores the 60 deleted rows from
+-- schema_migrations_backup_139_v4. Repair v4 inserts nothing, so rollback
+-- only re-inserts the deleted duplicate rows.
 BEGIN;
 LOCK TABLE supabase_migrations.schema_migrations IN EXCLUSIVE MODE;
 DO $$
@@ -7,7 +8,7 @@ DECLARE
   v_restored INT;
 BEGIN
   INSERT INTO supabase_migrations.schema_migrations
-  SELECT * FROM supabase_migrations.schema_migrations_backup_139_v3
+  SELECT * FROM supabase_migrations.schema_migrations_backup_139_v4
   WHERE version = ANY (ARRAY[
     '20260831185638',
     '20260831191440',
@@ -72,9 +73,5 @@ BEGIN
   ]);
   GET DIAGNOSTICS v_restored = ROW_COUNT;
   IF v_restored <> 60 THEN RAISE EXCEPTION 'restored % rows, expected 60', v_restored; END IF;
-  DELETE FROM supabase_migrations.schema_migrations
-  WHERE version IN ('20261017000001','20261018000001','20261019000001','20261020000001',
-                    '20261018000002','20261020000002','20261024000001','20261025000001','20261027000001')
-    AND created_by = 'issue-139-history-repair';
 END $$;
 COMMIT;

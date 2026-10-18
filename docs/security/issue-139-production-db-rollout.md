@@ -14,6 +14,9 @@ secrets, JWTs or user data are recorded here.
 | same transaction | `20261023000002_referral_trigger_search_path.sql` | `20261023000002` |
 | same transaction | `20261023000003_converge_hosted_drift.sql` | `20261023000003` |
 | 2026-10-17 | Backup tables `schema_migrations_backup_139_v2` (126 rows, `3ca5aaf3f99ace8c89a25be3a5e6e219`) and `schema_migrations_backup_139_v3` (128 rows, `cecdc8546df1318a8646ad31d4fd731b`) | — |
+| 2026-10-17 (later) | 9 canonical rows inserted by `devin-drift-reconcile` (`20261017000001`, `20261018000001`, `20261018000002`, `20261019000001`, `20261020000001`, `20261020000002`, `20261024000001`, `20261025000001`, `20261027000001`); `20261024000002` and `20261026000001` applied under canonical versions | — |
+| 2026-10-28 | `20261023000004_converge_article_media.sql` applied verbatim (adds `sweep_stale_article_uploads`, adds `invalid_cover_asset` check to `save_article_draft`); bodies hash-verified identical to repo | `20261023000004` (`issue-139-pr-b`) |
+| 2026-10-28 | Backup table `schema_migrations_backup_139_v4` (140 rows = current live, `4fd342e5d61cd4bde7020145452676f5` name-digest) | — |
 
 Each migration was applied verbatim from the repo file and recorded under its
 **repo version**, so no new drift was introduced.
@@ -41,28 +44,34 @@ matches the repo files **except** two real drifts inside `article_media`:
 - `sweep_stale_article_uploads` did not exist at all.
 
 Those are real behaviour differences, not comment/formatting noise. All other
-apparent differences were proven comment-only (the MCP strips `--` comments)
-or genuinely pending migrations (`20261024000002_articles_listing_search`,
-`20261026000001_public_article_media_map` — not yet applied anywhere).
+apparent differences were proven comment-only (the MCP strips `--` comments).
+`20261024000002_articles_listing_search` and
+`20261026000001_public_article_media_map` have since been applied on prod
+under their canonical versions.
 
-### Convergence migration `20261023000004_converge_article_media` (pending prod apply)
+### Convergence migration `20261023000004_converge_article_media` (applied 2026-10-28)
 
-Added to #145 to re-state the two drifted functions verbatim from
-`20261020000002_article_media.sql` (idempotent `CREATE OR REPLACE`; no-op on a
-fresh reset). **Precondition for the history repair**: it must be applied on
-prod and recorded as `(version='20261023000004', name='converge_article_media',
-created_by='issue-139-pr-b')` so the repair's pre-state digest matches the
-rehearsed 129-row state.
+Re-stated the two drifted functions verbatim from
+`20261020000002_article_media.sql`. Verified post-apply: both
+`SECURITY DEFINER` with `search_path=''`; anon has no `EXECUTE` on either;
+`save_article_draft` now contains the `invalid_cover_asset` check;
+`sweep_stale_article_uploads` allows the service-role path. Comment- and
+whitespace-insensitive body hashes match the local repo build exactly
+(`save_article_draft` `f811ded6…`, `sweep_stale_article_uploads`
+`21884f44…`).
 
 History digest formula (used throughout):
 `md5(string_agg(version|name|created_by|idempotency_key|array_to_string(statements,E'\x1f')|array_to_string(rollback,E'\x1f'), E'\x1e' ORDER BY version))`
 
 - Before PR B: 119 rows, `2917941d9849489a9e7a538f55e3afd2` (= backup v1).
 - After PR B: 122 rows, `ec1801cb960b78cd14484633d6046b04`.
-- After hosted Articles applies (current): **128 rows,
-  `cecdc8546df1318a8646ad31d4fd731b`** (= backup v3).
-- After 0004 is recorded (repair pre-state): 129 rows,
-  `390b270a197e62bb774611aba55cbc2e` (rehearsed).
+- After hosted Articles applies: 128 rows,
+  `cecdc8546df1318a8646ad31d4fd731b` (= backup v3).
+- After the 9 `devin-drift-reconcile` canonical inserts + canonical
+  `20261024000002`/`20261026000001` applies: 139 rows.
+- After `20261023000004` was recorded (current pre-state): **140 rows**
+  — rich digest `a8845ab8d900e1d87a920b59ed496313`, name-digest
+  `4fd342e5d61cd4bde7020145452676f5` (= backup v4).
 
 ### Schema fingerprint after rollout
 
@@ -71,9 +80,9 @@ run on production vs a local `supabase db reset` of `develop` + #143 + #145 +
 the pending Articles files:
 
 - Production keys not in repo: **0** outside genuinely pending migrations.
-- Real remaining drift: only `save_article_draft` and
-  `sweep_stale_article_uploads` (+ its grant) — exactly what
-  `20261023000004` fixes.
+- The last two real drifts (`save_article_draft` cover check,
+  `sweep_stale_article_uploads` + its grant) were converged by
+  `20261023000004` — applied 2026-10-28, bodies hash-verified.
 - Everything else in the diff is pending-work local-only
   (`article_document_word_count`, `get_public_article_topics`, the 4-arg
   `get_public_articles`, the media-map `get_public_article_by_slug`).
@@ -103,9 +112,11 @@ Not expected to be needed; if required, re-apply the previous definitions:
      (pre-PR-B), digest `2917941d9849489a9e7a538f55e3afd2`.
    - `supabase_migrations.schema_migrations_backup_139_v2` — 126 rows
      (after first four Articles applies), `3ca5aaf3f99ace8c89a25be3a5e6e219`.
-   - `supabase_migrations.schema_migrations_backup_139_v3` — **128 rows
-     (current live), `cecdc8546df1318a8646ad31d4fd731b`** — this is the table
-     the v3 repair script checks before deleting.
+   - `supabase_migrations.schema_migrations_backup_139_v3` — 128 rows,
+    `cecdc8546df1318a8646ad31d4fd731b`.
+   - `supabase_migrations.schema_migrations_backup_139_v4` — **140 rows
+     (current live), `4fd342e5d61cd4bde7020145452676f5`** — this is the table
+     the v4 repair script checks before deleting.
    - All copies include original `statements`; no `anon`/`authenticated`
      privileges.
 2. **Off-production, encrypted** (`~/Secure/5pixels-backups/`, mode 0600;
@@ -115,20 +126,26 @@ Not expected to be needed; if required, re-apply the previous definitions:
    `5pixels-migration-history-backup`):
    - `schema_migrations_20261016.json.enc` — 119 rows.
    - `schema_migrations_20261017.json.enc` — 126 rows.
-   - `schema_migrations_20261017b.json.enc` — **128 rows**; plaintext SHA-256
+   - `schema_migrations_20261017b.json.enc` — 128 rows; plaintext SHA-256
      `f6a4ccd79307e2b02c1b5ddea4ab6ac6a36ef7a7cca8087198fb37b3d6eac0a5`;
      round-trip decrypt verified; digest recomputed from the export equals the
      live digest `cecdc854…` (proves the export is byte-complete).
+   - `schema_migrations_20261028.json.enc` — **140 rows (current)**;
+     plaintext SHA-256
+     `2019ab9b8e16fc4a11010dde5a6fc920d1d51e7b3a2457d69ecea9c4646caf33`;
+     round-trip decrypt verified; digest recomputed from the export equals the
+     live digest `4fd342e5…`.
    - Recommended: copy the `.enc` files to a second off-machine location
      (owner action).
 
 ## 3. Pending — history repair (awaiting owner authorization)
 
-Scripts: `scripts/ops/issue-139/history_repair.sql` (v3) and
+Scripts: `scripts/ops/issue-139/history_repair.sql` (v4) and
 `scripts/ops/issue-139/history_repair_rollback.sql` (exact text to be run).
-v3 supersedes the original 54-row script, which is unsafe to run now that the
-Articles applies exist — v3's digest guard makes it impossible to run against
-a history that has moved since rehearsal.
+v4 supersedes v3: the 9 canonical rows it used to insert are now already on
+prod (applied by `devin-drift-reconcile`), so v4 is **delete-only**. Its
+digest guard makes it impossible to run against a history that has moved
+since rehearsal.
 
 **Preconditions before running:**
 
@@ -137,22 +154,20 @@ a history that has moved since rehearsal.
    (`20261024000001`), #147 (`20261024000002`, `20261026000001`), #148
    (`20261025000001`), and the article-prompt-settings PR
    (`20261027000001`). Only the canonical versions need to exist as files;
-   pending ones simply stay pending.
-2. `20261023000004_converge_article_media` applied on prod and recorded as
-   described in §1.
-3. Live history digest equals `390b270a197e62bb774611aba55cbc2e` — the script
+   pending ones simply stay pending. (PR #151 is superseded — its
+   `20261028000001`/`20261028000002` duplicate `0001`/`0002` and should be
+   closed, not merged.)
+2. `20261023000004_converge_article_media` applied on prod and recorded —
+   **done 2026-10-28**.
+3. Live history digest equals `a8845ab8d900e1d87a920b59ed496313` — the script
    checks this itself and aborts otherwise.
 
 The repair, in one transaction with `LOCK TABLE … IN EXCLUSIVE MODE`:
 
-1. Inserts repo-version rows for 9 migrations whose content is already applied
-   on prod under app timestamps (verified: identical schema fingerprints):
-   `20261017000001`, `20261018000001`, `20261019000001`, `20261020000001`,
-   `20261018000002`, `20261020000002`, `20261024000001`, `20261025000001`,
-   `20261027000001`.
-2. Deletes the 60 app-timestamp duplicates listed below. Guards: aborts unless
-   the pre-state digest matches, exactly 60 targets are listed, all 60 exist in
-   `schema_migrations_backup_139_v3`, and exactly 60 rows are deleted.
+Deletes the 60 app-timestamp duplicates listed below. Guards: aborts unless
+the pre-state digest matches, exactly 60 targets are listed, all 60 exist in
+`schema_migrations_backup_139_v4`, all 60 still exist in the live history,
+exactly 60 rows are deleted, and the post-count is exactly 80.
 
 ### Why each deletion is safe
 
@@ -161,7 +176,7 @@ Common to all 60 rows:
 - `schema_migrations` rows do not affect schema or data; they only tell the
   CLI what has been applied.
 - Every row duplicates repo migration content whose canonical version row is
-  present (or is inserted by step 1); the production schema already equals the
+  present on prod; the production schema already equals the
   repo's (fingerprint above — the only deltas were the two functions `0004`
   fixes, which is why `0004` must land first).
 - The Supabase CLI independently names exactly these 60 versions as
@@ -226,51 +241,44 @@ The original 54 (pre-Articles duplicates):
 | 48 | `20261010193014` | `20261013000001_redenominate_bonus_credits` | `20261013000001_redenominate_bonus_credits.sql` | present |  |
 | 49 | `20261011140418` | `20261014000001_credit_denomination_0_01` | `20261014000001_credit_denomination_0_01.sql` | present |  |
 | 50 | `20261011151517` | `20261015000001_pricing_policy_v2` | `20261015000001_pricing_policy_v2.sql` | present |  |
-| 51 | `20261013100643` | `subsidy_budgets` | `20261017000001_subsidy_budgets.sql` | inserted by repair step 1 |  |
-| 52 | `20261013104642` | `referrer_cap_and_hold` | `20261018000001_referrer_cap_and_hold.sql` | inserted by repair step 1 |  |
-| 53 | `20261013153845` | `drop_legacy_claim_referrer_reward` | `20261019000001_drop_legacy_claim_referrer_reward.sql` | inserted by repair step 1 |  |
-| 54 | `20261014070615` | `20261020000001_release_referral_hold` | `20261020000001_release_referral_hold.sql` | inserted by repair step 1 |  |
+| 51 | `20261013100643` | `subsidy_budgets` | `20261017000001_subsidy_budgets.sql` | present (devin-drift-reconcile) |  |
+| 52 | `20261013104642` | `referrer_cap_and_hold` | `20261018000001_referrer_cap_and_hold.sql` | present (devin-drift-reconcile) |  |
+| 53 | `20261013153845` | `drop_legacy_claim_referrer_reward` | `20261019000001_drop_legacy_claim_referrer_reward.sql` | present (devin-drift-reconcile) |  |
+| 54 | `20261014070615` | `20261020000001_release_referral_hold` | `20261020000001_release_referral_hold.sql` | present (devin-drift-reconcile) |  |
 
 The 6 Articles/editorial app-timestamp duplicates (new in v3):
 
 | # | Remote version (to delete) | Recorded name | Duplicates repo migration | Repo-version row | Note |
 |---|---|---|---|---|---|
-| 55 | `20261017061521` | `20261018000002_articles_foundation` | `20261018000002_articles_foundation.sql` | inserted by repair step 1 | Fingerprint-identical to repo version. |
-| 56 | `20261017061642` | `20261020000002_article_media` | `20261020000002_article_media.sql` | inserted by repair step 1 | Applied an earlier draft; `save_article_draft` + `sweep_stale_article_uploads` deltas converged by `20261023000004`. |
-| 57 | `20261017061656` | `20261024000001_duplicate_article` | `20261024000001_duplicate_article.sql` (PR #146) | inserted by repair step 1 | Fingerprint-identical. |
-| 58 | `20261017064237` | `article_preset_publish_check` | `20261025000001_article_preset_publish_check.sql` (PR #148) | inserted by repair step 1 | Fingerprint-identical. |
-| 59 | `20261017075236` | `article_editorial_blocks` | `20261027000001_article_editorial_blocks.sql` (prompt-settings PR) | inserted by repair step 1 | First half of the repo file; fingerprint-identical. |
+| 55 | `20261017061521` | `20261018000002_articles_foundation` | `20261018000002_articles_foundation.sql` | present (devin-drift-reconcile) | Fingerprint-identical to repo version. |
+| 56 | `20261017061642` | `20261020000002_article_media` | `20261020000002_article_media.sql` | present (devin-drift-reconcile) | Applied an earlier draft; `save_article_draft` + `sweep_stale_article_uploads` deltas converged by `20261023000004`. |
+| 57 | `20261017061656` | `20261024000001_duplicate_article` | `20261024000001_duplicate_article.sql` (PR #146) | present (devin-drift-reconcile) | Fingerprint-identical. |
+| 58 | `20261017064237` | `article_preset_publish_check` | `20261025000001_article_preset_publish_check.sql` (PR #148) | present (devin-drift-reconcile) | Fingerprint-identical. |
+| 59 | `20261017075236` | `article_editorial_blocks` | `20261027000001_article_editorial_blocks.sql` (prompt-settings PR) | present (devin-drift-reconcile) | First half of the repo file; fingerprint-identical. |
 | 60 | `20261017075303` | `article_editorial_publish_gate` | same `20261027000001` file | (same row as #59) | Second half (`publish_article` redefinition); fingerprint-identical. |
 
-## 4. Rehearsal v3 (done, local staging replica)
+## 4. Rehearsal v4 (done 2026-10-28, local staging replica)
 
 Replica construction: local Supabase stack holding production's exact
-128-row history (`cecdc854…`, loaded from the verified encrypted export) plus
-the `20261023000004` row recorded the same way it will be on prod →
-**129 rows, digest `390b270a197e62bb774611aba55cbc2e`** — the exact pre-state
-the script guards on. Local migrations dir = `develop` + #143 + #145 files +
-the pending Articles files (#146/#147/#148/prompt-settings), i.e. the state
-after all precondition merges. `schema_migrations_backup_139_v3` (128 rows)
-loaded identically.
+**140-row history** (`a8845ab8…` rich digest — byte-identical to live, loaded
+from the verified encrypted export `schema_migrations_20261028.json.enc`).
+`schema_migrations_backup_139_v4` (140 rows) loaded identically. Local
+migrations dir = `develop` + #143 + #145 files, i.e. the state after all
+precondition merges (all Articles files now exist on develop).
 
 | Step | Command | Result |
 |---|---|---|
-| 1 | `supabase migration list --local` (before) | 69 matched, 11 local-only, **60 remote-only** |
-| 2 | `supabase db push --local --dry-run` (before) | Refused: "Remote migration versions not found…"; CLI's suggested revert list == our 60 (diffed) |
-| 3 | `history_repair.sql` (v3) | COMMIT; history **78 rows**, digest `7c567dd5dbbfc015d33d7c31773d0f50` |
-| 4 | `supabase migration list --local` (after) | **78 matched, 0 remote-only**; local-only = `20261024000002`, `20261026000001` (genuinely pending #147 files) |
-| 5 | `supabase db push --local --dry-run` (after) | Proposes **only** `20261024000002_articles_listing_search` and `20261026000001_public_article_media_map` (out-of-order → needs `--include-all`); **no existing migration replayed** |
-| 6 | `history_repair_rollback.sql` | History restored to exactly 129 rows / `390b270a…` (byte-identical to pre-repair) |
-| 7 | `history_repair.sql` again | Back to 78 rows / `7c567dd5…` (repeatable) |
-| 8 | `history_repair.sql` a third time (already repaired) | Aborts on digest mismatch; no change (fail-safe) |
-| 9 | Simulated extra migration row inserted, then repair | Aborts on digest mismatch; no change — the script cannot run against a history that moved after rehearsal |
+| 1 | `supabase migration list --local` (before) | 80 matched, **60 remote-only** |
+| 2 | `supabase db push --local --dry-run` (before) | Refused: "Remote migration versions not found…"; CLI's suggested revert list == our 60 (diffed, byte-identical) |
+| 3 | `history_repair.sql` (v4, delete-only) | COMMIT; history **80 rows**, digest `61ddd1ca10c77b14f569c0184ccfc4ee` |
+| 4 | `supabase db push --local --dry-run` (after) | **"Local database is up to date"** — zero replays, zero pending |
+| 5 | `history_repair_rollback.sql` | History restored to exactly 140 rows / `a8845ab8…` (byte-identical to pre-repair) |
+| 6 | `history_repair.sql` again | Back to 80 rows / `61ddd1ca…` (repeatable) |
+| 7 | Simulated extra migration row inserted, then repair | Aborts on digest mismatch; no change — the script cannot run against a history that moved after rehearsal |
 
-Earlier rehearsal (v2, 127-row pre-state, 58 deletes/8 inserts → 77 rows)
-passed the same 9 checks; superseded by v3 after the editorial applies.
-
-Note for the pending Articles rollout: `20261024000002` / `20261026000001`
-sort before already-applied versions, so `db push` needs `--include-all`
-(rehearsed). That is an Articles-owner decision.
+Earlier rehearsals (v2: 127→77 rows; v3: 129→78 rows) passed the same
+checks; superseded by v4 after the devin-drift-reconcile canonical inserts
+made the script delete-only.
 
 ## 5. Regression checks on production (done, after section 1)
 
@@ -311,17 +319,16 @@ and require an owner-approved staging/production smoke.
 
 ## 6. After the history repair is authorized
 
-1. Confirm preconditions in §3 (merges done, `0004` recorded, digest still
-   `390b270a…`). If the digest differs — more migrations were applied
+1. Confirm preconditions in §3 (merges done, digest still
+   `a8845ab8…`). If the digest differs — more migrations were applied
    directly — stop and re-baseline (new backup, updated script, new
    rehearsal).
 2. Run `scripts/ops/issue-139/history_repair.sql` on production.
-3. Verify: **78 rows**, digest `7c567dd5dbbfc015d33d7c31773d0f50`;
+3. Verify: **80 rows**, digest `61ddd1ca10c77b14f569c0184ccfc4ee`;
    `supabase migration list` shows 0 remote-only;
-   `supabase db push --dry-run` proposes only the genuinely pending
-   `20261024000002` / `20261026000001`.
+   `supabase db push --dry-run` reports "up to date".
 4. Rollback if anything is off:
    `scripts/ops/issue-139/history_repair_rollback.sql` (restores the 60 rows
-   from `schema_migrations_backup_139_v3` and removes the 9 inserted rows),
-   then re-check digest `390b270a…`.
+   from `schema_migrations_backup_139_v4`),
+   then re-check digest `a8845ab8…`.
 5. Keep `schema_migrations_backup_139*` for at least one release cycle.
