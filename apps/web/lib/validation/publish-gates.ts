@@ -293,7 +293,7 @@ export function validatePublishGates(
     product.parent_preset_id &&
     !product.standalone_discoverable &&
     context.parent &&
-    context.parent.public_status !== "published"
+    context.parent.public_status !== "active"
   ) {
     failures.push({
       code: "ORPHANED_VARIANT",
