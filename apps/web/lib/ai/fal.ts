@@ -10,6 +10,7 @@ import {
   type ProviderJobStatus,
 } from "./adapter";
 import { falResolutionTier } from "../pricing/resolution-tiers";
+import { checkRouteInputBudget } from "./route-capabilities";
 
 const ENDPOINT_PREFIX = "fal-ai/";
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
@@ -150,16 +151,52 @@ export function createFalAdapter(): ImageProviderAdapter {
     async submit(input: ProviderSubmitInput): Promise<ProviderSubmitResult> {
       assertAllowedEndpoint(input.endpoint);
 
+      // Ordered user inputs: ordinal-1 first. `sourceImageUrl` remains as a
+      // deprecated single-image alias for legacy callers. An empty set is a
+      // contract violation, not a submit failure — never send a request with
+      // no user photo.
+      const inputImageUrls =
+        input.inputImageUrls && input.inputImageUrls.length > 0
+          ? input.inputImageUrls
+          : input.sourceImageUrl
+            ? [input.sourceImageUrl]
+            : [];
+      if (inputImageUrls.length === 0) {
+        throw new ProviderError(
+          "Provider submit requires at least one input image",
+          "invalid_input"
+        );
+      }
+
+      // Defense-in-depth: even if the caller skipped the budget check, never
+      // submit a request the endpoint cannot honor — silently truncated
+      // `image_urls` arrays are exactly the failure mode #179 exists to
+      // prevent. Non-retryable stage so the fallback path doesn't re-try a
+      // request that is contractually too large.
+      const budget = checkRouteInputBudget(
+        input.endpoint,
+        inputImageUrls.length,
+        input.referenceImageUrls?.length ?? 0
+      );
+      if (!budget.ok) {
+        throw new ProviderError(
+          budget.reason === "unknown_route"
+            ? `Endpoint ${input.endpoint} is not verified for multi-image input`
+            : `Endpoint ${input.endpoint} cannot accept ${budget.total} input images`,
+          "input_budget_exceeded"
+        );
+      }
+
       const body: Record<string, unknown> = {
         // Endpoints differ on the source-image field: flux-style models take
         // `image_url`, the nano-banana family requires `image_urls` (array).
         // Send both — providers ignore fields their schema doesn't use.
-        image_url: input.sourceImageUrl,
-        // Reference assets ride along in image_urls: multi-image endpoints
-        // (nano-banana, gpt-image) use them as style/composition context,
-        // single-image endpoints just read the first entry.
+        image_url: inputImageUrls[0],
+        // Ordered user inputs occupy the leading slots; admin-private
+        // reference assets (style/composition guides) are appended after
+        // them so user photos are never displaced or dropped.
         image_urls: [
-          input.sourceImageUrl,
+          ...inputImageUrls,
           ...(input.referenceImageUrls ?? []),
         ],
         prompt: input.prompt,

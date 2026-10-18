@@ -10,7 +10,10 @@ import {
   isRetryableSubmitError,
   type ProviderStrategy,
 } from "@/lib/ai/provider-routing";
-import { getRouteCapability } from "@/lib/ai/route-capabilities";
+import {
+  getRouteCapability,
+  checkRouteInputBudget,
+} from "@/lib/ai/route-capabilities";
 import {
   compilePrompt,
   referencePromptClause,
@@ -21,12 +24,21 @@ import {
   screenUserPrompt,
   screenUserText,
 } from "@/lib/moderation/creem";
+import { screenUserImage } from "@/lib/moderation/image";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getSignedReferenceAssets } from "./reference-assets";
+import { inputAssetRejectionReason } from "./input-assets";
+import {
+  getAssetObjectVersion,
+  loadUserInputAssets,
+  markAssetModerationStatus,
+  signUserInputAssets,
+} from "./upload";
 import { resolveOutputSize } from "./output-size";
 import { createGenerationQuote } from "@/lib/pricing/quote";
 import { promptCapabilityOf, validateUserPrompt } from "./user-prompt";
+import { isMultiInputReleased } from "./release-gates";
 import type { CreateGenerationInput } from "./types";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
@@ -148,17 +160,31 @@ export async function createAndSubmitGeneration(
     return { error: "A source image is required." };
   }
 
-  // Fail-closed guard (#176 review, removal owned by #179): the provider
-  // pipeline still submits only the primary image — multi-input requests
-  // are rejected before moderation/quoting so no credits can be held for
-  // functionality the pipeline cannot honor. The create_generation RPC
-  // enforces the same guard for direct callers.
-  // The prompt guard that stood here was lifted by #183: prompt requests
-  // now flow through validateUserPrompt + screenUserPrompt below.
-  if (inputs.length > 1) {
+  // Release brake (#178/#179): the provider pipeline below submits the full
+  // ordered input set, but rollout stays behind the deploy-level
+  // PRESET_MULTI_INPUT_ENABLED flag — while OFF, multi-input requests are
+  // rejected before moderation/quoting so the charged path stays
+  // fail-closed, matching the consumer UI's one-photo fallback.
+  if (inputs.length > 1 && !isMultiInputReleased()) {
     return {
       error: "Multi-image generation is not yet available for this preset.",
     };
+  }
+
+  // Load + gate every requested input before any moderation/quote work
+  // (#179): ownership is enforced by the RLS-scoped load (a foreign id is a
+  // missing row), and each asset must pass bucket/media/size/pixel,
+  // soft-delete, and moderation-status checks. No requested image may be
+  // silently dropped.
+  let inputAssets;
+  try {
+    inputAssets = await loadUserInputAssets(inputs.map((i) => i.assetId));
+  } catch {
+    return { error: "One or more of your images could not be found." };
+  }
+  for (const row of inputAssets) {
+    const rejection = inputAssetRejectionReason(row);
+    if (rejection) return { error: rejection };
   }
 
   // Creem content-policy screen (required for AI image products): every
@@ -185,6 +211,89 @@ export async function createAndSubmitGeneration(
       error:
         "We couldn't verify your input right now. Please try again in a moment.",
     };
+  }
+  // Image moderation (#179): every user photo must be verified before it is
+  // quoted or transmitted — including reused Library assets. Text screening
+  // can never attest to image content, so each asset carries its own review
+  // state: 'approved' with a recorded object version records a completed
+  // image screen bound to exact bytes; anything else is screened now
+  // against the image classifier (rejected/flagged states were already
+  // blocked by inputAssetRejectionReason). Each screen is bracketed by
+  // object-version reads — an overwrite mid-screen discards the verdict —
+  // and the approval stamps the screened version. A blocked verdict is
+  // stamped 'flagged'; an unreachable classifier fails closed — the
+  // create_generation RPC refuses unapproved or version-mismatched inputs
+  // regardless.
+  const inputImageUrls = await signUserInputAssets(inputAssets);
+  const service = createServiceClient();
+  const pendingIndexes = inputAssets
+    .map((row, i) =>
+      row.moderationStatus === "approved" && row.moderationObjectVersion
+        ? -1
+        : i
+    )
+    .filter((i) => i >= 0);
+  const imageVerdicts = await Promise.all(
+    pendingIndexes.map(async (i) => {
+      const row = inputAssets[i]!;
+      const versionBefore = await getAssetObjectVersion(service, row);
+      if (!versionBefore) {
+        return {
+          index: i,
+          verdict: { kind: "unavailable" as const },
+          version: null,
+        };
+      }
+      const verdict = await screenUserImage(
+        inputImageUrls[i]!,
+        `user_${user.id}:asset_${row.assetId}`
+      );
+      const versionAfter = await getAssetObjectVersion(service, row);
+      // The bytes swapped mid-screen — the verdict can't be attributed to
+      // the current object; fail closed rather than approve blind.
+      if (!versionAfter || versionAfter !== versionBefore) {
+        return {
+          index: i,
+          verdict: { kind: "unavailable" as const },
+          version: null,
+        };
+      }
+      return { index: i, verdict, version: versionBefore };
+    })
+  );
+  if (imageVerdicts.some((v) => v.verdict.kind === "unavailable")) {
+    return {
+      error:
+        "We couldn't verify your input right now. Please try again in a moment.",
+    };
+  }
+  for (const screened of imageVerdicts) {
+    const row = inputAssets[screened.index]!;
+    if (screened.verdict.kind === "blocked") {
+      // Best-effort flag so the image can't be re-submitted; the refusal is
+      // already decided regardless of whether the stamp lands.
+      await markAssetModerationStatus(service, row.assetId, user.id, "flagged");
+      return {
+        error:
+          "One of your images can't be used — it violates our content policy.",
+      };
+    }
+    // Persist the approval bound to the screened object version — a stamp
+    // that doesn't land means the review isn't verifiable, and the RPC
+    // would reject the input anyway.
+    const marked = await markAssetModerationStatus(
+      service,
+      row.assetId,
+      user.id,
+      "approved",
+      screened.version ?? undefined
+    );
+    if (!marked) {
+      return {
+        error:
+          "We couldn't verify your input right now. Please try again in a moment.",
+      };
+    }
   }
 
   // "Match photo" sizes resolve from the primary (ordinal-1) input image
@@ -261,10 +370,53 @@ export async function createAndSubmitGeneration(
     return { error: userFacingError() };
   }
 
+  // Route capability (#179): user inputs AND admin-private references must
+  // fit the resolved endpoint's verified total-input budget, and a route
+  // without a registry entry cannot take multi-image requests at all —
+  // fail closed BEFORE a quote/credit reservation exists, never fall back
+  // to sending a truncated input set.
+  const references = await getSignedReferenceAssets(input.productId);
+  const referenceImageUrls = references.map((r) => r.url);
+  const budget = checkRouteInputBudget(
+    endpoint,
+    inputs.length,
+    referenceImageUrls.length
+  );
+  if (!budget.ok) {
+    console.error("[createAndSubmitGeneration] route input budget", {
+      endpoint,
+      reason: budget.reason,
+      total: budget.total,
+    });
+    return {
+      error:
+        "This preset can't accept that many photos. Please remove some and try again.",
+    };
+  }
+
+  // The quoted fallback must carry the same input set — a fallback that
+  // can't fit user inputs + references is excluded from the quote envelope
+  // rather than allowed to receive a silently truncated request.
+  const requestedFallback = getFallbackEndpoint(recipe.provider_strategy);
+  const capableFallbackEndpoint =
+    requestedFallback &&
+    checkRouteInputBudget(
+      requestedFallback,
+      inputs.length,
+      referenceImageUrls.length
+    ).ok
+      ? requestedFallback
+      : null;
+  if (requestedFallback && !capableFallbackEndpoint) {
+    console.warn(
+      "[createAndSubmitGeneration] fallback excluded — cannot carry input set",
+      requestedFallback
+    );
+  }
+
   // Server-authoritative quote: the recipe's endpoint + resolved output size
   // are priced against a fresh provider snapshot; credits are reserved against
   // the bounded maximum. No quote → fail closed, never a fallback price.
-  const service = createServiceClient();
   const quote = await createGenerationQuote(service, {
     userId: user.id,
     productId: input.productId,
@@ -278,7 +430,7 @@ export async function createAndSubmitGeneration(
     requestConfig: recipe.model_config,
     provider: "fal",
     endpoint,
-    fallbackEndpoint: getFallbackEndpoint(recipe.provider_strategy),
+    fallbackEndpoint: capableFallbackEndpoint,
   });
   if (!quote.ok) {
     return {
@@ -344,16 +496,11 @@ export async function createAndSubmitGeneration(
   let failureStage: string | null = null;
 
   try {
-    // Provider submission stays single-source today; additional inputs are
-    // pinned on the generation row (generation_input_assets) for the
-    // pipeline lane (#179) to wire into multi-input provider routes.
-    const [sourceUrl, references] = await Promise.all([
-      import("./upload").then((m) =>
-        m.getSignedSourceUrlByAssetId(inputs[0]!.assetId)
-      ),
-      getSignedReferenceAssets(input.productId),
-    ]);
-    const referenceImageUrls = references.map((r) => r.url);
+    // Every validated input was signed and screened before the quote; the
+    // ordered user URLs (ordinal-1 first) are transmitted first and
+    // admin-private references are appended after. The adapter re-verifies
+    // the total against the route registry, so a request the endpoint can't
+    // honor can never leave this process.
 
     const prompt =
       compilePrompt(recipe.private_instruction_template, input.options) +
@@ -390,7 +537,7 @@ export async function createAndSubmitGeneration(
         endpoint: submitEndpoint,
         prompt,
         negativePrompt: recipe.private_negative_instruction ?? undefined,
-        sourceImageUrl: sourceUrl,
+        inputImageUrls,
         referenceImageUrls,
         options: input.options,
         modelConfig,
@@ -406,7 +553,7 @@ export async function createAndSubmitGeneration(
           endpoint: fallbackEndpoint,
           prompt,
           negativePrompt: recipe.private_negative_instruction ?? undefined,
-          sourceImageUrl: sourceUrl,
+          inputImageUrls,
           referenceImageUrls,
           options: input.options,
           modelConfig,

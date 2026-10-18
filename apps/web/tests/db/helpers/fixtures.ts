@@ -75,15 +75,40 @@ export async function makeProduct(client: Client): Promise<TestProduct> {
 export async function makeAsset(
   client: Client,
   ownerId: string,
-  opts: { width?: number; height?: number } = {}
+  opts: { width?: number; height?: number; moderationStatus?: string } = {}
 ): Promise<string> {
   const id = randomUUID();
+  const storageKey = `dbtest/${id}.png`;
+  const status = opts.moderationStatus ?? "approved";
+  let objectVersion: string | null = null;
+  // 'approved' models the realistic pre-generation state: the app screens,
+  // stamps the verdict, and binds it to the live storage object version.
+  // An approved asset therefore needs a backing storage.objects row whose
+  // version matches moderation_object_version.
+  if (status === "approved") {
+    objectVersion = randomUUID();
+    await client.query(
+      `INSERT INTO storage.objects (bucket_id, name, version, owner, metadata)
+       VALUES ('user-assets', $1, $2, $3,
+               '{"size": 1024, "mimetype": "image/png"}'::jsonb)`,
+      [storageKey, objectVersion, ownerId]
+    );
+  }
   await client.query(
     `INSERT INTO public.assets (
        id, owner_user_id, storage_provider, storage_key, bucket,
-       media_type, mime_type, width, height
-     ) VALUES ($1, $2, 'supabase', $3, 'user-assets', 'image', 'image/png', $4, $5)`,
-    [id, ownerId, `dbtest/${id}.png`, opts.width ?? 1024, opts.height ?? 1024]
+       media_type, mime_type, width, height, moderation_status,
+       moderation_object_version
+     ) VALUES ($1, $2, 'supabase', $3, 'user-assets', 'image', 'image/png', $4, $5, $6, $7)`,
+    [
+      id,
+      ownerId,
+      storageKey,
+      opts.width ?? 1024,
+      opts.height ?? 1024,
+      status,
+      objectVersion,
+    ]
   );
   return id;
 }

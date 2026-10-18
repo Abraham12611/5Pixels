@@ -98,6 +98,18 @@ export function getRouteCapability(
   return endpoint ? (ROUTE_CAPABILITIES[endpoint] ?? null) : null;
 }
 
+/**
+ * Direct endpoint lookup — the submit path resolves provider/model to a
+ * concrete endpoint before pricing, so capability checks operate on the
+ * resolved endpoint the request will actually hit.
+ */
+export function getRouteCapabilityByEndpoint(
+  endpoint: string | null | undefined
+): RouteCapability | null {
+  if (!endpoint) return null;
+  return ROUTE_CAPABILITIES[endpoint] ?? null;
+}
+
 /** Serializable client-facing subset for the admin form. */
 export interface RouteCapabilityView {
   maxInputImages: number;
@@ -111,4 +123,35 @@ export function toCapabilityView(
     maxInputImages: capability?.max_input_images ?? 1,
     supportsPromptEdit: capability?.supports_prompt_edit ?? false,
   };
+}
+
+export type RouteInputBudgetResult =
+  | { ok: true }
+  | { ok: false; reason: "unknown_route" | "budget_exceeded"; total: number };
+
+/**
+ * Whether `endpoint` can carry `userInputCount` ordered user images plus
+ * `referenceCount` admin-private references in one request (#179).
+ *
+ * Unknown/unverified routes fail closed for multi-image requests (an
+ * `image_urls` field in the payload does NOT prove the model reads every
+ * slot) but keep the legacy single-image + reference behavior: the user
+ * input occupies slot 1 and references may be ignored by the model, which
+ * was the accepted pre-#179 contract.
+ */
+export function checkRouteInputBudget(
+  endpoint: string | null | undefined,
+  userInputCount: number,
+  referenceCount = 0
+): RouteInputBudgetResult {
+  const total = userInputCount + referenceCount;
+  const capability = getRouteCapabilityByEndpoint(endpoint);
+  if (!capability) {
+    return userInputCount <= 1
+      ? { ok: true }
+      : { ok: false, reason: "unknown_route", total };
+  }
+  return total <= capability.max_input_images
+    ? { ok: true }
+    : { ok: false, reason: "budget_exceeded", total };
 }
