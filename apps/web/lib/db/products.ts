@@ -443,7 +443,7 @@ export async function publishProductVersion(
     product.parent_preset_id &&
     !product.standalone_discoverable &&
     parent &&
-    parent.public_status !== "published"
+    parent.public_status !== "active"
   ) {
     throw new Error(
       "Cannot publish: this variant is only shown with its parent, which is not published. Publish the parent first or enable standalone discovery."
