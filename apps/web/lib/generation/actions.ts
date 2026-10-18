@@ -119,6 +119,23 @@ export async function createAndSubmitGeneration(
   }
   const userPrompt = input.prompt?.trim() || null;
 
+  // Fail-closed guard (#176 review): the provider pipeline still submits
+  // only the primary image, and user-prompt composition/moderation lands
+  // in #183. Reject before moderation/quoting so no credits can be held
+  // for functionality the pipeline cannot honor. The create_generation
+  // RPC enforces the same guard for direct callers — removal of both
+  // guards is owned by #179 (multi-image) and #183 (prompt).
+  if (inputs.length > 1) {
+    return {
+      error: "Multi-image generation is not yet available for this preset.",
+    };
+  }
+  if (userPrompt) {
+    return {
+      error: "Custom prompts are not yet available for this preset.",
+    };
+  }
+
   // Creem content-policy screen (required for AI image products): every
   // generation path must call the Moderation API before credits are
   // reserved or the provider is invoked. Free-text options are screened
@@ -177,6 +194,7 @@ export async function createAndSubmitGeneration(
     productVersionId: input.productVersionId,
     options: input.options,
     inputAssetIds: inputs.map((i) => i.assetId),
+    inputRoles: inputs.map((i) => i.role ?? null),
     userPrompt,
     outputWidth: outputSize.width,
     outputHeight: outputSize.height,

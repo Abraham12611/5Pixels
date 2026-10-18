@@ -484,6 +484,7 @@ DECLARE
   v_prompt_text TEXT;
   v_prompt_sha TEXT;
   v_quoted_ids UUID[];
+  v_quoted_roles TEXT[];
 BEGIN
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = 'P0001';
@@ -652,11 +653,38 @@ BEGIN
     IF v_quoted_ids IS DISTINCT FROM v_input_ids THEN
       RAISE EXCEPTION 'Quote does not match request' USING ERRCODE = 'P0001';
     END IF;
+    -- Ordered role assignments are part of the quoted request: the same
+    -- asset ids with swapped roles (subject ↔ reference) produce a
+    -- materially different generation, so they must reprice.
+    IF jsonb_typeof(v_quote.params->'input_roles') = 'array' THEN
+      SELECT array_agg(t.v ORDER BY t.ord) INTO v_quoted_roles
+      FROM jsonb_array_elements_text(v_quote.params->'input_roles')
+        WITH ORDINALITY AS t(v, ord);
+      IF v_quoted_roles IS DISTINCT FROM v_input_roles THEN
+        RAISE EXCEPTION 'Quote does not match request' USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
     IF (v_quote.params->>'prompt_hash') IS DISTINCT FROM v_prompt_sha THEN
       RAISE EXCEPTION 'Quote does not match request' USING ERRCODE = 'P0001';
     END IF;
   ELSIF v_input_count <> 1 OR v_prompt_sha IS NOT NULL THEN
     RAISE EXCEPTION 'Invalid generation inputs' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Fail-closed guards (#176 review): the contract is live, but the
+  -- provider pipeline still submits only the ordinal-1 image (#179) and
+  -- user-prompt composition/moderation lands in #183. Requests that are
+  -- contractually valid but functionally incomplete are rejected BEFORE
+  -- any generation row or credit reservation is created — including for
+  -- direct RPC callers that bypass the application layer. Removal of
+  -- these two raises is owned by #179 and #183 respectively.
+  IF v_input_count > 1 THEN
+    RAISE EXCEPTION 'Multi-image generation is not yet enabled'
+      USING ERRCODE = 'P0001';
+  END IF;
+  IF v_prompt_sha IS NOT NULL THEN
+    RAISE EXCEPTION 'Custom prompts are not yet enabled'
+      USING ERRCODE = 'P0001';
   END IF;
 
   -- Validate options against active product_fields.

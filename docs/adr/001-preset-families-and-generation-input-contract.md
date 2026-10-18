@@ -174,11 +174,23 @@ Server-side enforcement inside the RPC (all `P0001` rejections):
 - `p_user_prompt` rejected unless the quoted version has
   `prompt_override_enabled`; length bound by `prompt_max_chars`.
 - **Quote binding:** new quotes carry `params.input_asset_ids`,
-  `params.input_count` and `params.prompt_hash`. The submitted ordered id
-  list and the SHA-256 of `p_user_prompt` must match the quote — replaying
-  a quote against substituted inputs or a different prompt fails. Legacy
-  quotes (no `input_asset_ids` in `params`) degrade to the original
-  single-asset ownership check so in-flight clients never break.
+  `params.input_roles`, `params.input_count` and `params.prompt_hash`.
+  The submitted ordered id list, the ordered role assignments, and the
+  SHA-256 of `p_user_prompt` must match the quote — the same asset ids
+  with swapped roles (e.g. subject ↔ reference) produce a materially
+  different request and invalidate the quote, as does a substituted input
+  or different prompt. Legacy quotes (no `input_asset_ids` in `params`)
+  degrade to the original single-asset ownership check so in-flight
+  clients never break.
+- **Fail-closed guards (temporary, review-driven):** the contract is
+  live, but the pipeline still submits only the ordinal-1 image (#179)
+  and user-prompt composition/moderation lands in #183. Until those ship,
+  `create_generation` raises `Multi-image generation is not yet enabled`
+  for `input_count > 1` and `Custom prompts are not yet enabled` for any
+  non-null prompt — after capability + quote validation, before any
+  generation row or reservation exists. `createAndSubmitGeneration`
+  rejects the same requests even earlier (before moderation/quoting) with
+  user-facing errors. Removal of each guard is owned by the named lane.
 - On success: generation row + `generation_input_assets` rows +
   reservation ledger entry, all in one transaction, exactly as before.
 

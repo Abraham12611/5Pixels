@@ -19,6 +19,13 @@ export interface CreateQuoteInput {
    */
   inputAssetIds?: string[];
   /**
+   * Ordered role assignments parallel to `inputAssetIds` (null for
+   * unroled inputs). Swapped roles on the same assets materially change
+   * the request (e.g. subject ↔ reference), so they are fingerprinted
+   * into `params.input_roles` and any reorder invalidates the quote.
+   */
+  inputRoles?: (string | null)[];
+  /**
    * The caller's custom prompt (already length/policy-checked by the
    * caller's contract). Stored as `params.prompt_hash` (sha256 of the
    * trimmed text) so a different prompt can't replay the quote.
@@ -213,8 +220,10 @@ export async function createGenerationQuote(
         primary_components: primaryQuote.components,
         fallback_components: fallbackComponents,
         // Input binding (#176): create_generation rejects any submitted
-        // input set or prompt that differs from what was quoted.
+        // input set, role assignment or prompt that differs from what
+        // was quoted.
         input_asset_ids: input.inputAssetIds ?? null,
+        input_roles: input.inputRoles ?? null,
         input_count: input.inputAssetIds?.length ?? null,
         prompt_hash: promptHash(input.userPrompt),
       },

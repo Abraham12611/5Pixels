@@ -129,6 +129,7 @@ async function makeBoundQuote(
     snapshotId: string;
     endpointId: string;
     inputAssetIds: string[];
+    inputRoles?: (string | null)[];
     userPrompt?: string | null;
   }
 ): Promise<string> {
@@ -160,6 +161,7 @@ async function makeBoundQuote(
         height: 1024,
         primary_components: {},
         input_asset_ids: opts.inputAssetIds,
+        input_roles: opts.inputRoles ?? null,
         input_count: opts.inputAssetIds.length,
         prompt_hash: prompt
           ? createHash("sha256").update(prompt, "utf8").digest("hex")
@@ -410,7 +412,10 @@ describe("create_generation input contract", () => {
     return { userId, productId, productVersionId, snapshotId, endpointId };
   }
 
-  it("stores the ordered input set and mirrors source_asset_id = ordinal 1", async () => {
+  // #176 review guard: the contract is live, but provider submission is
+  // single-source until #179 — a contractually valid multi-input request
+  // must fail closed BEFORE any generation row or credit reservation.
+  it("fails closed on multi-input until #179 lands — nothing is created or charged", async () => {
     await withDb(async (client) => {
       const { userId, productId, productVersionId, snapshotId, endpointId } =
         await setup(client, { min: 1, max: 2 });
@@ -425,27 +430,63 @@ describe("create_generation input contract", () => {
         inputAssetIds: [a1, a2],
       });
 
-      const created = await createGenerationMulti(client, {
-        userId,
-        quoteId,
-        inputs: [{ assetId: a1 }, { assetId: a2 }],
-      });
-      expect(created.status).toBe("created");
+      await expect(
+        createGenerationMulti(client, {
+          userId,
+          quoteId,
+          inputs: [{ assetId: a1 }, { assetId: a2 }],
+        })
+      ).rejects.toThrow(/Multi-image generation is not yet enabled/i);
 
-      const inputs = await inputAssetsOf(client, created.generation_id);
-      expect(inputs).toHaveLength(2);
-      expect(inputs[0]).toMatchObject({
-        ordinal: 1,
-        asset_id: a1,
-        product_version_id: productVersionId,
-      });
-      expect(inputs[1]).toMatchObject({ ordinal: 2, asset_id: a2 });
-
-      const gen = await client.query(
-        `SELECT source_asset_id FROM public.generations WHERE id = $1`,
-        [created.generation_id]
+      // Nothing persisted, nothing reserved.
+      const gens = await client.query(
+        `SELECT COUNT(*)::int AS n FROM public.generations WHERE user_id = $1`,
+        [userId]
       );
-      expect(gen.rows[0].source_asset_id).toBe(a1);
+      expect(gens.rows[0].n).toBe(0);
+      const ledger = await client.query(
+        `SELECT COUNT(*)::int AS n FROM public.credit_ledger
+         WHERE user_id = $1 AND entry_type = 'reservation'`,
+        [userId]
+      );
+      expect(ledger.rows[0].n).toBe(0);
+    });
+  });
+
+  it("rejects swapped role assignments on the same asset ids (quote binding)", async () => {
+    await withDb(async (client) => {
+      const { userId, productId, productVersionId, snapshotId, endpointId } =
+        await setup(client, {
+          min: 2,
+          max: 2,
+          roles: [{ name: "subject" }, { name: "background" }],
+        });
+      const a1 = await makeAsset(client, userId);
+      const a2 = await makeAsset(client, userId);
+
+      // Quote was priced for a1=subject, a2=background.
+      const quoteId = await makeBoundQuote(client, {
+        userId,
+        productId,
+        productVersionId,
+        snapshotId,
+        endpointId,
+        inputAssetIds: [a1, a2],
+        inputRoles: ["subject", "background"],
+      });
+
+      // Same asset ids, roles swapped — materially different request; the
+      // quote binding must reject before the fail-closed guard is reached.
+      await expect(
+        createGenerationMulti(client, {
+          userId,
+          quoteId,
+          inputs: [
+            { assetId: a1, role: "background" },
+            { assetId: a2, role: "subject" },
+          ],
+        })
+      ).rejects.toThrow(/Quote does not match request/i);
     });
   });
 
@@ -548,7 +589,7 @@ describe("create_generation input contract", () => {
     });
   });
 
-  it("stores an allowed prompt and rejects a mismatched prompt hash", async () => {
+  it("rejects a mismatched prompt hash and fails closed on valid prompts until #183", async () => {
     await withDb(async (client) => {
       const { userId, productId, productVersionId, snapshotId, endpointId } =
         await setup(client, {
@@ -560,7 +601,8 @@ describe("create_generation input contract", () => {
         });
       const assetId = await makeAsset(client, userId);
 
-      // Mismatched prompt text fails quote binding.
+      // Mismatched prompt text fails quote binding (fingerprinted at
+      // quote time; a different prompt can never replay the quote).
       const badQuote = await makeBoundQuote(client, {
         userId,
         productId,
@@ -579,7 +621,8 @@ describe("create_generation input contract", () => {
         })
       ).rejects.toThrow(/Quote does not match request/i);
 
-      // Matching prompt is stored verbatim + hashed.
+      // #176 review guard: even a quote-bound, capability-allowed prompt
+      // fails closed — prompt composition/moderation lands in #183.
       const goodQuote = await makeBoundQuote(client, {
         userId,
         productId,
@@ -589,21 +632,20 @@ describe("create_generation input contract", () => {
         inputAssetIds: [assetId],
         userPrompt: "make it warmer",
       });
-      const created = await createGenerationMulti(client, {
-        userId,
-        quoteId: goodQuote,
-        inputs: [{ assetId: assetId }],
-        userPrompt: "make it warmer",
-      });
-      const gen = await client.query(
-        `SELECT user_prompt, user_prompt_sha256
-         FROM public.generations WHERE id = $1`,
-        [created.generation_id]
+      await expect(
+        createGenerationMulti(client, {
+          userId,
+          quoteId: goodQuote,
+          inputs: [{ assetId: assetId }],
+          userPrompt: "make it warmer",
+        })
+      ).rejects.toThrow(/Custom prompts are not yet enabled/i);
+
+      const gens = await client.query(
+        `SELECT COUNT(*)::int AS n FROM public.generations WHERE user_id = $1`,
+        [userId]
       );
-      expect(gen.rows[0].user_prompt).toBe("make it warmer");
-      expect(gen.rows[0].user_prompt_sha256).toBe(
-        createHash("sha256").update("make it warmer", "utf8").digest("hex")
-      );
+      expect(gens.rows[0].n).toBe(0);
     });
   });
 
