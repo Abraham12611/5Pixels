@@ -4,6 +4,7 @@ import { Plus } from "@phosphor-icons/react/dist/ssr";
 import { requireAdminOrOwner } from "@/lib/db/admin";
 import { listArticlesForStaff } from "@/lib/articles/queries";
 import type { ArticleStatus } from "@/lib/articles/types";
+import { createAndOpenArticleAction } from "./new/create-action";
 import { ArticleRowActions } from "@/components/articles/studio/article-row-actions";
 import { cn } from "@/lib/utils";
 
@@ -87,13 +88,15 @@ export default async function AdminArticlesPage({
             published articles are public at /articles.
           </p>
         </div>
-        <Link
-          href="/admin/articles/new"
-          className="bg-lime-500 text-ink-950 hover:bg-lime-400 flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors"
-        >
-          <Plus size={16} weight="bold" />
-          New article
-        </Link>
+        <form action={createAndOpenArticleAction}>
+          <button
+            type="submit"
+            className="bg-lime-500 text-ink-950 hover:bg-lime-400 flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors"
+          >
+            <Plus size={16} weight="bold" />
+            New article
+          </button>
+        </form>
       </div>
 
       <form

@@ -14,6 +14,24 @@ import { deserializeArticleDocument } from "@/lib/articles/document";
  * by the staff-only dev harness (/admin/articles/dev).
  */
 describe("ArticleEditor", () => {
+  it("mounts a newly created draft whose persisted document is []", () => {
+    // create_article persists an empty JSONB array; BlockNote.create throws
+    // if that array is forwarded as initialContent instead of using its
+    // default first paragraph.
+    render(
+      <ArticleEditor
+        initialDocument={[]}
+        initialTitle="Untitled article"
+        editVersion={0}
+      />
+    );
+
+    expect(screen.getByLabelText("Article title")).toHaveValue(
+      "Untitled article"
+    );
+    expect(document.querySelector(".bn-editor")).toBeInTheDocument();
+  });
+
   it("mounts the BlockNote editor with fixture content", () => {
     render(
       <ArticleEditor
