@@ -49,7 +49,7 @@ export const PUBLISH_GATES = {
   ROUTE_CAPABILITY_MISMATCH: (detail: string) =>
     `Route capability: ${detail}`,
   MULTI_IMAGE_NOT_EXECUTABLE:
-    "Multi-image inputs are configured, but the generation pipeline cannot execute them yet — publication is blocked until #179 lands provider multi-input submission (the create_generation RPC rejects them regardless).",
+    "Multi-image inputs are configured, but the multi-image release flag is OFF — publication is blocked until #193 ships the provider pipeline + DB migration and PRESET_MULTI_INPUT_ENABLED is enabled (the create_generation RPC rejects them regardless).",
   PROMPT_RELEASE_GATED:
     "Custom prompt edits are configured, but the preset_user_prompt release gate is OFF — publication is blocked until merchant/legal approvals and the protected server/database gates are enabled (PRESET_USER_PROMPT_ENABLED + release_gates).",
 } as const;
@@ -119,6 +119,13 @@ export interface PublishGateContext {
    * gate are both on (#183).
    */
   userPromptReleased?: boolean;
+  /**
+   * Whether the multi-image release flag is enabled server-side
+   * (`isMultiInputReleased()` → PRESET_MULTI_INPUT_ENABLED). Defaults to
+   * false — multi-image versions stay unpublishable until #193 ships the
+   * provider pipeline + DB migration and release QA enables the flag.
+   */
+  multiInputReleased?: boolean;
 }
 
 export function validatePublishGates(
@@ -322,13 +329,15 @@ export function validatePublishGates(
   }
 
   // Release readiness (#177): drafts may declare capabilities the pipeline
-  // cannot yet execute, but they must not publish. Multi-image is blocked
-  // outright until #179 ships provider multi-input submission (the
-  // create_generation RPC rejects >1 inputs unconditionally); custom
-  // prompts additionally require the protected release gates enabled.
+  // cannot yet execute, but they must not publish. Multi-image stays
+  // blocked while the server-side release flag is OFF (PRESET_MULTI_INPUT_
+  // ENABLED — enabled only after #193 ships the provider pipeline + DB
+  // migration and release QA signs off); custom prompts additionally
+  // require the protected release gates enabled.
   if (
-    version.input_mode === "multi" ||
-    (version.input_max_images ?? 1) > 1
+    (version.input_mode === "multi" ||
+      (version.input_max_images ?? 1) > 1) &&
+    context.multiInputReleased !== true
   ) {
     failures.push({
       code: "MULTI_IMAGE_NOT_EXECUTABLE",

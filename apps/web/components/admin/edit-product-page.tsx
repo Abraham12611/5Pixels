@@ -32,6 +32,7 @@ import type { ProductCreateInput } from "@5pixels/shared";
 import { validatePublishGates } from "@/lib/validation/publish-gates";
 import { getRouteCapability } from "@/lib/ai/route-capabilities";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
+import { isMultiInputReleased } from "@/lib/generation/release-gates";
 import { coerceCreditCost } from "@/lib/admin/coerce";
 
 interface EditProductPageProps {
@@ -302,6 +303,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       ),
       adminReferenceCount,
       userPromptReleased: isUserPromptReleased(),
+      multiInputReleased: isMultiInputReleased(),
     }
   );
 
