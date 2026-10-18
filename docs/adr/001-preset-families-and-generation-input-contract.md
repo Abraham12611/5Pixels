@@ -182,15 +182,39 @@ Server-side enforcement inside the RPC (all `P0001` rejections):
   or different prompt. Legacy quotes (no `input_asset_ids` in `params`)
   degrade to the original single-asset ownership check so in-flight
   clients never break.
-- **Fail-closed guards (temporary, review-driven):** the contract is
-  live, but the pipeline still submits only the ordinal-1 image (#179)
-  and user-prompt composition/moderation lands in #183. Until those ship,
-  `create_generation` raises `Multi-image generation is not yet enabled`
-  for `input_count > 1` and `Custom prompts are not yet enabled` for any
-  non-null prompt — after capability + quote validation, before any
-  generation row or reservation exists. `createAndSubmitGeneration`
-  rejects the same requests even earlier (before moderation/quoting) with
-  user-facing errors. Removal of each guard is owned by the named lane.
+- **Fail-closed guards (temporary, review-driven):** the multi-image raise
+  was released by #179 in migration `20261030000001` once the ordered
+  provider-submission pipeline shipped — every requested image is
+  moderated, signed, budget-checked against the route-capability registry,
+  and transmitted in its declared slot. The charged path stays behind the
+  deploy-level `PRESET_MULTI_INPUT_ENABLED` brake
+  (`isMultiInputReleased()`): while OFF, `createAndSubmitGeneration`
+  rejects `inputs.length > 1` before moderation/quoting and the consumer
+  UI renders the one-photo experience. The custom-prompt raise was
+  converted by #183/#189 (`20261029000001`) into the protected
+  `release_gates('preset_user_prompt')` rollout gate; both protections are
+  preserved in the current `create_generation`.
+- **Verified image approval (#179):** `assets.moderation_status` is the
+  durable record of a completed image review — `approved` is required by
+  `create_generation` for every input before a generation row or credit
+  reservation can exist. The application screens each pending image
+  through the fal `imageutils/nsfw` classifier (text moderation cannot
+  attest to image content) and stamps the verdict before quoting;
+  `prevent_asset_moderation_escalation` uses an explicit allowlist
+  (service role, admins, non-PostgREST privileged contexts) so
+  authenticated/anon/future roles cannot mint or move the approval
+  record. Admin-authored uploads are trusted content and stamped
+  `approved` at upload; blocked verdicts are stamped `flagged` so the
+  image cannot be re-submitted.
+- **Content binding (#179 security review):** an approval refers to the
+  exact bytes screened — `assets.moderation_object_version` records the
+  `storage.objects.version` at approval time, the app brackets every
+  screen with before/after version reads (a mid-screen overwrite
+  discards the verdict), `prevent_approved_asset_content_overwrite`
+  makes the object behind an approved asset immutable for every role,
+  and `create_generation` re-verifies the stored version against the
+  live object. Pending assets may still be overwritten, preserving
+  same-path upload retries.
 - On success: generation row + `generation_input_assets` rows +
   reservation ledger entry, all in one transaction, exactly as before.
 

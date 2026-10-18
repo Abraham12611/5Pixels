@@ -1,15 +1,18 @@
 "use server";
 
 import { v4 as uuidv4 } from "uuid";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { applyRetentionForNewAsset } from "@/lib/db/retention-asset";
 import { supabaseUrl } from "@/lib/supabase/env";
 import { buildOutputPath, isOwnedUserPath } from "./paths";
-
-const USER_ASSET_BUCKET = "user-assets";
-const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
-const ALLOWED_SOURCE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+import {
+  ALLOWED_SOURCE_MIME_TYPES,
+  MAX_SOURCE_BYTES,
+  USER_ASSET_BUCKET,
+  type UserInputAssetRow,
+} from "./input-assets";
 
 function mimeExtension(mimeType: string): string | null {
   switch (mimeType) {
@@ -154,6 +157,28 @@ export async function finalizeSourceUpload(
     return { assetId: existing.id as string, path };
   }
 
+  // Admin-authored uploads are trusted content (same trust level as admin
+  // reference assets, which are never screened) — stamp them approved,
+  // bound to the object version just uploaded, so the lab/test-run path
+  // passes the generation input-approval gate. Read via the service
+  // client: the profiles RLS policy self-references and cannot be trusted
+  // under a request-scoped role. If the object version can't be resolved
+  // the asset falls back to 'pending' and goes through screening — never
+  // an unbound approval.
+  const service = createServiceClient();
+  const { data: profile } = await service
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .maybeSingle();
+  const isAdminUploader = (profile?.is_admin as boolean | undefined) === true;
+  const objectVersion = isAdminUploader
+    ? await getAssetObjectVersion(service, {
+        bucket: USER_ASSET_BUCKET,
+        storageKey: path,
+      })
+    : null;
+
   const { data: asset, error: insertError } = await supabase
     .from("assets")
     .insert({
@@ -168,6 +193,12 @@ export async function finalizeSourceUpload(
       height: metadata.height,
       visibility: "private",
       source_type: "generation_source",
+      ...(isAdminUploader && objectVersion
+        ? {
+            moderation_status: "approved",
+            moderation_object_version: objectVersion,
+          }
+        : {}),
     })
     .select("id")
     .single();
@@ -210,6 +241,140 @@ export async function getSignedSourceUrl(
   }
 
   return data.signedUrl;
+}
+
+/**
+ * Load the caller's input-asset rows in the requested order (#179). Reads go
+ * through the user's own client so RLS enforces ownership — a cross-account
+ * or deleted-elsewhere id simply returns no row and the caller fails closed.
+ * Throws (not silent-skip) on any missing id: silently dropping a requested
+ * image is exactly what this pipeline must never do.
+ */
+export async function loadUserInputAssets(
+  assetIds: string[]
+): Promise<UserInputAssetRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("assets")
+    .select(
+      "id, bucket, storage_key, media_type, mime_type, bytes, width, height, moderation_status, moderation_object_version, deleted_at"
+    )
+    .in("id", assetIds);
+
+  if (error) {
+    console.error("[loadUserInputAssets] lookup failed", error.message);
+    throw new Error("Unable to verify your images");
+  }
+
+  const byId = new Map(
+    (data ?? []).map((row) => [
+      row.id as string,
+      {
+        assetId: row.id as string,
+        bucket: row.bucket as string,
+        storageKey: row.storage_key as string,
+        mediaType: (row.media_type as string | null) ?? null,
+        mimeType: (row.mime_type as string | null) ?? null,
+        bytes: (row.bytes as number | null) ?? null,
+        width: (row.width as number | null) ?? null,
+        height: (row.height as number | null) ?? null,
+        moderationStatus: (row.moderation_status as string | null) ?? null,
+        moderationObjectVersion:
+          (row.moderation_object_version as string | null) ?? null,
+        deletedAt: (row.deleted_at as string | null) ?? null,
+      } satisfies UserInputAssetRow,
+    ])
+  );
+
+  return assetIds.map((id) => {
+    const row = byId.get(id);
+    if (!row) throw new Error("Source asset not found");
+    return row;
+  });
+}
+
+/**
+ * Ordered signed URLs for a verified input set (#179). The row's own
+ * bucket/storage_key are signed — ownership was established by the
+ * RLS-scoped load, and path spoofing is impossible because the caller's id
+ * never reaches the storage call.
+ */
+export async function signUserInputAssets(
+  rows: UserInputAssetRow[],
+  expiresSeconds = 300
+): Promise<string[]> {
+  const service = createServiceClient();
+  return Promise.all(
+    rows.map(async (row) => {
+      const { data, error } = await service.storage
+        .from(row.bucket)
+        .createSignedUrl(row.storageKey, expiresSeconds);
+      if (error || !data?.signedUrl) {
+        console.error("[signUserInputAssets] sign failed", error?.message);
+        throw new Error("Unable to prepare your images");
+      }
+      return data.signedUrl;
+    })
+  );
+}
+
+/**
+ * Live storage.objects.version behind an asset row (#179). The app brackets
+ * each image screen with before/after reads — a mid-screen overwrite moves
+ * the version and discards the verdict — and stamps it as
+ * moderation_object_version on approval so the review record is bound to
+ * the exact bytes the classifier saw.
+ */
+export async function getAssetObjectVersion(
+  service: SupabaseClient,
+  row: Pick<UserInputAssetRow, "bucket" | "storageKey">
+): Promise<string | null> {
+  const { data, error } = await service.rpc("asset_object_version", {
+    p_bucket: row.bucket,
+    p_name: row.storageKey,
+  });
+  if (error) {
+    console.error("[getAssetObjectVersion] lookup failed", error.message);
+    return null;
+  }
+  return (data as string | null) ?? null;
+}
+
+/**
+ * Stamp the moderation verdict on an input asset (#179). Always written
+ * through the service client — the assets.moderation_status column is a
+ * trusted review record that request-scoped roles cannot self-set (enforced
+ * by the prevent_asset_moderation_escalation trigger). Owner-scoped for
+ * defense in depth. Approvals bind the screened object version so swapped
+ * bytes cannot ride a stale verdict. Returns false when the stamp didn't
+ * land so callers can fail closed: an approval that isn't persisted isn't
+ * a verifiable review.
+ */
+export async function markAssetModerationStatus(
+  service: SupabaseClient,
+  assetId: string,
+  ownerId: string,
+  status: "approved" | "flagged",
+  objectVersion?: string
+): Promise<boolean> {
+  const { error } = await service
+    .from("assets")
+    .update({
+      moderation_status: status,
+      ...(status === "approved"
+        ? { moderation_object_version: objectVersion ?? null }
+        : {}),
+    })
+    .eq("id", assetId)
+    .eq("owner_user_id", ownerId);
+  if (error) {
+    console.error(
+      `[markAssetModerationStatus] failed to stamp ${status}`,
+      error.message
+    );
+    return false;
+  }
+  return true;
 }
 
 export async function getSignedSourceUrlByAssetId(

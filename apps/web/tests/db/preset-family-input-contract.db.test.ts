@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { asAnon, asService, asUser, withDb } from "./helpers/db";
@@ -412,13 +413,17 @@ describe("create_generation input contract", () => {
     return { userId, productId, productVersionId, snapshotId, endpointId };
   }
 
-  // #176 review guard: the contract is live, but provider submission is
-  // single-source until #179 — a contractually valid multi-input request
-  // must fail closed BEFORE any generation row or credit reservation.
-  it("fails closed on multi-input until #179 lands — nothing is created or charged", async () => {
+  // #179: the multi-image pipeline landed — a contractually valid
+  // multi-input request creates the generation with the full ordered input
+  // snapshot and the quoted reservation.
+  it("creates a multi-input generation with ordered rows, roles and reservation", async () => {
     await withDb(async (client) => {
       const { userId, productId, productVersionId, snapshotId, endpointId } =
-        await setup(client, { min: 1, max: 2 });
+        await setup(client, {
+          min: 2,
+          max: 2,
+          roles: [{ name: "subject" }, { name: "background" }],
+        });
       const a1 = await makeAsset(client, userId);
       const a2 = await makeAsset(client, userId);
       const quoteId = await makeBoundQuote(client, {
@@ -428,28 +433,82 @@ describe("create_generation input contract", () => {
         snapshotId,
         endpointId,
         inputAssetIds: [a1, a2],
+        inputRoles: ["subject", "background"],
       });
 
-      await expect(
-        createGenerationMulti(client, {
-          userId,
-          quoteId,
-          inputs: [{ assetId: a1 }, { assetId: a2 }],
-        })
-      ).rejects.toThrow(/Multi-image generation is not yet enabled/i);
+      const row = await createGenerationMulti(client, {
+        userId,
+        quoteId,
+        inputs: [
+          { assetId: a1, role: "subject" },
+          { assetId: a2, role: "background" },
+        ],
+      });
 
-      // Nothing persisted, nothing reserved.
-      const gens = await client.query(
-        `SELECT COUNT(*)::int AS n FROM public.generations WHERE user_id = $1`,
-        [userId]
+      expect(row.status).toBe("created");
+      expect(row.processing_token).toBeTruthy();
+      expect(Number(row.credit_cost)).toBe(10);
+
+      const inputs = await inputAssetsOf(client, row.generation_id);
+      expect(inputs).toEqual([
+        {
+          ordinal: 1,
+          asset_id: a1,
+          role: "subject",
+          product_version_id: productVersionId,
+        },
+        {
+          ordinal: 2,
+          asset_id: a2,
+          role: "background",
+          product_version_id: productVersionId,
+        },
+      ]);
+
+      // source_asset_id remains the ordinal-1 projection for legacy readers.
+      const gen = await client.query(
+        `SELECT source_asset_id FROM public.generations WHERE id = $1`,
+        [row.generation_id]
       );
-      expect(gens.rows[0].n).toBe(0);
+      expect(gen.rows[0].source_asset_id).toBe(a1);
+
       const ledger = await client.query(
         `SELECT COUNT(*)::int AS n FROM public.credit_ledger
          WHERE user_id = $1 AND entry_type = 'reservation'`,
         [userId]
       );
-      expect(ledger.rows[0].n).toBe(0);
+      expect(ledger.rows[0].n).toBe(1);
+    });
+  });
+
+  it("rejects the same asset id in two roles (duplicate input)", async () => {
+    await withDb(async (client) => {
+      const { userId, productId, productVersionId, snapshotId, endpointId } =
+        await setup(client, {
+          min: 2,
+          max: 2,
+          roles: [{ name: "subject" }, { name: "background" }],
+        });
+      const assetId = await makeAsset(client, userId);
+      const quoteId = await makeBoundQuote(client, {
+        userId,
+        productId,
+        productVersionId,
+        snapshotId,
+        endpointId,
+        inputAssetIds: [assetId, assetId],
+        inputRoles: ["subject", "background"],
+      });
+      await expect(
+        createGenerationMulti(client, {
+          userId,
+          quoteId,
+          inputs: [
+            { assetId, role: "subject" },
+            { assetId, role: "background" },
+          ],
+        })
+      ).rejects.toThrow(/Duplicate input asset/i);
     });
   });
 
@@ -537,6 +596,195 @@ describe("create_generation input contract", () => {
           inputs: [{ assetId: mine }, { assetId: theirs }],
         })
       ).rejects.toThrow(/Invalid source asset/i);
+    });
+  });
+
+  // #179: 'approved' moderation_status is the durable record of a completed
+  // image-classifier review — pending (unscreened), flagged or rejected
+  // inputs must fail closed before any generation row or reservation.
+  for (const status of ["pending", "flagged", "rejected"] as const) {
+    it(`rejects a ${status} input asset (verified approval required)`, async () => {
+      await withDb(async (client) => {
+        const { userId, productId, productVersionId, snapshotId, endpointId } =
+          await setup(client, { min: 1, max: 2 });
+        const assetId = await makeAsset(client, userId, {
+          moderationStatus: status,
+        });
+        const quoteId = await makeBoundQuote(client, {
+          userId,
+          productId,
+          productVersionId,
+          snapshotId,
+          endpointId,
+          inputAssetIds: [assetId],
+        });
+        await expect(
+          createGenerationMulti(client, {
+            userId,
+            quoteId,
+            inputs: [{ assetId }],
+          })
+        ).rejects.toThrow(/content review/i);
+
+        // No generation row and no credit reservation were written.
+        const generations = await client.query(
+          `SELECT COUNT(*)::int AS n FROM public.generations WHERE user_id = $1`,
+          [userId]
+        );
+        expect(generations.rows[0].n).toBe(0);
+        const ledger = await client.query(
+          `SELECT COUNT(*)::int AS n FROM public.credit_ledger
+           WHERE user_id = $1 AND entry_type = 'reservation'`,
+          [userId]
+        );
+        expect(ledger.rows[0].n).toBe(0);
+      });
+    });
+  }
+
+  it("blocks authenticated users from minting or moving moderation_status", async () => {
+    await withDb(async (client) => {
+      const { userId } = await makeUser(client);
+
+      // INSERT with a pre-set approval — self-approval must be impossible.
+      await expect(
+        asUser(client, userId, async () => {
+          await client.query(
+            `INSERT INTO public.assets (
+               owner_user_id, storage_provider, storage_key, bucket,
+               media_type, mime_type, visibility, moderation_status
+             ) VALUES ($1, 'supabase', $2, 'user-assets', 'image',
+               'image/png', 'private', 'approved')`,
+            [userId, `${userId}/sources/self-approved.png`]
+          );
+        })
+      ).rejects.toThrow(/moderation status/i);
+
+      // UPDATE pending → approved — same protection on the review record.
+      // (The update currently fails earlier on the pre-existing profiles
+      // RLS recursion inside assets_update's is_admin() call; either way
+      // the write must be refused and the status must not move.)
+      const assetId = await makeAsset(client, userId, {
+        moderationStatus: "pending",
+      });
+      let updateError: unknown = null;
+      try {
+        await asUser(client, userId, async () => {
+          await client.query(
+            `UPDATE public.assets SET moderation_status = 'approved'
+             WHERE id = $1`,
+            [assetId]
+          );
+        });
+      } catch (err) {
+        updateError = err;
+      }
+      expect(updateError).not.toBeNull();
+
+      const row = await client.query(
+        `SELECT moderation_status FROM public.assets WHERE id = $1`,
+        [assetId]
+      );
+      expect(row.rows[0].moderation_status).toBe("pending");
+    });
+  });
+
+  it("allows the service role to stamp the moderation verdict", async () => {
+    await withDb(async (client) => {
+      const { userId } = await makeUser(client);
+      const assetId = await makeAsset(client, userId, {
+        moderationStatus: "pending",
+      });
+      await asService(client, async () => {
+        await client.query(
+          `UPDATE public.assets SET moderation_status = 'approved'
+           WHERE id = $1`,
+          [assetId]
+        );
+      });
+      const row = await client.query(
+        `SELECT moderation_status FROM public.assets WHERE id = $1`,
+        [assetId]
+      );
+      expect(row.rows[0].moderation_status).toBe("approved");
+    });
+  });
+
+  it("blocks anon callers from minting the moderation verdict", async () => {
+    await withDb(async (client) => {
+      const { userId } = await makeUser(client);
+      const assetId = await makeAsset(client, userId, {
+        moderationStatus: "pending",
+      });
+
+      // anon INSERT with a pre-set approval — refused (RLS alone denies
+      // anon writes; the trigger is the second layer if policies drift).
+      let insertError: unknown = null;
+      try {
+        await asAnon(client, async () => {
+          await client.query(
+            `INSERT INTO public.assets (
+               owner_user_id, storage_provider, storage_key, bucket,
+               media_type, mime_type, visibility, moderation_status
+             ) VALUES ($1, 'supabase', $2, 'user-assets', 'image',
+               'image/png', 'private', 'approved')`,
+            [userId, `${userId}/sources/anon-approved.png`]
+          );
+        });
+      } catch (err) {
+        insertError = err;
+      }
+      expect(insertError).not.toBeNull();
+
+      // anon UPDATE — must not move the review record either.
+      let changed = 0;
+      try {
+        changed = await asAnon(client, async () => {
+          const res = await client.query(
+            `UPDATE public.assets SET moderation_status = 'approved'
+             WHERE id = $1`,
+            [assetId]
+          );
+          return res.rowCount ?? 0;
+        });
+      } catch {
+        // A raise is a refusal too — either way nothing may be written.
+      }
+      expect(changed).toBe(0);
+      const row = await client.query(
+        `SELECT moderation_status FROM public.assets WHERE id = $1`,
+        [assetId]
+      );
+      expect(row.rows[0].moderation_status).toBe("pending");
+    });
+  });
+
+  it("rejects an approved asset whose recorded version doesn't match the object", async () => {
+    await withDb(async (client) => {
+      const { userId, productId, productVersionId, snapshotId, endpointId } =
+        await setup(client, { inputMode: "single", min: 1, max: 1 });
+      const assetId = await makeAsset(client, userId); // approved + bound
+      // Tamper the recorded binding — superuser context is privileged.
+      await client.query(
+        `UPDATE public.assets SET moderation_object_version = $2
+         WHERE id = $1`,
+        [assetId, randomUUID()]
+      );
+      const quoteId = await makeBoundQuote(client, {
+        userId,
+        productId,
+        productVersionId,
+        snapshotId,
+        endpointId,
+        inputAssetIds: [assetId],
+      });
+      await expect(
+        createGenerationMulti(client, {
+          userId,
+          quoteId,
+          inputs: [{ assetId }],
+        })
+      ).rejects.toThrow(/content review/i);
     });
   });
 
@@ -1000,6 +1248,146 @@ describe("pending_generations input_assets", () => {
           [randomUUID(), randomUUID(), productVersionId, assetId]
         )
       ).rejects.toThrow(/pending_generations_input_assets_shape|check/i);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approved-content immutability — exercised through the real Storage API
+// ---------------------------------------------------------------------------
+
+// The local stack signs demo keys with a fixed secret (CI exports the real
+// values via `supabase status -o env`). Minting an owner-scoped JWT here is
+// what makes this a real authenticated-storage attack rather than raw SQL.
+const TEST_API_URL =
+  process.env.SUPABASE_TEST_URL ?? "http://127.0.0.1:54321";
+const TEST_ANON_KEY =
+  process.env.SUPABASE_TEST_ANON_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+const TEST_JWT_SECRET =
+  process.env.SUPABASE_TEST_JWT_SECRET ??
+  "super-secret-jwt-token-with-at-least-32-characters-long";
+
+function userJwt(userId: string): string {
+  const b64 = (o: object) =>
+    Buffer.from(JSON.stringify(o)).toString("base64url");
+  const header = b64({ alg: "HS256", typ: "JWT" });
+  const now = Math.floor(Date.now() / 1000);
+  const payload = b64({
+    iss: "supabase-demo",
+    sub: userId,
+    aud: "authenticated",
+    role: "authenticated",
+    iat: now,
+    exp: now + 3600,
+  });
+  const sig = createHmac("sha256", TEST_JWT_SECRET)
+    .update(`${header}.${payload}`)
+    .digest("base64url");
+  return `${header}.${payload}.${sig}`;
+}
+
+const PNG_BYTES = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63fcffff3f030005fe02fea79d99dd0000000049454e44ae426082",
+  "hex"
+);
+
+describe("approved input content immutability (storage.objects)", () => {
+  it("refuses an owner's overwrite of the object behind an approved asset", async () => {
+    await withDb(async (client) => {
+      const { userId } = await makeUser(client);
+      const path = `${userId}/sources/attack.png`;
+      const userStorage = createSupabaseClient(TEST_API_URL, TEST_ANON_KEY, {
+        global: {
+          headers: { Authorization: `Bearer ${userJwt(userId)}` },
+        },
+      });
+
+      // 1. The owner uploads through the real Storage API.
+      const up = await userStorage.storage
+        .from("user-assets")
+        .upload(path, PNG_BYTES, { contentType: "image/png" });
+      expect(up.error).toBeNull();
+      const obj = await client.query(
+        `SELECT version FROM storage.objects
+         WHERE bucket_id = 'user-assets' AND name = $1`,
+        [path]
+      );
+      expect(obj.rows).toHaveLength(1);
+      const version = obj.rows[0].version as string;
+
+      // 2. The asset is screened + approved, bound to that version.
+      const assetId = randomUUID();
+      await client.query(
+        `INSERT INTO public.assets (
+           id, owner_user_id, storage_provider, storage_key, bucket,
+           media_type, mime_type, width, height, moderation_status,
+           moderation_object_version
+         ) VALUES ($1, $2, 'supabase', $3, 'user-assets', 'image',
+           'image/png', 1024, 1024, 'approved', $4)`,
+        [assetId, userId, path, version]
+      );
+
+      // 3. The attack: the owner overwrites the object's bytes. The
+      //    user_assets_owner_update policy permits the request; the
+      //    immutability trigger must refuse it.
+      const swapped = Buffer.concat([
+        PNG_BYTES,
+        Buffer.from("tampered-content", "utf8"),
+      ]);
+      const upd = await userStorage.storage
+        .from("user-assets")
+        .update(path, swapped, { contentType: "image/png" });
+      expect(upd.error).not.toBeNull();
+
+      // The object version and the approval record are untouched.
+      const after = await client.query(
+        `SELECT o.version, a.moderation_status, a.moderation_object_version
+         FROM storage.objects o
+         JOIN public.assets a ON a.storage_key = o.name
+         WHERE o.bucket_id = 'user-assets' AND o.name = $1 AND a.id = $2`,
+        [path, assetId]
+      );
+      expect(after.rows[0].version).toBe(version);
+      expect(after.rows[0].moderation_status).toBe("approved");
+      expect(after.rows[0].moderation_object_version).toBe(version);
+    });
+  });
+
+  it("still permits overwrite retries on pending assets", async () => {
+    await withDb(async (client) => {
+      const { userId } = await makeUser(client);
+      const path = `${userId}/sources/retry.png`;
+      const userStorage = createSupabaseClient(TEST_API_URL, TEST_ANON_KEY, {
+        global: {
+          headers: { Authorization: `Bearer ${userJwt(userId)}` },
+        },
+      });
+      const up = await userStorage.storage
+        .from("user-assets")
+        .upload(path, PNG_BYTES, { contentType: "image/png" });
+      expect(up.error).toBeNull();
+      const assetId = randomUUID();
+      await client.query(
+        `INSERT INTO public.assets (
+           id, owner_user_id, storage_provider, storage_key, bucket,
+           media_type, mime_type, width, height, moderation_status
+         ) VALUES ($1, $2, 'supabase', $3, 'user-assets', 'image',
+           'image/png', 1024, 1024, 'pending')`,
+        [assetId, userId, path]
+      );
+
+      // Same-path retry of a not-yet-approved upload must keep working —
+      // this is the upload-retry path prepareSourceUpload supports.
+      const upd = await userStorage.storage
+        .from("user-assets")
+        .update(path, PNG_BYTES, { contentType: "image/png" });
+      expect(upd.error).toBeNull();
+      const row = await client.query(
+        `SELECT moderation_status FROM public.assets WHERE id = $1`,
+        [assetId]
+      );
+      expect(row.rows[0].moderation_status).toBe("pending");
     });
   });
 });
