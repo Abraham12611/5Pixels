@@ -6,6 +6,8 @@ import {
   getPublicProductBySlug,
   getUserFavoriteProductIds,
 } from "@/lib/db/explore";
+import { getPresetFamilyRail } from "@/lib/catalog/family";
+import { PresetFamilySelector } from "@/components/consumer/preset-family-selector";
 import { ProductMedia } from "@/components/consumer/product-media";
 import { ProductVideoPlayer } from "@/components/consumer/product-video-player";
 import { FavoriteButton } from "@/components/consumer/favorite-button";
@@ -120,6 +122,7 @@ export default async function PresetDetailPage({
   }
 
   const isFavorite = favoriteIds.includes(product.id);
+  const { data: familyMembers } = await getPresetFamilyRail(product);
   const heroAsset = selectCatalogMediaAsset(product.public_assets, "hero");
   const stillAsset =
     product.public_assets.find((a) => isImageMimeType(a.mime_type)) ?? null;
@@ -232,6 +235,15 @@ export default async function PresetDetailPage({
               <p className="text-text-secondary mt-3 text-[15px] leading-relaxed">
                 {product.short_description || product.long_description}
               </p>
+            )}
+
+            {familyMembers.length > 0 && (
+              <div className="mt-5">
+                <PresetFamilySelector
+                  members={familyMembers}
+                  currentProductId={product.id}
+                />
+              </div>
             )}
           </div>
 
@@ -365,6 +377,13 @@ export default async function PresetDetailPage({
                 Works best with clear, well-lit photos — keep the subject
                 centered.
               </p>
+
+              {familyMembers.length > 0 && (
+                <PresetFamilySelector
+                  members={familyMembers}
+                  currentProductId={product.id}
+                />
+              )}
 
               <div className="border-cream-100/10 border-t pt-6">
                 <h2 className="text-cream-50 text-lg font-semibold">Controls</h2>
