@@ -35,6 +35,9 @@ export interface StudioDraft {
   sizeName: string | null;
   /** Reserved for the prompt composer (#182) — gated by prompt_override_enabled. */
   prompt: string | null;
+  /** Carried-variant explanations (#180) — the assessVariantSwitch notices
+   *  a sibling switch produced for this setup, surfaced once on restore. */
+  notices?: string[];
   savedAt: number;
 }
 
@@ -78,6 +81,9 @@ function migrateDraft(raw: unknown): StudioDraft | null {
       options: record.options ?? {},
       sizeName: record.sizeName ?? null,
       prompt: record.prompt ?? null,
+      notices: Array.isArray(record.notices)
+        ? record.notices.filter((n): n is string => typeof n === "string")
+        : undefined,
       savedAt: record.savedAt ?? 0,
     };
   }

@@ -12,7 +12,9 @@ import {
   Sparkle,
   Warning,
 } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 import { PresetPromptComposer } from "@/components/consumer/preset-prompt-composer";
+import { PresetFamilySelector } from "@/components/consumer/preset-family-selector";
 import { StudioStage } from "@/components/consumer/studio-stage";
 import {
   PresetImageInputs,
@@ -42,6 +44,8 @@ import {
   SKIP_COST_CONFIRM_KEY,
 } from "@/lib/generation/credit-confirm";
 import { quoteFingerprintKey } from "@/lib/generation/quote-fingerprint";
+import { assessVariantSwitch } from "@/lib/catalog/variant-switch";
+import type { FamilyRailMember } from "@/lib/catalog/family";
 import {
   finalizeSourceUpload,
   prepareSourceUpload,
@@ -50,10 +54,15 @@ import {
   clearStudioDraft,
   loadStudioDraft,
   saveStudioDraft,
+  type StudioDraftFile,
 } from "@/lib/anonymous-draft";
 import { cn } from "@/lib/utils";
 import { useOnline } from "@/lib/ui/use-online";
-import type { PublicProductDetail, OutputSizeOption } from "@/types/catalog";
+import type {
+  PublicInputCapability,
+  PublicProductDetail,
+  OutputSizeOption,
+} from "@/types/catalog";
 import type { PlanForPurchase } from "@/lib/db/plans";
 import type { CreditPack } from "@/lib/billing/credit-packs";
 import type { BlockedCreditContext } from "@/lib/billing/segments";
@@ -63,6 +72,9 @@ interface ReusedSource {
   assetId: string;
   url: string;
   name: string;
+  /** Role the switch-time assessment resolved for this input — `null` fills
+   *  positionally, matching the pre-#180 Adjust behavior. */
+  role?: string | null;
 }
 
 /** One media slot in a multi-image preset (#178). Slot index is the role
@@ -213,8 +225,12 @@ interface CreateGenerationFormProps {
   initialSource?: ReusedSource | null;
   /** Additional carried inputs — sibling-variant hand-off or a multi-input
    *  Adjust restore. Ownership was already enforced when the signed URLs
-   *  were minted server-side. */
+   *  were minted server-side. A carried `role` lands on the matching named
+   *  slot; `null` fills the first open slot positionally. */
   initialInputs?: ReusedSource[] | null;
+  /** Ordered root-then-siblings for the "Styles in this set" rail (#180).
+   *  Empty for standalone presets — no selector renders. */
+  family?: FamilyRailMember[];
   /** Deploy-level release for multi-image inputs (#178) — the admin
    *  capability is a precondition; while the provider pipeline (#193)
    *  isn't live, multi presets render the one-photo experience. */
@@ -299,6 +315,31 @@ function submitStepIndex(progress: string): number {
   return 2;
 }
 
+/** Router bridge for the family rail — `useRouter` lives here so the form
+ *  only pays for the hook (and its test mocks) when a preset actually has
+ *  sibling variations to switch to (#180). */
+function VariantSwitchRail({
+  members,
+  currentProductId,
+  noticeFor,
+  onSwitch,
+}: {
+  members: FamilyRailMember[];
+  currentProductId: string;
+  noticeFor: (member: FamilyRailMember) => string | null;
+  onSwitch: (member: FamilyRailMember, navigate: (href: string) => void) => void;
+}) {
+  const router = useRouter();
+  return (
+    <PresetFamilySelector
+      members={members}
+      currentProductId={currentProductId}
+      noticeFor={noticeFor}
+      onSelect={(member) => onSwitch(member, (href) => router.push(href))}
+    />
+  );
+}
+
 export function CreateGenerationForm({
   userId,
   referralCode,
@@ -308,6 +349,7 @@ export function CreateGenerationForm({
   generationPaused = false,
   initialSource,
   initialInputs,
+  family = [],
   multiInputReleased = false,
   promptReleased = false,
   initialOptions,
@@ -336,29 +378,53 @@ export function CreateGenerationForm({
     promptReleased && inputCapability?.prompt.enabled === true;
   const promptMaxChars = Math.max(1, inputCapability?.prompt.max_chars || 0);
   /** Multi-image slots — inactive for single-image presets, which keep the
-   *  original one-photo path untouched (#178). */
-  const [slots, setSlots] = useState<InputSlot[]>(() => {
+   *  original one-photo path untouched (#178). Carried inputs seed it once:
+   *  role-bound entries land on their named slot, unassigned fill the first
+   *  open slot, and overflow is counted for the notice rather than dropped
+   *  silently (#180). */
+  const seededCarry = useMemo(() => {
     const built = buildInputSlots(product);
     const carried = [
       ...(initialSource ? [initialSource] : []),
       ...(initialInputs ?? []),
     ];
-    for (let i = 0; i < Math.min(carried.length, built.length); i++) {
-      built[i] = {
-        ...built[i]!,
+    let dropped = 0;
+    for (const input of carried) {
+      const idx = input.role
+        ? built.findIndex(
+            (s) => s.role === input.role && s.file === null && s.reused === null
+          )
+        : built.findIndex((s) => s.file === null && s.reused === null);
+      if (idx < 0) {
+        dropped++;
+        continue;
+      }
+      built[idx] = {
+        ...built[idx]!,
         status: "ready",
-        reused: carried[i]!,
-        previewUrl: carried[i]!.url,
-        assetId: carried[i]!.assetId,
+        reused: input,
+        previewUrl: input.url,
+        assetId: input.assetId,
       };
     }
-    return built;
-  });
+    return { slots: built, dropped };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-time seed
+  }, []);
+  const [slots, setSlots] = useState<InputSlot[]>(seededCarry.slots);
   const [focusedSlotId, setFocusedSlotId] = useState<string>("slot-0");
-  const [inputsNotice, setInputsNotice] = useState<string>("");
+  const [inputsNotice, setInputsNotice] = useState<string>(() =>
+    seededCarry.dropped > 0
+      ? seededCarry.dropped === 1
+        ? "1 photo doesn't fit this variation's image slots."
+        : `${seededCarry.dropped} photos don't fit this variation's image slots.`
+      : ""
+  );
   const [file, setFile] = useState<File | null>(null);
   const [reusedSource, setReusedSource] = useState<ReusedSource | null>(
-    initialSource ?? null
+    // A sibling switch into a single-image (or unreleased-multi) target
+    // keeps the first carried photo on the one-photo path — slot seeding
+    // above is inert for it, so this is where that image actually lands.
+    initialSource ?? (!isMulti ? (initialInputs?.[0] ?? null) : null)
   );
   /** Object URL for the picked file — created in the pick handler, not
    * render, so StrictMode remounts can't revoke a URL still on screen. */
@@ -568,6 +634,165 @@ export function CreateGenerationForm({
             is_default: true,
           }] as OutputSizeOption[]),
     [product.output_sizes]
+  );
+
+  // ── Family variant switching (#180) ─────────────────────────────────
+  // The current setup as a carry-draft: uploaded inputs keep their asset
+  // ids (they ride the URL — no re-upload), staged files get stable local
+  // keys so the assessment can still sort/assign/drop them correctly.
+  const variantDraftImages = useMemo(() => {
+    const images: { assetId: string; role: string | null }[] = [];
+    if (isMulti) {
+      for (const s of filledSlots) {
+        images.push({
+          assetId:
+            s.assetId ??
+            s.reused?.assetId ??
+            `local:${s.file?.name ?? s.id}:${s.file?.size ?? 0}`,
+          role: s.role,
+        });
+      }
+    } else if (hasSource) {
+      images.push({
+        assetId:
+          reusedSource?.assetId ??
+          `local:${file?.name ?? "staged"}:${file?.size ?? 0}`,
+        role: null,
+      });
+    }
+    return images;
+  }, [isMulti, filledSlots, hasSource, reusedSource, file]);
+  /** Same keys as `variantDraftImages` → the staged File or finalized
+   *  asset behind each ref, used to split carried inputs between the
+   *  ?inputs URL and the IndexedDB draft. */
+  const variantSources = useMemo(() => {
+    const map = new Map<
+      string,
+      { assetId: string | null; file: File | null }
+    >();
+    if (isMulti) {
+      for (const s of filledSlots) {
+        const assetId = s.assetId ?? s.reused?.assetId ?? null;
+        const key =
+          assetId ?? `local:${s.file?.name ?? s.id}:${s.file?.size ?? 0}`;
+        map.set(key, { assetId, file: s.file });
+      }
+    } else if (hasSource) {
+      const assetId = reusedSource?.assetId ?? null;
+      const key =
+        assetId ?? `local:${file?.name ?? "staged"}:${file?.size ?? 0}`;
+      map.set(key, { assetId, file });
+    }
+    return map;
+  }, [isMulti, filledSlots, hasSource, reusedSource, file]);
+  const variantDraft = useMemo(
+    () => ({ images: variantDraftImages, prompt: submitPrompt || null }),
+    [variantDraftImages, submitPrompt]
+  );
+  /** The capability a sibling can *actually* honor today: admin flags are
+   *  preconditions, but while a public release gate is off the assessment
+   *  must explain the degraded reality rather than the configured ideal —
+   *  an unreleased multi target only takes one image, an unreleased
+   *  prompt capability can't apply saved text. */
+  const effectiveCapability = useCallback(
+    (
+      cap: PublicInputCapability | null | undefined
+    ): PublicInputCapability | null =>
+      cap == null
+        ? null
+        : {
+            ...cap,
+            max_images: multiInputReleased
+              ? cap.max_images
+              : Math.min(cap.max_images, 1),
+            prompt: {
+              enabled: promptReleased && cap.prompt.enabled,
+              max_chars: cap.prompt.max_chars,
+            },
+          },
+    [multiInputReleased, promptReleased]
+  );
+  /** Per-chip draft-compat explanation — Engineer 3's `noticeFor` slot. */
+  const variantNoticeFor = useCallback(
+    (member: FamilyRailMember) => {
+      if (!member.available || member.productId === product.id) return null;
+      const { notices } = assessVariantSwitch(
+        effectiveCapability(member.inputCapability),
+        variantDraft
+      );
+      return notices.length > 0 ? notices.join(" · ") : null;
+    },
+    [effectiveCapability, product.id, variantDraft]
+  );
+  const [variantSwitching, setVariantSwitching] = useState(false);
+  /** Switch: assess the carry, persist a draft the target restores via
+   *  ?draft=1 (files, options, size, prompt, notices), hand already-
+   *  uploaded assets through ?inputs/?roles, then navigate. The target
+   *  page is a fresh form — its own quote lifecycle reprices the new
+   *  version and no consent surface or charge can ride across. */
+  const handleVariantSelect = useCallback(
+    (member: FamilyRailMember, navigate: (href: string) => void) => {
+      if (variantSwitching || !member.available) return;
+      const result = assessVariantSwitch(
+        effectiveCapability(member.inputCapability),
+        variantDraft
+      );
+      setVariantSwitching(true);
+      const carriedIds: string[] = [];
+      const carriedRoles: string[] = [];
+      const draftFiles: StudioDraftFile[] = [];
+      for (const img of result.images) {
+        const src = variantSources.get(img.assetId);
+        if (!src) continue;
+        if (src.assetId) {
+          carriedIds.push(src.assetId);
+          carriedRoles.push(img.role ?? "");
+        } else if (src.file) {
+          draftFiles.push({
+            blob: src.file,
+            name: src.file.name,
+            type: src.file.type,
+            role: img.role,
+          });
+        }
+      }
+      void (async () => {
+        const saved = await saveStudioDraft({
+          slug: member.slug,
+          familyId: product.family_id ?? product.id,
+          files: draftFiles,
+          options,
+          sizeName: selectedSize.name ?? null,
+          // Preserved even when the target can't apply it — the target's
+          // prompt gate decides application; the text is never discarded.
+          prompt: variantDraft.prompt,
+          notices: result.notices.length > 0 ? result.notices : undefined,
+        });
+        if (!saved && draftFiles.length > 0) {
+          // The staged files are the only copy — losing them to a dead-end
+          // navigation is worse than staying put with a warning.
+          setVariantSwitching(false);
+          setDraftSaveWarning(true);
+          return;
+        }
+        const params = new URLSearchParams({ draft: "1" });
+        if (carriedIds.length > 0) {
+          params.set("inputs", carriedIds.join(","));
+          params.set("roles", carriedRoles.join(","));
+        }
+        navigate(`/app/create/${member.slug}?${params.toString()}`);
+      })();
+    },
+    [
+      variantSwitching,
+      effectiveCapability,
+      variantDraft,
+      variantSources,
+      product.family_id,
+      product.id,
+      options,
+      selectedSize.name,
+    ]
   );
 
   const previewUrl = isMulti
@@ -841,28 +1066,49 @@ export function CreateGenerationForm({
       const files = draft.files.map(
         (f) => new File([f.blob], f.name, { type: f.type })
       );
+      let droppedNotice = "";
 
       if (isMulti) {
-        const capacity = buildInputSlots(product).length;
-        const dropped = Math.max(0, files.length - capacity);
-        setSlots((prev) =>
-          prev.map((s, i) => {
-            const restored = files[i];
-            if (!restored) return s;
-            return {
-              ...blankSlot(s),
-              status: "validating",
-              file: restored,
-              previewUrl: URL.createObjectURL(restored),
-            };
-          })
-        );
-        if (dropped > 0) {
-          setInputsNotice(
-            dropped === 1
+        // Role-aware placement (#180): draft files carry the role the
+        // switch-time assessment resolved for this variation, so each lands
+        // on its named slot — never on a slot a carried ?inputs asset
+        // already filled. This effect fires once at mount, so placing
+        // against the render-scope slots is deterministic; overflow is
+        // counted for the notice, not lost.
+        const next = [...slots];
+        let overflow = 0;
+        draft.files.forEach((draftFile, i) => {
+          const restored = files[i]!;
+          let idx = draftFile.role
+            ? next.findIndex(
+                (s) =>
+                  s.role === draftFile.role &&
+                  s.file === null &&
+                  s.reused === null
+              )
+            : -1;
+          if (idx < 0) {
+            idx = next.findIndex(
+              (s) => s.file === null && s.reused === null
+            );
+          }
+          if (idx < 0) {
+            overflow++;
+            return;
+          }
+          next[idx] = {
+            ...blankSlot(next[idx]!),
+            status: "validating",
+            file: restored,
+            previewUrl: URL.createObjectURL(restored),
+          };
+        });
+        setSlots(next);
+        if (overflow > 0) {
+          droppedNotice =
+            overflow === 1
               ? "1 photo wasn't needed for this look."
-              : `${dropped} photos weren't needed for this look.`
-          );
+              : `${overflow} photos weren't needed for this look.`;
         }
         setFocusedSlotId("slot-0");
       } else {
@@ -873,6 +1119,11 @@ export function CreateGenerationForm({
           setReusedSource(null);
         }
       }
+      // Switch-time explanations (#180) — what carried, what the target
+      // can't take, what it still needs. Shown on either input path.
+      const notices = [...(draft.notices ?? [])];
+      if (droppedNotice) notices.push(droppedNotice);
+      if (notices.length > 0) setInputsNotice(notices.join(" "));
       setDraftRestored(true);
       setOptions((prev) => ({ ...prev, ...draft.options }));
       // Saved prompt only applies when this preset can take it — a sibling
@@ -909,7 +1160,9 @@ export function CreateGenerationForm({
   // them. If the write fails (private mode / quota) we say so rather than
   // silently implying the setup was saved.
   useEffect(() => {
-    if (!isAnonymous) return;
+    // A variant switch owns the draft slot until it navigates — an in-flight
+    // autosave for the old slug could overwrite the switch draft (#180).
+    if (!isAnonymous || variantSwitching) return;
     const handle = setTimeout(() => {
       const draftFiles = isMulti
         ? filledSlots
@@ -936,6 +1189,7 @@ export function CreateGenerationForm({
     return () => clearTimeout(handle);
   }, [
     isAnonymous,
+    variantSwitching,
     isMulti,
     filledSlots,
     file,
@@ -1642,6 +1896,19 @@ export function CreateGenerationForm({
               <ArrowRight size={12} weight="bold" />
             </Link>
           </div>
+
+          {/* Sibling variations (#180) — browse/switch before generating.
+              Chips explain what the draft can't carry; selection assesses
+              compatibility, preserves the setup in a draft, and hands
+              uploaded assets across without a re-upload. */}
+          {family.length > 1 && (
+            <VariantSwitchRail
+              members={family}
+              currentProductId={product.id}
+              noticeFor={variantNoticeFor}
+              onSwitch={handleVariantSelect}
+            />
+          )}
 
           {/* Source status line — the stage carries this on mobile. */}
           <div className="hidden md:block">
