@@ -24,6 +24,7 @@ import {
 import { getRouteCapability } from "@/lib/ai/route-capabilities";
 import { assertVersionQuotable } from "@/lib/validation/route-publish-check";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
+import { isMultiInputReleased } from "@/lib/generation/release-gates";
 
 const REFERENCE_ASSET_ROLES = [
   "style_reference",
@@ -467,14 +468,19 @@ export async function publishProductVersion(
 
   // Release readiness (#177): admins may prepare drafts, but a preset must
   // not publish capabilities the backend cannot execute.
-  // - Multi-image: create_generation rejects >1 inputs unconditionally until
-  //   #179 ships provider multi-input submission — removal owned by #179.
+  // - Multi-image: gated on the server-side release flag
+  //   (PRESET_MULTI_INPUT_ENABLED) — OFF until #193 ships the provider
+  //   pipeline + DB migration and release QA enables it. The
+  //   create_generation RPC keeps rejecting >1 inputs regardless.
   // - Custom prompts: require the release flag (and the protected
   //   release_gates DB row, enforced inside the RPC) to be enabled —
   //   approval-gated by merchant/legal signoff (#183).
-  if (capability.input_mode === "multi" || capability.input_max_images > 1) {
+  if (
+    (capability.input_mode === "multi" || capability.input_max_images > 1) &&
+    !isMultiInputReleased()
+  ) {
     throw new Error(
-      "Cannot publish: multi-image inputs are not yet executable — publication is blocked until #179 lands provider multi-input submission."
+      "Cannot publish: multi-image inputs are gated off until the provider pipeline ships (#193) and PRESET_MULTI_INPUT_ENABLED is enabled."
     );
   }
   if (capability.prompt_override_enabled && !isUserPromptReleased()) {

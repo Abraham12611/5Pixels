@@ -458,6 +458,33 @@ describe("validatePublishGates — preset family + capability (#177)", () => {
     );
   });
 
+  it("publishes multi-image once the release flag is on, and only then", () => {
+    // The flag is a *release* switch, not a capability waiver — a route-
+    // compatible multi version publishes when PRESET_MULTI_INPUT_ENABLED
+    // is on, and stays blocked when it is off.
+    const version = {
+      ...validVersion(),
+      input_mode: "multi" as const,
+      input_min_images: 1,
+      input_max_images: 3,
+    };
+    const gated = validatePublishGates(validProduct(), version, [], {
+      routeCapability: verifiedRoute,
+      multiInputReleased: false,
+    });
+    expect(gated.ok).toBe(false);
+    if (gated.ok) throw new Error("expected failures");
+    expect(gated.failures.map((f) => f.code)).toContain(
+      "MULTI_IMAGE_NOT_EXECUTABLE"
+    );
+
+    const released = validatePublishGates(validProduct(), version, [], {
+      routeCapability: verifiedRoute,
+      multiInputReleased: true,
+    });
+    expect(released.ok).toBe(true);
+  });
+
   it("blocks prompt-enabled versions until the release flag is on, then passes", () => {
     const version = {
       ...validVersion(),
