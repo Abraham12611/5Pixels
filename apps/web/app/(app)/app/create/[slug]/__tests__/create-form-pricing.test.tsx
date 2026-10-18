@@ -223,6 +223,7 @@ describe("create form — pricing readiness", () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     mocks.loadDraft.mockResolvedValue(null);
+    mocks.saveDraft.mockResolvedValue(true);
     mocks.createAndSubmit.mockResolvedValue({});
   });
 

@@ -6,6 +6,7 @@ import { getPublicProductBySlug } from "@/lib/db/explore";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
+import { isMultiInputReleased } from "@/lib/generation/release-gates";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
@@ -20,10 +21,10 @@ export default async function CreatePage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; inputs?: string }>;
 }) {
   const { slug } = await params;
-  const { from } = await searchParams;
+  const { from, inputs: inputsParam } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -48,6 +49,11 @@ export default async function CreatePage({
   ]);
 
   const generationPaused = process.env.GENERATION_PAUSED === "true";
+  // Multi-image release gate (#178): the admin capability is a
+  // precondition — while the provider pipeline (#193) isn't live, carried
+  // sibling/adjust inputs aren't even resolved and the form renders the
+  // one-photo experience.
+  const multiReleased = isMultiInputReleased();
 
   // Blocked-credit routing (06 §2): who the user is decides which recovery
   // surface the Generate gate opens — subscriber top-up, weekly repurchase,
@@ -79,6 +85,10 @@ export default async function CreatePage({
     null;
   let initialOptions: Record<string, unknown> | null = null;
   let initialSize: OutputSizeOption | null = null;
+  /** Additional staged inputs handed across a sibling-variant switch
+   *  (?inputs=a1,a2) or restored from a multi-input Adjust. The signed-url
+   *  lookup enforces ownership — foreign ids are skipped, never shown. */
+  const initialInputs: { assetId: string; url: string; name: string }[] = [];
 
   if (from && user) {
     const { data: previous } = await supabase
@@ -101,6 +111,35 @@ export default async function CreatePage({
           };
         }
       }
+      // Multi-input presets (#178): Adjust re-stages the full ordered input
+      // set, not just the ordinal-1 projection. Rows are immutable and
+      // owner-scoped, so this can only ever return the caller's own assets.
+      const { data: inputRows } = multiReleased
+        ? await supabase
+            .from("generation_input_assets")
+            .select("asset_id, ordinal")
+            .eq("generation_id", from)
+            .order("ordinal", { ascending: true })
+        : { data: null };
+      if (inputRows && inputRows.length > 1) {
+        for (const row of inputRows) {
+          if (row.asset_id === previous.source_asset_id) continue;
+          try {
+            const url = await getSignedSourceUrlByAssetId(
+              row.asset_id as string
+            );
+            if (url) {
+              initialInputs.push({
+                assetId: row.asset_id as string,
+                url,
+                name: "Your previous photo",
+              });
+            }
+          } catch {
+            // Unresolvable input — skip rather than fail the whole restore.
+          }
+        }
+      }
       if (
         previous.requested_options &&
         typeof previous.requested_options === "object"
@@ -115,6 +154,26 @@ export default async function CreatePage({
           product.output_sizes?.find(
             (s) => s.width === prevW && s.height === prevH
           ) ?? null;
+      }
+    }
+  }
+
+  // Sibling-variant carry (?inputs=a1,a2): a family switch hands already-
+  // uploaded input assets forward; roles resolve positionally in the form
+  // against the target version's declared capability (#178/#180).
+  if (!from && inputsParam && user && multiReleased) {
+    const ids = inputsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const id of ids) {
+      try {
+        const url = await getSignedSourceUrlByAssetId(id);
+        if (url) {
+          initialInputs.push({ assetId: id, url, name: "Kept photo" });
+        }
+      } catch {
+        // Unresolvable/foreign asset — skip rather than fail the page.
       }
     }
   }
@@ -147,6 +206,8 @@ export default async function CreatePage({
         hasPriorGenerations={generationCount > 0}
         generationPaused={generationPaused}
         initialSource={initialSource}
+        initialInputs={initialInputs}
+        multiInputReleased={multiReleased}
         initialOptions={initialOptions}
         initialSize={initialSize}
         plans={plans}
