@@ -13,7 +13,7 @@ const sql = readFileSync(
     "../../../../../supabase/migrations/20261018000002_articles_foundation.sql"
   ),
   "utf-8"
-);
+).replace(/\r\n/g, "\n"); // tolerate CRLF checkouts on Windows dev machines
 
 describe("articles foundation migration", () => {
   it("enables RLS on all three articles tables", () => {

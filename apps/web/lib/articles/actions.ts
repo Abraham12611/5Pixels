@@ -13,6 +13,10 @@ import {
   stageArticleMediaPublicCopies,
 } from "./media-lifecycle";
 import { normalizeSlug } from "./slug";
+import { ARTICLE_MEDIA_BUCKET } from "./media";
+import { createServiceClient } from "@/lib/supabase/service";
+import { logAdminAction } from "@/lib/db/audit";
+import { getArticleForEditor } from "./queries";
 import type {
   Article,
   ArticleRevisionSource,
@@ -245,6 +249,7 @@ export async function publishArticleAction(
   }
 
   revalidateArticlePaths(result.article);
+  await auditArticleTransition("article.publish", articleId, result.article);
   return result;
 }
 
@@ -259,6 +264,7 @@ export async function unpublishArticleAction(
     // Revoke public serving first (rows flip private), objects deleted after.
     await revokeArticleMedia(articleId);
     revalidateArticlePaths(result.article);
+    await auditArticleTransition("article.unpublish", articleId, result.article);
   }
   return result;
 }
@@ -273,6 +279,7 @@ export async function archiveArticleAction(
   if (result.ok) {
     await revokeArticleMedia(articleId);
     revalidateArticlePaths(result.article);
+    await auditArticleTransition("article.archive", articleId, result.article);
   }
   return result;
 }
@@ -284,6 +291,147 @@ export async function unarchiveArticleAction(
   const result = await rpcResult(
     supabase.rpc("unarchive_article", { p_article_id: articleId })
   );
-  if (result.ok) revalidateArticlePaths(result.article);
+  if (result.ok) {
+    revalidateArticlePaths(result.article);
+    await auditArticleTransition(
+      "article.unarchive",
+      articleId,
+      result.article
+    );
+  }
   return result;
+}
+
+/* --------------------------------------------------------------------------
+ * Studio helpers (#126)
+ * ------------------------------------------------------------------------ */
+
+/** Status transitions land in admin_audit_logs alongside the RPC's own
+ * published_by/last_edited_by fields. Non-blocking: the transition already
+ * committed, so an audit outage must not masquerade as a failed mutation. */
+async function auditArticleTransition(
+  action: string,
+  articleId: string,
+  article?: Article
+) {
+  try {
+    await logAdminAction({
+      action,
+      entityType: "article",
+      entityId: articleId,
+      after: article
+        ? { status: article.status, slug: article.slug }
+        : undefined,
+      throwOnFailure: false,
+    });
+  } catch (err) {
+    console.error(`[articles] audit log failed for ${action}`, err);
+  }
+}
+
+/** One media clone the app must physically copy + finalize after
+ * duplicate_article registered the new rows. */
+export interface ArticleMediaCopyPlan {
+  asset_id: string;
+  from_key: string;
+  to_key: string;
+  mime_type: string;
+  bytes: number;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+}
+
+/**
+ * Duplicate an article as a new draft (#126). The RPC creates the draft,
+ * re-registers every media row under fresh article-scoped asset ids and
+ * rewrites the document references atomically; this action then performs the
+ * physical object copies in the private bucket and finalizes each clone so
+ * it flips pending -> ready. A copy failure never leaves dangling shared
+ * references — the row simply stays pending until the sweep reclaims it.
+ */
+export async function duplicateArticleAction(
+  articleId: string
+): Promise<ArticleWriteResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("duplicate_article", {
+    p_article_id: articleId,
+  });
+  if (error) {
+    const { code, message } = mapRpcError(error);
+    return { ok: false, code, error: message };
+  }
+
+  const { article, copies } = (data ?? {}) as {
+    article?: Article;
+    copies?: ArticleMediaCopyPlan[];
+  };
+  if (!article) {
+    return { ok: false, code: "unknown", error: "Duplicate returned no article" };
+  }
+
+  const service = createServiceClient();
+  let failedCopies = 0;
+  for (const copy of copies ?? []) {
+    const { error: copyError } = await service.storage
+      .from(ARTICLE_MEDIA_BUCKET)
+      .copy(copy.from_key, copy.to_key);
+    if (copyError) {
+      console.error(
+        "[duplicateArticleAction] object copy failed",
+        copy.from_key,
+        copyError.message
+      );
+      failedCopies += 1;
+      continue;
+    }
+    // finalize verifies the copied object against the assets row and flips
+    // the clone pending -> ready.
+    const { error: finalizeError } = await supabase.rpc(
+      "finalize_article_media_upload",
+      {
+        p_asset_id: copy.asset_id,
+        p_verified_mime_type: copy.mime_type,
+        p_verified_bytes: copy.bytes,
+        p_width: copy.width,
+        p_height: copy.height,
+        p_duration_ms: copy.duration_ms,
+      }
+    );
+    if (finalizeError) {
+      console.error(
+        "[duplicateArticleAction] finalize failed",
+        copy.asset_id,
+        finalizeError.message
+      );
+      failedCopies += 1;
+    }
+  }
+
+  revalidatePath("/admin/articles");
+  await auditArticleTransition("article.duplicate", articleId, article);
+  return {
+    ok: true,
+    article,
+    warning:
+      failedCopies > 0
+        ? `${failedCopies} media item${failedCopies === 1 ? "" : "s"} could not be copied — re-add them in the duplicate before publishing.`
+        : undefined,
+  };
+}
+
+/** Fresh editor payload after an edit_version conflict — the client remounts
+ * the editor against the newest row. */
+export async function getArticleForStudioAction(
+  articleId: string
+): Promise<ArticleWriteResult> {
+  const { data, error } = await getArticleForEditor(articleId);
+  if (error || !data) {
+    return {
+      ok: false,
+      code: "article_not_found",
+      error: error ?? "Article not found",
+    };
+  }
+  return { ok: true, article: data };
 }

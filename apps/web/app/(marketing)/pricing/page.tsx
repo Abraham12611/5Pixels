@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPlansForPurchase } from "@/lib/db/plans";
-import { getMedianPresetCost } from "@/lib/db/explore";
+import { getCatalogCostProfile, getMedianPresetCost } from "@/lib/db/explore";
 import { getActivePlan } from "@/lib/billing/entitlements";
 import { PlanFinder } from "@/components/marketing/plan-finder";
 import { PricingCards } from "@/components/marketing/pricing-cards";
@@ -17,10 +17,11 @@ export default async function PricingPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [plans, activePlan, medianCredits] = await Promise.all([
+  const [plans, activePlan, medianCredits, costProfile] = await Promise.all([
     getPlansForPurchase(),
     getActivePlan(),
     getMedianPresetCost(),
+    getCatalogCostProfile(),
   ]);
 
   const monthlyPlans = plans.filter((p) => p.type === "monthly");
@@ -69,13 +70,26 @@ export default async function PricingPage() {
           </p>
           <div className="mt-10">
             <PlanFinder
-              plans={monthlyPlans.map((p) => ({
-                id: p.id,
-                name: p.name,
-                creditsGrant: p.credits_grant,
-                priceCents: p.price_cents,
-                markupMultiplier: p.markup_multiplier,
-              }))}
+              plans={plans
+                .filter(
+                  (p) =>
+                    p.type === "monthly" ||
+                    p.type === "annual" ||
+                    p.type === "weekly_trial"
+                )
+                .map((p) => ({
+                  id: p.id,
+                  slug: p.slug,
+                  name: p.name
+                    .replace(" Annual", "")
+                    .replace(" Monthly", "")
+                    .replace(/^Weekly Trial\s*[—-]\s*/, ""),
+                  type: p.type,
+                  creditsGrant: p.credits_grant,
+                  priceCents: p.price_cents,
+                  checkoutReady: p.checkout_ready,
+                }))}
+              costs={costProfile}
               isAuthenticated={Boolean(user)}
             />
           </div>
