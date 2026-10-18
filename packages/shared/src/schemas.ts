@@ -201,6 +201,21 @@ export const productVersionSchema = z.object({
   }
 );
 
+/**
+ * Admin-authored consumer-facing copy for the optional prompt composer
+ * (#177). Product-level presentation config persisted in
+ * `products.metadata.prompt_ui` — deliberately separate from
+ * `public_prompt_recipe` (article editorial copy) and from the hidden
+ * `private_instruction_template` recipe. Only rendered by the consumer
+ * composer when the published version's `prompt_override_enabled` is true.
+ */
+export const promptUiConfigSchema = z.object({
+  placeholder: z.string().max(200).optional(),
+  /** Plain-language description of what the user may change (shown as help text). */
+  scope: z.string().max(300).optional(),
+  examples: z.array(z.string().max(200)).max(5).default([]),
+});
+
 export const posterConfigSchema = z.object({
   layout_template: z.enum(["portrait", "square", "landscape"]),
   text_fields: z.array(
@@ -263,6 +278,7 @@ export const baseProductSchema = z.object({
   standalone_discoverable: z.boolean().default(false),
   variant_display_name: z.string().max(120).nullable().optional(),
   variant_sort_order: z.number().int().nonnegative().default(0),
+  prompt_ui: promptUiConfigSchema.optional(),
 });
 
 export const productCreateSchema = baseProductSchema
