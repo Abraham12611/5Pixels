@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mapCatalogRow } from "@/lib/catalog/catalog-rows";
 import type {
   FavoriteProduct,
+  PresetFamilyMember,
   PublicProductSummary,
   PublicProductDetail,
 } from "@/types/catalog";
@@ -91,8 +92,35 @@ export async function getPublicProductBySlug(
       version_id: row.version_id ?? null,
       credit_cost: Number(row.credit_cost),
       output_sizes: Array.isArray(row.output_sizes) ? row.output_sizes : [],
+      parent_preset_id: row.parent_preset_id ?? null,
+      standalone_discoverable: row.standalone_discoverable ?? false,
+      variant_count: Number(row.variant_count ?? 0),
+      variant_display_name: row.variant_display_name ?? null,
+      family_id: row.family_id ?? row.id,
+      input_capability: row.input_capability ?? null,
     } as PublicProductDetail,
   };
+}
+
+/**
+ * Ordered family members for a preset — the contract surface the variation
+ * rail (#180) consumes. Accepts a parent or any variant id; returns []
+ * when the product has no published family or is itself unavailable.
+ */
+export async function getPresetFamily(
+  productId: string
+): Promise<CatalogResult<PresetFamilyMember[]>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_preset_family", {
+    p_product_id: productId,
+  });
+
+  if (error) {
+    console.error("[getPresetFamily] family RPC failed", error);
+    return { data: [], error: GENERIC_ERROR };
+  }
+
+  return { data: (data ?? []) as PresetFamilyMember[] };
 }
 
 export async function getPublicAssetUrl(

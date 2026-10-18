@@ -115,6 +115,13 @@ export async function createProduct(input: ProductCreateInput) {
       model_config: version.model_config,
       output_sizes: version.output_sizes,
       input_validation_config: version.input_validation_config,
+      input_mode: version.input_capability.input_mode,
+      input_min_images: version.input_capability.input_min_images,
+      input_max_images: version.input_capability.input_max_images,
+      input_image_roles: version.input_capability.input_image_roles,
+      prompt_override_enabled:
+        version.input_capability.prompt_override_enabled,
+      prompt_max_chars: version.input_capability.prompt_max_chars,
       post_process_config: version.post_process_config,
       safety_config: version.safety_config,
       credit_cost,
@@ -214,6 +221,13 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
         model_config: version.model_config,
         output_sizes: version.output_sizes,
         input_validation_config: version.input_validation_config,
+        input_mode: version.input_capability.input_mode,
+        input_min_images: version.input_capability.input_min_images,
+        input_max_images: version.input_capability.input_max_images,
+        input_image_roles: version.input_capability.input_image_roles,
+        prompt_override_enabled:
+          version.input_capability.prompt_override_enabled,
+        prompt_max_chars: version.input_capability.prompt_max_chars,
         post_process_config: version.post_process_config,
         safety_config: version.safety_config,
         credit_cost,
@@ -378,6 +392,12 @@ export async function duplicateProduct(id: string) {
       model_config: originalVersion.model_config,
       output_sizes: originalVersion.output_sizes,
       input_validation_config: originalVersion.input_validation_config,
+      input_mode: originalVersion.input_mode,
+      input_min_images: originalVersion.input_min_images,
+      input_max_images: originalVersion.input_max_images,
+      input_image_roles: originalVersion.input_image_roles,
+      prompt_override_enabled: originalVersion.prompt_override_enabled,
+      prompt_max_chars: originalVersion.prompt_max_chars,
       post_process_config: originalVersion.post_process_config,
       safety_config: originalVersion.safety_config,
       credit_cost: originalVersion.credit_cost,
@@ -597,6 +617,25 @@ export async function getAdminProductBySlug(slug: string) {
     public_assets: [],
     created_at: product.created_at ?? null,
     likeness_level: product.likeness_level ?? null,
+    parent_preset_id: product.parent_preset_id ?? null,
+    standalone_discoverable: product.standalone_discoverable ?? false,
+    variant_count: 0,
+    variant_display_name: product.variant_display_name ?? null,
+    family_id: product.parent_preset_id ?? product.id,
+    input_capability: version
+      ? {
+          mode: (version.input_mode as "single" | "multi") ?? "single",
+          min_images: Number(version.input_min_images ?? 1),
+          max_images: Number(version.input_max_images ?? 1),
+          roles: Array.isArray(version.input_image_roles)
+            ? (version.input_image_roles as { name: string; optional?: boolean }[])
+            : [],
+          prompt: {
+            enabled: Boolean(version.prompt_override_enabled),
+            max_chars: Number(version.prompt_max_chars ?? 0),
+          },
+        }
+      : null,
     active_fields: fields
       .filter((f: { active: boolean | null }) => f.active !== false)
       .sort(

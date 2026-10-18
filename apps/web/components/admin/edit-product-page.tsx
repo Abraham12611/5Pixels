@@ -96,6 +96,13 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     likeness_level: product.likeness_level ?? undefined,
     featured_rank: product.featured_rank ?? undefined,
     credit_cost: versionCreditCost ?? Number(product.credit_cost ?? 0),
+    parent_preset_id:
+      (product.parent_preset_id as string | null | undefined) ?? undefined,
+    standalone_discoverable: Boolean(product.standalone_discoverable),
+    variant_display_name:
+      (product.variant_display_name as string | null | undefined) ??
+      undefined,
+    variant_sort_order: Number(product.variant_sort_order ?? 0),
     version: {
       id: version?.id as string | undefined,
       version_number: (version?.version_number as number) ?? 1,
@@ -121,6 +128,18 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         (version?.input_validation_config as
           | ProductCreateInput["version"]["input_validation_config"]
           | undefined) ?? {},
+      input_capability: {
+        input_mode:
+          ((version?.input_mode as "single" | "multi" | undefined) ??
+            "single"),
+        input_min_images: Number(version?.input_min_images ?? 1),
+        input_max_images: Number(version?.input_max_images ?? 1),
+        input_image_roles: Array.isArray(version?.input_image_roles)
+          ? (version.input_image_roles as ProductCreateInput["version"]["input_capability"]["input_image_roles"])
+          : [],
+        prompt_override_enabled: Boolean(version?.prompt_override_enabled),
+        prompt_max_chars: Number(version?.prompt_max_chars ?? 0),
+      },
       post_process_config: (version?.post_process_config as
         ProductCreateInput["version"]["post_process_config"] | undefined) ?? {
         crop: false,

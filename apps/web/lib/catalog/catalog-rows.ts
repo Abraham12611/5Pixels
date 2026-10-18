@@ -31,6 +31,9 @@ export function mapCatalogRow(
     public_assets,
     created_at,
     likeness_level,
+    parent_preset_id,
+    standalone_discoverable,
+    variant_count,
   } = row;
 
   return {
@@ -56,5 +59,8 @@ export function mapCatalogRow(
     public_assets,
     created_at: created_at ?? null,
     likeness_level: likeness_level ?? null,
+    parent_preset_id: parent_preset_id ?? null,
+    standalone_discoverable: standalone_discoverable ?? false,
+    variant_count: Number(variant_count ?? 0),
   };
 }

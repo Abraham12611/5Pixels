@@ -1,9 +1,29 @@
 import type { PublicProductField, OutputSizeOption } from "@/types/catalog";
 
+/** One ordered generation input — an owned asset plus optional declared
+ *  role. Ordinals are implicit in array order (#176). */
+export interface GenerationInputAsset {
+  assetId: string;
+  role?: string;
+}
+
 export interface CreateGenerationInput {
   productId: string;
   productVersionId: string;
-  sourceAssetId: string;
+  /**
+   * @deprecated Single-image callers only. New code should pass `inputs`.
+   * Retained as the contract's backward-compatible alias for
+   * `inputs: [{ assetId: sourceAssetId }]`.
+   */
+  sourceAssetId?: string;
+  /** Ordered inputs (ordinal = array position). Server-validated against
+   *  the pinned version's input capability; required unless the deprecated
+   *  `sourceAssetId` alias is used. */
+  inputs?: GenerationInputAsset[];
+  /** Optional user prompt — only accepted when the pinned version has
+   *  `prompt_override_enabled`; screened with the options before any
+   *  credits move and bound into the quote hash. */
+  prompt?: string;
   options: Record<string, unknown>;
   outputSize: OutputSizeOption;
   idempotencyKey: string;
@@ -47,6 +67,19 @@ export interface SafeGenerationDetail extends SafeGeneration {
   completedAt: string | null;
   failureCode: string | null;
   failureStage: string | null;
+  /** Ordered input assets recorded in generation_input_assets (#176). */
+  inputAssets: Array<{
+    assetId: string;
+    role: string | null;
+    ordinal: number;
+    bucket: string;
+    storageKey: string;
+    mimeType: string | null;
+    width: number | null;
+    height: number | null;
+  }>;
+  /** The caller's own prompt text, when the preset allowed one. */
+  userPrompt: string | null;
   outputs: Array<{
     assetId: string;
     outputRole: string;
