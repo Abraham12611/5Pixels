@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
@@ -17,6 +17,13 @@ import { OutputSizesField } from "./output-sizes-field";
 import { ProviderStrategyFields } from "./provider-strategy-fields";
 import { FormRichSelect } from "./form-rich-select";
 import { optionalNumberInput } from "./form-utils";
+import {
+  PresetFamilyFields,
+  PromptEditFields,
+  UserImageInputFields,
+  type EligibleParentOption,
+} from "./preset-studio-fields";
+import type { ParentCandidate } from "@/lib/validation/preset-family";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
 export interface ProductAssetPreview {
@@ -65,6 +72,14 @@ interface ProductFormProps {
   >;
   headerAction?: React.ReactNode;
   modelCatalog?: ProviderModelOption[];
+  /** Preset Studio 2.0 (#177): root presets eligible as family parents. */
+  eligibleParents?: EligibleParentOption[];
+  /** A preset that already has variants cannot itself become a variant. */
+  hasChildren?: boolean;
+  /** Private reference assets consuming the route's input-image budget. */
+  adminReferenceCount?: number;
+  /** Resolved current parent for family validation feedback. */
+  currentParent?: ParentCandidate | null;
 }
 
 export function ProductForm({
@@ -75,6 +90,10 @@ export function ProductForm({
   assetPreviews,
   headerAction,
   modelCatalog = [],
+  eligibleParents = [],
+  hasChildren = false,
+  adminReferenceCount = 0,
+  currentParent = null,
 }: ProductFormProps) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string>();
@@ -94,6 +113,10 @@ export function ProductForm({
       preview_gif_asset_id: undefined,
       credit_cost: 0,
       featured_rank: undefined,
+      parent_preset_id: undefined,
+      standalone_discoverable: false,
+      variant_display_name: undefined,
+      variant_sort_order: 0,
       version: {
         version_number: 1,
         state: "draft",
@@ -106,6 +129,14 @@ export function ProductForm({
         model_config: {},
         output_sizes: [],
         input_validation_config: {},
+        input_capability: {
+          input_mode: "single",
+          input_min_images: 1,
+          input_max_images: 1,
+          input_image_roles: [],
+          prompt_override_enabled: false,
+          prompt_max_chars: 0,
+        },
         post_process_config: {
           crop: false,
           format: "webp",
@@ -152,8 +183,20 @@ export function ProductForm({
     handleSubmit,
     control,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = methods;
+
+  // Dirty-state navigation warning — admin edits are dense; losing them to
+  // an accidental close is expensive.
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const [heroAssetId, posterAssetId, previewVideoAssetId, previewGifAssetId] =
     useWatch({
@@ -348,6 +391,13 @@ export function ProductForm({
           </p>
         </div>
       </section>
+
+      <PresetFamilyFields
+        eligibleParents={eligibleParents}
+        productId={initialData?.id}
+        hasChildren={hasChildren}
+        currentParent={currentParent}
+      />
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
         <h2 className="text-cream-50 mb-4 text-lg font-semibold">Media</h2>
@@ -611,6 +661,10 @@ export function ProductForm({
           </div>
         </div>
       </section>
+
+      <UserImageInputFields adminReferenceCount={adminReferenceCount} />
+
+      <PromptEditFields adminReferenceCount={adminReferenceCount} />
 
       <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
         <h2 className="text-cream-50 mb-4 text-lg font-semibold">

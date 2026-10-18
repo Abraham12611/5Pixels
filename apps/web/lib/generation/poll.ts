@@ -92,6 +92,19 @@ function mapGenerationRow(rows: unknown[]): SafeGenerationDetail {
     completedAt: (row.completed_at as string | null) ?? null,
     failureCode: (row.failure_code as string | null) ?? null,
     failureStage: (row.failure_stage as string | null) ?? null,
+    inputAssets: Array.isArray(row.input_assets)
+      ? row.input_assets.map((a: Record<string, unknown>) => ({
+          assetId: a.asset_id as string,
+          role: (a.role as string | null) ?? null,
+          ordinal: Number(a.ordinal ?? 0),
+          bucket: (a.bucket as string | null) ?? "",
+          storageKey: (a.storage_key as string | null) ?? "",
+          mimeType: (a.mime_type as string | null) ?? null,
+          width: (a.width as number | null) ?? null,
+          height: (a.height as number | null) ?? null,
+        }))
+      : [],
+    userPrompt: (row.user_prompt as string | null) ?? null,
     outputs: Array.isArray(row.outputs)
       ? row.outputs.map((o: Record<string, unknown>) => ({
           assetId: o.asset_id as string,

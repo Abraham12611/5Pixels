@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { v4 as uuidv4 } from "uuid";
@@ -11,8 +12,12 @@ import {
   Sparkle,
   Warning,
 } from "@phosphor-icons/react";
-import { GenerationControls } from "@/components/consumer/generation-controls";
+import { PresetPromptComposer } from "@/components/consumer/preset-prompt-composer";
 import { StudioStage } from "@/components/consumer/studio-stage";
+import {
+  PresetImageInputs,
+  type InputSlotStatus,
+} from "@/components/consumer/preset-image-inputs";
 import {
   DockedActionBar,
   MobilePageBottomSpacer,
@@ -36,6 +41,7 @@ import {
   shouldConfirmCost,
   SKIP_COST_CONFIRM_KEY,
 } from "@/lib/generation/credit-confirm";
+import { quoteFingerprintKey } from "@/lib/generation/quote-fingerprint";
 import {
   finalizeSourceUpload,
   prepareSourceUpload,
@@ -59,6 +65,141 @@ interface ReusedSource {
   name: string;
 }
 
+/** One media slot in a multi-image preset (#178). Slot index is the role
+ *  position — declared roles and optional flags come from the version's
+ *  input capability, so a photo keeps its role even when a middle slot is
+ *  empty. The submission array is the filled slots in order. */
+interface InputSlot {
+  id: string;
+  role: string | null;
+  roleLabel: string;
+  optional: boolean;
+  status: InputSlotStatus;
+  file: File | null;
+  reused: ReusedSource | null;
+  previewUrl: string | null;
+  dims: { width: number; height: number } | null;
+  /** Finalized user-asset id once uploaded (authenticated only). */
+  assetId: string | null;
+  error: string | null;
+  warning: string | null;
+}
+
+function humanizeRole(name: string): string {
+  return name
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Positional slots from the version's input capability — always at least
+ *  one; only `multi` presets produce more. */
+function buildInputSlots(product: PublicProductDetail): InputSlot[] {
+  const cap = product.input_capability;
+  const max = cap?.mode === "multi" ? Math.max(1, cap.max_images) : 1;
+  const min = Math.max(1, cap?.min_images ?? 1);
+  return Array.from({ length: max }, (_, i) => {
+    const role = cap?.roles?.[i] ?? null;
+    return {
+      id: `slot-${i}`,
+      role: role?.name ?? null,
+      roleLabel: role ? humanizeRole(role.name) : `Photo ${i + 1}`,
+      optional: role?.optional === true || i >= min,
+      status: "empty" as InputSlotStatus,
+      file: null,
+      reused: null,
+      previewUrl: null,
+      dims: null,
+      assetId: null,
+      error: null,
+      warning: null,
+    };
+  });
+}
+
+function blankSlot(slot: InputSlot): InputSlot {
+  return { ...slot, status: "empty", file: null, reused: null,
+    previewUrl: null, dims: null, assetId: null, error: null, warning: null };
+}
+
+/** Decode a picked file's real dimensions — createImageBitmap first (a
+ *  separate decoder path that survives the blob-URL failures Chrome on
+ *  Android intermittently hits with content://-backed picks), <img> retry
+ *  as the fallback. */
+async function decodeImageDims(
+  file: File
+): Promise<{ width: number; height: number } | null> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bmp = await createImageBitmap(file);
+      const dims = { width: bmp.width, height: bmp.height };
+      bmp.close();
+      if (dims.width > 0 && dims.height > 0) return dims;
+    } catch {
+      // fall through to the <img> path
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const dims = await new Promise<{ width: number; height: number } | null>(
+      (resolve) => {
+        const img = new window.Image();
+        let retries = 0;
+        img.onload = () =>
+          resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => {
+          if (retries++ < 2) {
+            setTimeout(() => {
+              img.src = url;
+            }, 250);
+          } else {
+            resolve(null);
+          }
+        };
+        img.src = url;
+      }
+    );
+    return dims && dims.width > 0 && dims.height > 0 ? dims : null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** Decode dims for an already-hosted (reused/carried) source URL — no file
+ *  body, so the <img> path is the only option. */
+async function decodeUrlDims(
+  url: string
+): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    let retries = 0;
+    img.onload = () =>
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => {
+      if (retries++ < 2) {
+        setTimeout(() => {
+          img.src = url;
+        }, 250);
+      } else {
+        resolve(null);
+      }
+    };
+    img.src = url;
+  });
+}
+
+type PricingStatus = "loading" | "ready" | "unavailable" | "failed";
+
+/** Server-price lifecycle for the configured generation. Generate and the
+ * cost confirmation only trust `ready`, and only while `fingerprint` still
+ * matches the inputs on screen — a stale response can never price new
+ * inputs, and an unknown price is never treated as zero. */
+interface PriceQuote {
+  status: PricingStatus;
+  /** Quoted credits — only set when status is "ready". */
+  credits: number | null;
+  fingerprint: string;
+}
+
 interface CreateGenerationFormProps {
   /** null when anonymous — the studio works without an account until Generate. */
   userId: string | null;
@@ -70,8 +211,20 @@ interface CreateGenerationFormProps {
   generationPaused?: boolean;
   /** Pre-filled source from an earlier generation (Adjust flow). */
   initialSource?: ReusedSource | null;
+  /** Additional carried inputs — sibling-variant hand-off or a multi-input
+   *  Adjust restore. Ownership was already enforced when the signed URLs
+   *  were minted server-side. */
+  initialInputs?: ReusedSource[] | null;
+  /** Deploy-level release for multi-image inputs (#178) — the admin
+   *  capability is a precondition; while the provider pipeline (#193)
+   *  isn't live, multi presets render the one-photo experience. */
+  multiInputReleased?: boolean;
+  promptReleased?: boolean;
   initialOptions?: Record<string, unknown> | null;
   initialSize?: OutputSizeOption | null;
+  /** The owner's own prompt from an earlier run (Adjust flow) — seeds the
+   *  composer on prompt-eligible presets only, never rendered elsewhere. */
+  initialPrompt?: string | null;
   /** Purchasable plans for the credits paywall (insufficient balance). */
   plans: PlanForPurchase[];
   /** Segment-resolved billing context — null when anonymous. */
@@ -154,14 +307,55 @@ export function CreateGenerationForm({
   hasPriorGenerations,
   generationPaused = false,
   initialSource,
+  initialInputs,
+  multiInputReleased = false,
+  promptReleased = false,
   initialOptions,
   initialSize,
+  initialPrompt,
   plans,
   blocked,
   offer,
   topUp,
 }: CreateGenerationFormProps) {
   const isAnonymous = userId === null;
+  const inputCapability = product.input_capability ?? null;
+  // The admin capability is a precondition, not the release — while the
+  // provider pipeline can't honor the full input set, a multi-capable
+  // preset degrades to the one-photo flow rather than erroring on submit.
+  const isMulti =
+    multiInputReleased && (inputCapability?.max_images ?? 1) > 1;
+  const minImages = Math.max(1, inputCapability?.min_images ?? 1);
+  // Prompt eligibility is strictly per preset/version (#182) — never a
+  // global flag, and ineligible presets render no actionable control and
+  // submit no custom text.
+  // Release-gated (#189 flag): the admin capability alone never exposes the
+  // composer — until the provider/legal approval lands, prompt overrides
+  // stay server-rejected and the UI matches that state.
+  const promptAllowed =
+    promptReleased && inputCapability?.prompt.enabled === true;
+  const promptMaxChars = Math.max(1, inputCapability?.prompt.max_chars || 0);
+  /** Multi-image slots — inactive for single-image presets, which keep the
+   *  original one-photo path untouched (#178). */
+  const [slots, setSlots] = useState<InputSlot[]>(() => {
+    const built = buildInputSlots(product);
+    const carried = [
+      ...(initialSource ? [initialSource] : []),
+      ...(initialInputs ?? []),
+    ];
+    for (let i = 0; i < Math.min(carried.length, built.length); i++) {
+      built[i] = {
+        ...built[i]!,
+        status: "ready",
+        reused: carried[i]!,
+        previewUrl: carried[i]!.url,
+        assetId: carried[i]!.assetId,
+      };
+    }
+    return built;
+  });
+  const [focusedSlotId, setFocusedSlotId] = useState<string>("slot-0");
+  const [inputsNotice, setInputsNotice] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
   const [reusedSource, setReusedSource] = useState<ReusedSource | null>(
     initialSource ?? null
@@ -184,7 +378,9 @@ export function CreateGenerationForm({
     width: number;
     height: number;
   } | null>(null);
-  const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [priceQuote, setPriceQuote] = useState<PriceQuote | null>(null);
+  /** Bump to refetch after a failed/unavailable attempt. */
+  const [priceRetryKey, setPriceRetryKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const online = useOnline();
   const [progress, setProgress] = useState<string>("");
@@ -196,18 +392,170 @@ export function CreateGenerationForm({
   /** Last submit died during upload — the same file can retry without re-picking. */
   const [uploadFailed, setUploadFailed] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [insufficientOpen, setInsufficientOpen] = useState(false);
+  /** The verified quote a confirmation/top-up was opened for — closed,
+   * never repriced, when the configured inputs drift from it. */
+  const [confirmQuote, setConfirmQuote] = useState<{
+    credits: number;
+    fingerprint: string;
+  } | null>(null);
+  const [insufficientQuote, setInsufficientQuote] = useState<{
+    credits: number;
+    fingerprint: string;
+  } | null>(null);
   const [authGateOpen, setAuthGateOpen] = useState(false);
-  const [pricingUnavailable, setPricingUnavailable] = useState(false);
-
+  const [draftSaveWarning, setDraftSaveWarning] = useState(false);
+  // Prompt composer (#182): opt-in per preset — the typed draft survives
+  // collapse and drafts persist it, but only prompt-eligible presets ever
+  // let it reach the request.
+  const [promptOn, setPromptOn] = useState(
+    () => promptAllowed && Boolean(initialPrompt?.trim())
+  );
+  const [promptText, setPromptText] = useState(
+    () => (promptAllowed ? (initialPrompt?.trim() ?? "") : "")
+  );
+  /** Explains a carried/saved prompt that this preset can't apply. */
+  const [promptNotice, setPromptNotice] = useState(
+    () =>
+      !promptAllowed && initialPrompt?.trim()
+        ? "Your previous changes text isn't used by this look."
+        : ""
+  );
+  /** Pinned moderation/validation message for the composer. */
+  const [promptError, setPromptError] = useState("");
   const isPoster = product.type === "poster";
-  const hasSource = Boolean(file) || Boolean(reusedSource);
-  const canAfford = isAnonymous
-    ? true
-    : estimatedCost !== null && estimatedCost > 0
-      ? initialBalance >= estimatedCost
-      : true;
+  const filledSlots = useMemo(
+    () => slots.filter((s) => s.file !== null || s.reused !== null),
+    [slots]
+  );
+  const focusedSlot = slots.find((s) => s.id === focusedSlotId) ?? slots[0];
+  const hasSource = isMulti
+    ? filledSlots.length > 0
+    : Boolean(file) || Boolean(reusedSource);
+  // match_source resolves from the ordinal-1 submission — the first filled
+  // slot, which is what the server prices against (inputs[0]).
+  const effectiveSourceDims = isMulti
+    ? (filledSlots[0]?.dims ?? null)
+    : sourceDims;
+
+  // "Match photo" is billed on the resolved source dims — the estimate and
+  // the fingerprint both use the measured photo size when we have it.
+  const estimateSize = useMemo(
+    () =>
+      selectedSize.match_source && effectiveSourceDims
+        ? { ...selectedSize, ...effectiveSourceDims }
+        : selectedSize,
+    [selectedSize, effectiveSourceDims]
+  );
+  // "Match photo" quotes need the real photo dims — while a source is
+  // present but still decoding, fallback dims can't safely price this run.
+  const dimsPending = Boolean(
+    selectedSize.match_source && hasSource && effectiveSourceDims === null
+  );
+  /** Ordered input references as they would submit — asset id once the
+   *  upload finalizes, else a stable local key so picks/swaps still shift
+   *  the fingerprint and reprice rather than reuse a stale quote. */
+  const fingerprintInputs = useMemo(() => {
+    if (!isMulti) {
+      const id =
+        reusedSource?.assetId ??
+        (file ? `local:${file.name}:${file.size}` : "none");
+      return [{ id, role: null as string | null }];
+    }
+    return filledSlots.map((s) => ({
+      id:
+        s.assetId ??
+        (s.file ? `local:${s.file.name}:${s.file.size}` : s.id),
+      role: s.role,
+    }));
+  }, [isMulti, reusedSource, file, filledSlots]);
+  /** The prompt exactly as it would submit — only ever non-empty on
+   *  prompt-eligible presets with the composer on. The server quote binds
+   *  its hash, so the client fingerprint must cover it too (#182). */
+  const submitPrompt = promptAllowed && promptOn ? promptText.trim() : "";
+  const promptOver =
+    promptAllowed && promptOn && promptText.length > promptMaxChars;
+  /** Structural key — everything cost-bearing *except* the prompt. Lets
+   *  the quote effect tell a prompt keystroke (debounce the fetch) from a
+   *  real configuration change (fetch immediately). */
+  const structuralKey = quoteFingerprintKey({
+    productVersionId: product.version_id ?? "none",
+    outputSize: estimateSize,
+    sourceDimsPending: dimsPending,
+    inputs: fingerprintInputs,
+  });
+  const quoteFingerprint = quoteFingerprintKey({
+    productVersionId: product.version_id ?? "none",
+    outputSize: estimateSize,
+    sourceDimsPending: dimsPending,
+    inputs: fingerprintInputs,
+    prompt: submitPrompt || undefined,
+  });
+  // A quote only counts while it still describes the inputs on screen —
+  // anything else (in-flight fetch, stale response) reads as loading.
+  const pricingStatus: PricingStatus = dimsPending
+    ? "loading"
+    : !isAnonymous && !product.version_id
+      ? "unavailable"
+      : priceQuote?.fingerprint === quoteFingerprint
+        ? priceQuote.status
+        : "loading";
+  const displayCost =
+    pricingStatus === "ready" ? (priceQuote?.credits ?? null) : null;
+  const pricingReady = displayCost !== null;
+  // An unknown price is not "insufficient balance" — they are distinct
+  // states, and only a real quote can put the user behind it.
+  const canAfford =
+    isAnonymous || !pricingReady ? true : initialBalance >= displayCost;
+
+  // Multi-image readiness (#178): enough slots filled to satisfy the
+  // version's minimum, no required slot empty, nothing still uploading,
+  // nothing flagged — and for the charged path, every staged input must
+  // already be a finalized server asset. Anonymous intent stays reachable:
+  // their files are validated and held locally until the auth round trip
+  // lets the same pipeline upload them.
+  const inputsSatisfied = isMulti
+    ? filledSlots.length >= minImages &&
+      !slots.some((s) => !s.optional && s.file === null && s.reused === null)
+    : hasSource;
+  const inputsPending =
+    isMulti &&
+    filledSlots.some(
+      (s) =>
+        s.status === "validating" ||
+        s.status === "uploading" ||
+        s.status === "finalizing" ||
+        (!isAnonymous && s.status === "local")
+    );
+  const inputsFailed =
+    isMulti &&
+    slots.some((s) => s.status === "failed" || s.status === "blocked");
+  const inputsReady = isMulti
+    ? inputsSatisfied &&
+      !inputsPending &&
+      !inputsFailed &&
+      (isAnonymous || filledSlots.every((s) => s.assetId !== null))
+    : hasSource;
+
+  // A confirmation or top-up surface only ever shows the price it was
+  // opened with — the moment the configured inputs drift from that quote
+  // it closes rather than silently repricing an open consent surface. It
+  // also closes when a fresh quote for the *same* fingerprint lands with a
+  // different amount — consent must name the price it approved.
+  const landedCost = pricingStatus === "ready" ? displayCost : null;
+  if (
+    confirmQuote &&
+    (confirmQuote.fingerprint !== quoteFingerprint ||
+      (landedCost !== null && landedCost !== confirmQuote.credits))
+  ) {
+    setConfirmQuote(null);
+  }
+  if (
+    insufficientQuote &&
+    (insufficientQuote.fingerprint !== quoteFingerprint ||
+      (landedCost !== null && landedCost !== insufficientQuote.credits))
+  ) {
+    setInsufficientQuote(null);
+  }
 
   const outputSizes = useMemo(
     () =>
@@ -222,7 +570,9 @@ export function CreateGenerationForm({
     [product.output_sizes]
   );
 
-  const previewUrl = objectUrl ?? reusedSource?.url ?? null;
+  const previewUrl = isMulti
+    ? (focusedSlot?.previewUrl ?? null)
+    : (objectUrl ?? reusedSource?.url ?? null);
 
   // Revoke the previous object URL when it is replaced or on unmount.
   useEffect(() => {
@@ -230,11 +580,27 @@ export function CreateGenerationForm({
     return () => URL.revokeObjectURL(objectUrl);
   }, [objectUrl]);
 
+  // Multi slots own their object URLs — revoke any blob: URL on unmount.
+  const slotsRef = useRef(slots);
+  useEffect(() => {
+    slotsRef.current = slots;
+  }, [slots]);
+  useEffect(() => {
+    return () => {
+      for (const s of slotsRef.current) {
+        if (s.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(s.previewUrl);
+        }
+      }
+    };
+  }, []);
+
   // Decode the preview once to learn the photo's real dimensions. A decode
   // failure means the format slipped past the type check — tell the user
-  // instead of leaving an invisible preview.
+  // instead of leaving an invisible preview. (Single-image path only —
+  // multi slots decode per-slot below.)
   useEffect(() => {
-    if (!previewUrl) return;
+    if (isMulti || !previewUrl) return;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -301,7 +667,154 @@ export function CreateGenerationForm({
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [previewUrl, file]);
+  }, [previewUrl, file, isMulti]);
+
+  // Multi-image slot pipelines (#178): picked files decode per-slot into
+  // `local`, then upload-on-select finalizes them into owned assets for
+  // authenticated users — the charged submit then just hands the ordered
+  // asset ids over. Anonymous visitors hold validated Blobs until the auth
+  // round trip, when the same effect runs them through upload.
+  const slotPipelineRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isMulti) return;
+
+    // Stage 1 — decode picked files into dims + local readiness.
+    for (const slot of slots) {
+      if (
+        slot.status !== "validating" ||
+        !slot.file ||
+        slotPipelineRef.current.has(`decode:${slot.id}`)
+      ) {
+        continue;
+      }
+      slotPipelineRef.current.add(`decode:${slot.id}`);
+      const file = slot.file;
+      void decodeImageDims(file).then((dims) => {
+        slotPipelineRef.current.delete(`decode:${slot.id}`);
+        setSlots((prev) =>
+          prev.map((s) => {
+            if (s.id !== slot.id || s.file !== file) return s;
+            if (!dims) {
+              return {
+                ...s,
+                status: "blocked",
+                error:
+                  "We couldn't read that photo — try a different image.",
+              };
+            }
+            const verdict = classifySourceDimensions(dims);
+            return {
+              ...s,
+              dims,
+              status: "local",
+              warning:
+                verdict.class === "warning"
+                  ? (verdict.message ?? "")
+                  : null,
+            };
+          })
+        );
+      });
+    }
+
+    // Stage 2 — decode dims for reused/carried assets (signed URLs) so
+    // match_source pricing and quality warnings see real sizes too.
+    for (const slot of slots) {
+      if (
+        slot.status !== "ready" ||
+        !slot.reused ||
+        slot.dims !== null ||
+        slotPipelineRef.current.has(`url-dims:${slot.id}`)
+      ) {
+        continue;
+      }
+      slotPipelineRef.current.add(`url-dims:${slot.id}`);
+      const url = slot.previewUrl;
+      if (!url) continue;
+      void decodeUrlDims(url).then((dims) => {
+        slotPipelineRef.current.delete(`url-dims:${slot.id}`);
+        if (!dims) return;
+        setSlots((prev) =>
+          prev.map((s) =>
+            s.id === slot.id && s.dims === null ? { ...s, dims } : s
+          )
+        );
+      });
+    }
+
+    // Stage 3 — authenticated upload-on-select: a `local` slot uploads its
+    // held file and lands at `ready` with a server asset id.
+    if (!isAnonymous) {
+      for (const slot of slots) {
+        if (
+          slot.status !== "local" ||
+          !slot.file ||
+          slotPipelineRef.current.has(`upload:${slot.id}`)
+        ) {
+          continue;
+        }
+        slotPipelineRef.current.add(`upload:${slot.id}`);
+        const file = slot.file;
+        const uploadSlot = async () => {
+          const fail = (message: string) =>
+            setSlots((prev) =>
+              prev.map((s) =>
+                s.id === slot.id && s.file === file
+                  ? { ...s, status: "failed", error: message }
+                  : s
+              )
+            );
+          try {
+            setSlots((prev) =>
+              prev.map((s) =>
+                s.id === slot.id && s.file === file
+                  ? { ...s, status: "uploading" }
+                  : s
+              )
+            );
+            const { signedUrl, path } = await prepareSourceUpload(
+              file.type,
+              file.size
+            );
+            await uploadSourceToSignedUrl(signedUrl, file);
+            setSlots((prev) =>
+              prev.map((s) =>
+                s.id === slot.id && s.file === file
+                  ? { ...s, status: "finalizing" }
+                  : s
+              )
+            );
+            const finalized = await finalizeSourceUpload(
+              path,
+              file.type,
+              file.size
+            );
+            setSlots((prev) =>
+              prev.map((s) =>
+                s.id === slot.id && s.file === file
+                  ? {
+                      ...s,
+                      status: "ready",
+                      assetId: finalized.assetId,
+                      error: null,
+                    }
+                  : s
+              )
+            );
+          } catch (err) {
+            fail(
+              err instanceof Error
+                ? err.message
+                : "Upload failed — try again."
+            );
+          } finally {
+            slotPipelineRef.current.delete(`upload:${slot.id}`);
+          }
+        };
+        void uploadSlot();
+      }
+    }
+  }, [isMulti, isAnonymous, slots]);
 
   const presetThumb = useMemo(() => {
     const asset =
@@ -311,22 +824,66 @@ export function CreateGenerationForm({
     return publicAssetUrl(asset.bucket, asset.storage_key);
   }, [product.public_assets]);
 
-  // Restore a staged draft after the auth round trip (?draft=1).
+  // Restore a staged draft after the auth round trip (?draft=1). A family-id
+  // match also restores — a sibling-variant switch keeps the staged photos
+  // (#178), and extras beyond the target's capacity are reported, not
+  // silently dropped.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("draft") !== "1") return;
     let cancelled = false;
 
-    void loadStudioDraft(product.slug).then((draft) => {
+    void loadStudioDraft(
+      product.slug,
+      product.family_id ?? product.id
+    ).then((draft) => {
       if (cancelled || !draft) return;
-      const restored = new File([draft.file], draft.fileName, {
-        type: draft.fileType,
-      });
-      setFile(restored);
-      setObjectUrl(URL.createObjectURL(restored));
-      setReusedSource(null);
+      const files = draft.files.map(
+        (f) => new File([f.blob], f.name, { type: f.type })
+      );
+
+      if (isMulti) {
+        const capacity = buildInputSlots(product).length;
+        const dropped = Math.max(0, files.length - capacity);
+        setSlots((prev) =>
+          prev.map((s, i) => {
+            const restored = files[i];
+            if (!restored) return s;
+            return {
+              ...blankSlot(s),
+              status: "validating",
+              file: restored,
+              previewUrl: URL.createObjectURL(restored),
+            };
+          })
+        );
+        if (dropped > 0) {
+          setInputsNotice(
+            dropped === 1
+              ? "1 photo wasn't needed for this look."
+              : `${dropped} photos weren't needed for this look.`
+          );
+        }
+        setFocusedSlotId("slot-0");
+      } else {
+        const restored = files[0];
+        if (restored) {
+          setFile(restored);
+          setObjectUrl(URL.createObjectURL(restored));
+          setReusedSource(null);
+        }
+      }
       setDraftRestored(true);
       setOptions((prev) => ({ ...prev, ...draft.options }));
+      // Saved prompt only applies when this preset can take it — a sibling
+      // variant without the capability gets an explanation, not silence.
+      const savedPrompt = draft.prompt?.trim() ?? "";
+      if (savedPrompt && promptAllowed) {
+        setPromptText(savedPrompt);
+        setPromptOn(true);
+      } else if (savedPrompt) {
+        setPromptNotice("Your saved changes text isn't used by this look.");
+      }
       if (draft.sizeName) {
         const match = product.output_sizes?.find(
           (s) => s.name === draft.sizeName
@@ -348,55 +905,108 @@ export function CreateGenerationForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product.slug]);
 
-  // Anonymous setups persist to IndexedDB so the auth redirect can't lose them.
+  // Anonymous setups persist to IndexedDB so the auth redirect can't lose
+  // them. If the write fails (private mode / quota) we say so rather than
+  // silently implying the setup was saved.
   useEffect(() => {
     if (!isAnonymous) return;
     const handle = setTimeout(() => {
-      if (!file) return;
+      const draftFiles = isMulti
+        ? filledSlots
+            .filter((s) => s.file)
+            .map((s) => ({
+              blob: s.file!,
+              name: s.file!.name,
+              type: s.file!.type,
+              role: s.role,
+            }))
+        : file
+          ? [{ blob: file, name: file.name, type: file.type, role: null }]
+          : [];
+      if (draftFiles.length === 0) return;
       void saveStudioDraft({
         slug: product.slug,
-        file,
-        fileName: file.name,
-        fileType: file.type,
+        familyId: product.family_id ?? product.id,
+        files: draftFiles,
         options,
         sizeName: selectedSize.name ?? null,
-      });
+        prompt: submitPrompt || null,
+      }).then((ok) => setDraftSaveWarning(!ok));
     }, 400);
     return () => clearTimeout(handle);
-  }, [isAnonymous, file, options, selectedSize, product.slug]);
+  }, [
+    isAnonymous,
+    isMulti,
+    filledSlots,
+    file,
+    options,
+    selectedSize,
+    submitPrompt,
+    product.slug,
+    product.id,
+    product.family_id,
+  ]);
+
+  /** Last structural key a quote fetch was scheduled for — prompt-only
+   *  changes against the same structure settle for 350ms rather than
+   *  hitting the estimator per keystroke. */
+  const lastQuoteStructural = useRef<string | null>(null);
 
   useEffect(() => {
+    // Anonymous visitors can't hold a quote — the server won't price a
+    // session that doesn't exist. Pricing only gates the charged submit,
+    // which anonymous users can't reach (the auth gate intercepts first).
+    const versionId = product.version_id;
+    if (isAnonymous || !versionId || dimsPending) return;
+    const fingerprint = quoteFingerprint;
+    // Prompt typing still invalidates instantly (fingerprint moves), but
+    // the *fetch* settles — size/input changes fetch right away as before.
+    const promptOnly = lastQuoteStructural.current === structuralKey;
+    lastQuoteStructural.current = structuralKey;
     let cancelled = false;
 
-    async function loadEstimate() {
-      if (!product.version_id) return;
-      // "Match photo" is billed on the resolved source dims — estimate with
-      // the measured photo size when we have it.
-      const estimateSize =
-        selectedSize.match_source && sourceDims
-          ? { ...selectedSize, ...sourceDims }
-          : selectedSize;
-      const { estimatedCredits, unavailable } =
-        await estimateGenerationCost({
-          productVersionId: product.version_id,
-          outputSize: estimateSize,
+    const fetchQuote = () => {
+      void estimateGenerationCost({
+        productVersionId: versionId,
+        outputSize: estimateSize,
+      })
+        .then(({ estimatedCredits, unavailable }) => {
+          if (cancelled) return;
+          // Fail closed: missing or non-positive pricing is unquotable,
+          // never free — zero would bypass confirmation and misstate consent.
+          setPriceQuote(
+            !unavailable && estimatedCredits > 0
+              ? { status: "ready", credits: estimatedCredits, fingerprint }
+              : { status: "unavailable", credits: null, fingerprint }
+          );
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPriceQuote({ status: "failed", credits: null, fingerprint });
+          }
         });
+    };
 
-      if (cancelled) return;
-
-      // Fail-closed: no verified price means no generation. The static
-      // product credit_cost is no longer a valid price hint.
-      setPricingUnavailable(unavailable);
-      setEstimatedCost(
-        !unavailable && estimatedCredits > 0 ? estimatedCredits : null
-      );
+    if (!promptOnly) {
+      fetchQuote();
+      return () => {
+        cancelled = true;
+      };
     }
-
-    loadEstimate();
+    const timer = setTimeout(fetchQuote, 350);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [product.version_id, selectedSize, sourceDims]);
+  }, [
+    isAnonymous,
+    product.version_id,
+    dimsPending,
+    estimateSize,
+    quoteFingerprint,
+    structuralKey,
+    priceRetryKey,
+  ]);
 
   const handleFileSelected = useCallback((selected: File | null) => {
     setError("");
@@ -433,6 +1043,182 @@ export function CreateGenerationForm({
     setDraftRestored(false);
   }, []);
 
+  // ---- Multi-image slot handlers (#178) ---------------------------------
+  // The first picked file lands on the targeted slot (replace); extras fill
+  // the next dead/empty slots in order — files beyond capacity are counted
+  // and reported, never silently dropped.
+  const handleSlotPick = useCallback((slotId: string, files: File[]) => {
+    setError("");
+    setDraftRestored(false);
+    setInputsNotice("");
+    let overflow = 0;
+    setSlots((prev) => {
+      const next = [...prev];
+      const taken = new Set(
+        next
+          .filter((s) => s.file)
+          .map((s) => `${s.file!.name}:${s.file!.size}`)
+      );
+      let first = true;
+      for (const picked of files) {
+        const idx = first
+          ? next.findIndex((s) => s.id === slotId)
+          : next.findIndex(
+              (s) =>
+                s.status === "empty" ||
+                s.status === "blocked" ||
+                s.status === "failed"
+            );
+        if (idx === -1) {
+          overflow += 1;
+          continue;
+        }
+        first = false;
+        const slot = next[idx]!;
+        if (slot.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(slot.previewUrl);
+        }
+        const key = `${picked.name}:${picked.size}`;
+        if (taken.has(key)) {
+          next[idx] = {
+            ...blankSlot(slot),
+            status: "blocked",
+            error: "That photo is already added.",
+          };
+          continue;
+        }
+        const verdict = classifySourceFile(picked);
+        if (verdict.class === "rejected") {
+          next[idx] = {
+            ...blankSlot(slot),
+            status: "blocked",
+            error: verdict.message ?? "That photo can't be used.",
+          };
+          continue;
+        }
+        taken.add(key);
+        next[idx] = {
+          ...blankSlot(slot),
+          status: "validating",
+          file: picked,
+          previewUrl: URL.createObjectURL(picked),
+        };
+      }
+      return next;
+    });
+    if (overflow > 0) {
+      setInputsNotice(
+        `This look takes up to ${buildInputSlots(product).length} photos — ${overflow} extra ${overflow === 1 ? "was" : "were"} left out.`
+      );
+    }
+    setFocusedSlotId(slotId);
+  }, [product]);
+
+  const handleSlotRemove = useCallback((slotId: string) => {
+    setDraftRestored(false);
+    setSlots((prev) =>
+      prev.map((s) => {
+        if (s.id !== slotId) return s;
+        if (s.previewUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(s.previewUrl);
+        }
+        return blankSlot(s);
+      })
+    );
+  }, []);
+
+  const handleSlotRetry = useCallback((slotId: string) => {
+    // A failed upload holds its file — dropping back to `local` re-enters
+    // the upload pipeline; successful slots are never re-uploaded.
+    setSlots((prev) =>
+      prev.map((s) =>
+        s.id === slotId && s.status === "failed" && s.file
+          ? { ...s, status: "local", error: null }
+          : s
+      )
+    );
+  }, []);
+
+  /** A reorder only swaps content between slots that share a declared role
+   *  (or both have none) — role identity stays positional so a reorder can
+   *  never silently reassign subject ↔ reference. */
+  const canMoveSlot = useCallback(
+    (slotId: string, dir: -1 | 1) => {
+      const i = slots.findIndex((s) => s.id === slotId);
+      const j = i + dir;
+      if (i === -1 || j < 0 || j >= slots.length) return false;
+      const a = slots[i]!;
+      const b = slots[j]!;
+      return a.role === b.role && (a.file !== null || a.reused !== null);
+    },
+    [slots]
+  );
+
+  const handleSlotMove = useCallback((slotId: string, dir: -1 | 1) => {
+    setSlots((prev) => {
+      const i = prev.findIndex((s) => s.id === slotId);
+      const j = i + dir;
+      if (
+        i === -1 ||
+        j < 0 ||
+        j >= prev.length ||
+        prev[i]!.role !== prev[j]!.role
+      ) {
+        return prev;
+      }
+      const pick = (s: InputSlot) => ({
+        status: s.status,
+        file: s.file,
+        reused: s.reused,
+        previewUrl: s.previewUrl,
+        dims: s.dims,
+        assetId: s.assetId,
+        error: s.error,
+        warning: s.warning,
+      });
+      const next = [...prev];
+      const a = next[i]!;
+      const b = next[j]!;
+      next[i] = { ...a, ...pick(b) };
+      next[j] = { ...b, ...pick(a) };
+      return next;
+    });
+  }, []);
+
+  // Stage dropzone routes to the focused slot when it's staged (replace),
+  // otherwise the first dead/empty slot.
+  const handleStageFile = useCallback(
+    (selected: File | null) => {
+      if (!isMulti) {
+        handleFileSelected(selected);
+        return;
+      }
+      if (!selected) {
+        if (focusedSlot) handleSlotRemove(focusedSlot.id);
+        return;
+      }
+      const target =
+        focusedSlot && (focusedSlot.file || focusedSlot.reused)
+          ? focusedSlot
+          : (slots.find(
+              (s) =>
+                s.status === "empty" ||
+                s.status === "blocked" ||
+                s.status === "failed"
+            ) ?? focusedSlot);
+      if (target) handleSlotPick(target.id, [selected]);
+    },
+    [isMulti, focusedSlot, slots, handleFileSelected, handleSlotPick, handleSlotRemove]
+  );
+
+  const handleStageClear = useCallback(() => {
+    if (!isMulti) {
+      handleClearSource();
+      return;
+    }
+    if (focusedSlot) handleSlotRemove(focusedSlot.id);
+  }, [isMulti, focusedSlot, handleClearSource, handleSlotRemove]);
+
   const handleSubmit = (e: React.FormEvent) => {
     // The AuthModal Sheet portals to document.body but stays in this React
     // tree, so its form submits bubble here — ignore events not from this
@@ -443,8 +1229,20 @@ export function CreateGenerationForm({
     setProgress("");
     setUploadFailed(false);
 
-    if (!hasSource) {
-      setError("Add a photo to get started.");
+    if (!hasSource || (isMulti && !inputsSatisfied)) {
+      setError(
+        minImages > 1
+          ? `This look needs ${minImages} photos — add them to get started.`
+          : "Add a photo to get started."
+      );
+      return;
+    }
+    if (isMulti && (inputsPending || inputsFailed)) {
+      setError(
+        inputsFailed
+          ? "Fix or remove the flagged photo to continue."
+          : "Photos are still uploading — try again in a moment."
+      );
       return;
     }
     if (!product.version_id) {
@@ -452,6 +1250,12 @@ export function CreateGenerationForm({
       return;
     }
     if (generationPaused) {
+      return;
+    }
+    // Over-length prompt never submits — the counter/error live in the
+    // composer; this is the backstop for programmatic paths.
+    if (promptOver) {
+      setPromptError(`Keep it under ${promptMaxChars} characters.`);
       return;
     }
 
@@ -467,20 +1271,43 @@ export function CreateGenerationForm({
     // Deferred auth: anonymous setups are fully prepared first — the account
     // prompt only appears at the moment of intent.
     if (isAnonymous) {
+      const draftFiles = isMulti
+        ? filledSlots
+            .filter((s) => s.file)
+            .map((s) => ({
+              blob: s.file!,
+              name: s.file!.name,
+              type: s.file!.type,
+              role: s.role,
+            }))
+        : file
+          ? [{ blob: file, name: file.name, type: file.type, role: null }]
+          : [];
       void saveStudioDraft({
         slug: product.slug,
-        file: file!,
-        fileName: file!.name,
-        fileType: file!.type,
+        familyId: product.family_id ?? product.id,
+        files: draftFiles,
         options,
         sizeName: selectedSize.name ?? null,
-      });
+        prompt: submitPrompt || null,
+      }).then((ok) => setDraftSaveWarning(!ok));
       setAuthGateOpen(true);
       return;
     }
 
-    if (!canAfford) {
-      setInsufficientOpen(true);
+    // Fail closed: a charged submit needs a fresh server quote for the
+    // exact inputs on screen. No quote, no action — never a zero fallback.
+    if (
+      priceQuote?.status !== "ready" ||
+      priceQuote.fingerprint !== quoteFingerprint ||
+      priceQuote.credits === null
+    ) {
+      return;
+    }
+    const cost = priceQuote.credits;
+
+    if (initialBalance < cost) {
+      setInsufficientQuote({ credits: cost, fingerprint: quoteFingerprint });
       return;
     }
 
@@ -492,7 +1319,6 @@ export function CreateGenerationForm({
       // storage unavailable — treat as not skipped
     }
 
-    const cost = estimatedCost ?? 0;
     if (
       shouldConfirmCost({
         cost,
@@ -500,20 +1326,47 @@ export function CreateGenerationForm({
         skipPreference,
       })
     ) {
-      setConfirmOpen(true);
+      setConfirmQuote({ credits: cost, fingerprint: quoteFingerprint });
       return;
     }
 
-    void runGeneration();
+    startRun();
+  };
+
+  /** Fire the charged run without leaving a floating rejection — server
+   *  action redirects resolve through the action response itself, so a
+   *  NEXT_REDIRECT surfacing here is a transport artifact, not a failure. */
+  const startRun = () => {
+    void runGeneration().catch(() => {});
   };
 
   const runGeneration = async () => {
+    // The charged path re-verifies the quote before any work — the confirm
+    // dialog and the upload-retry both land here, and inputs may have
+    // changed since the quote resolved.
+    if (
+      !isAnonymous &&
+      (priceQuote?.status !== "ready" ||
+        priceQuote.fingerprint !== quoteFingerprint ||
+        priceQuote.credits === null)
+    ) {
+      return;
+    }
+    // Multi-image submits need every staged input finalized — a slot still
+    // uploading or failed can never become part of the payload silently.
+    if (
+      isMulti &&
+      !isAnonymous &&
+      !filledSlots.every((s) => s.assetId !== null)
+    ) {
+      return;
+    }
     setLoading(true);
 
     try {
       let sourceAssetId = reusedSource?.assetId ?? null;
 
-      if (file) {
+      if (!isMulti && file) {
         try {
           setProgress("Preparing secure upload...");
           const { signedUrl, path } = await prepareSourceUpload(
@@ -538,37 +1391,69 @@ export function CreateGenerationForm({
         }
       }
 
-      if (!sourceAssetId) {
+      if (!isMulti && !sourceAssetId) {
         throw new Error("Add a photo to get started.");
       }
 
       setProgress("Starting generation...");
-      void clearStudioDraft();
       const idempotencyKey = `create:${userId}:${product.id}:${uuidv4()}`;
       const result = await createAndSubmitGeneration({
         productId: product.id,
         productVersionId: product.version_id ?? "",
-        sourceAssetId,
+        ...(isMulti
+          ? {
+              inputs: filledSlots.map((s) => ({
+                assetId: s.assetId!,
+                role: s.role ?? undefined,
+              })),
+            }
+          : { sourceAssetId: sourceAssetId ?? undefined }),
         options,
         outputSize: selectedSize,
         idempotencyKey,
+        // Contract-shaped prompt — only prompt-eligible presets ever send
+        // it; the server still composes/moderates it against the recipe.
+        ...(submitPrompt ? { prompt: submitPrompt } : {}),
       });
 
       if (result?.error) {
         // Session-expired mid-flow → reopen the auth sheet in place; the
         // draft is still in IndexedDB so one tap resumes after re-auth.
         if (result.error === "Please sign in to continue.") {
-          if (file) {
+          const draftFiles = isMulti
+            ? filledSlots
+                .filter((s) => s.file)
+                .map((s) => ({
+                  blob: s.file!,
+                  name: s.file!.name,
+                  type: s.file!.type,
+                  role: s.role,
+                }))
+            : file
+              ? [
+                  {
+                    blob: file,
+                    name: file.name,
+                    type: file.type,
+                    role: null,
+                  },
+                ]
+              : [];
+          if (draftFiles.length > 0) {
             void saveStudioDraft({
               slug: product.slug,
-              file,
-              fileName: file.name,
-              fileType: file.type,
+              familyId: product.family_id ?? product.id,
+              files: draftFiles,
               options,
               sizeName: selectedSize.name ?? null,
+              prompt: submitPrompt || null,
             });
           }
           setAuthGateOpen(true);
+        } else if (submitPrompt && result.error.includes("content policy")) {
+          // A prompt moderation block belongs on the composer — revise the
+          // text and Generate again; the setup (photos/options) is untouched.
+          setPromptError(result.error);
         } else {
           setError(result.error);
         }
@@ -580,6 +1465,9 @@ export function CreateGenerationForm({
         ((err as { digest?: string }).digest === "NEXT_REDIRECT" ||
           err.message === "NEXT_REDIRECT")
       ) {
+        // Redirect-confirmed success — only now is the staged draft consumed.
+        // Clearing any earlier would wipe the recovery copy on a failed run.
+        void clearStudioDraft();
         throw err;
       }
       const message =
@@ -591,31 +1479,65 @@ export function CreateGenerationForm({
     }
   };
 
-  const displayCost = estimatedCost;
+  const retryPricing = useCallback(() => {
+    setPriceQuote({
+      status: "loading",
+      credits: null,
+      fingerprint: quoteFingerprint,
+    });
+    setPriceRetryKey((k) => k + 1);
+  }, [quoteFingerprint]);
+
   const stepIndex = submitStepIndex(progress);
   const creditUnit = displayCost === 1 ? "credit" : "credits";
   const generateLabel =
     displayCost !== null
       ? `Generate · ${displayCost} ${creditUnit}`
       : "Generate";
+  // Anonymous visitors aren't gated on price — they can't be charged, so
+  // their Generate opens the auth sheet instead.
   const generateDisabled =
     loading ||
-    !hasSource ||
+    !inputsReady ||
     generationPaused ||
     !online ||
-    pricingUnavailable;
+    promptOver ||
+    (!isAnonymous && !pricingReady);
   // Every disabled state names its blocker; while submitting, the reason
-  // line doubles as honest progress.
-  const disabledReason = loading
+  // line doubles as honest progress. Pricing failures carry a retry.
+  const disabledReason: ReactNode = loading
     ? progress || "Starting…"
-    : !hasSource
-      ? "Add a photo to generate"
+    : !inputsSatisfied
+      ? minImages > 1
+        ? `This look needs ${minImages} photos`
+        : "Add a photo to generate"
       : generationPaused
         ? "Generation is paused — try again shortly"
         : !online
           ? "You're offline — reconnect to generate"
-          : pricingUnavailable
-            ? "Temporarily unavailable — pricing refresh in progress"
+          : inputsFailed
+            ? "Fix or remove the flagged photo to continue"
+            : inputsPending
+              ? "Photos are still uploading…"
+              : promptOver
+                ? `Keep your changes under ${promptMaxChars} characters`
+              : !isAnonymous && !pricingReady
+            ? pricingStatus === "loading" ? (
+                "Checking the current price…"
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  {pricingStatus === "failed"
+                    ? "Couldn't load the price."
+                    : "This look can't be priced right now."}
+                  <button
+                    type="button"
+                    onClick={retryPricing}
+                    className="text-lime-400 font-semibold underline underline-offset-2"
+                  >
+                    Retry
+                  </button>
+                </span>
+              )
             : undefined;
 
   const submitError = error ? (
@@ -625,7 +1547,7 @@ export function CreateGenerationForm({
       {uploadFailed && file ? (
         <button
           type="button"
-          onClick={() => void runGeneration()}
+          onClick={() => startRun()}
           className="shrink-0 font-semibold underline underline-offset-2"
         >
           Retry upload
@@ -665,6 +1587,25 @@ export function CreateGenerationForm({
             >
               <Check size={14} weight="bold" className="shrink-0" />
               We kept your photo and settings.
+            </p>
+          )}
+          {inputsNotice && (
+            <p
+              role="status"
+              className="bg-warning/10 text-warning flex items-center gap-2 rounded-md px-3 py-2 text-[13px]"
+            >
+              <Warning size={14} weight="fill" className="shrink-0" />
+              {inputsNotice}
+            </p>
+          )}
+          {draftSaveWarning && (
+            <p
+              role="status"
+              className="bg-warning/10 text-warning flex items-center gap-2 rounded-md px-3 py-2 text-[13px]"
+            >
+              <Warning size={14} weight="fill" className="shrink-0" />
+              We couldn&rsquo;t save your setup — keep this tab open until you
+              sign in.
             </p>
           )}
 
@@ -711,7 +1652,9 @@ export function CreateGenerationForm({
               <p className="text-text-secondary flex items-center gap-2 text-[13px]">
                 <span className="bg-lime-400 h-1.5 w-1.5 shrink-0 rounded-full" />
                 <span className="truncate">
-                  {file?.name ?? reusedSource?.name ?? "Photo added"}
+                  {isMulti
+                    ? `${filledSlots.length} of ${slots.length} photos added`
+                    : (file?.name ?? reusedSource?.name ?? "Photo added")}
                 </span>
               </p>
             ) : (
@@ -721,30 +1664,44 @@ export function CreateGenerationForm({
             )}
           </div>
 
-          {/* Preset controls */}
-          <div>
-            <div className="mb-2.5 flex items-baseline justify-between">
-              <p className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
-                Adjust the look
-              </p>
-              {!hasSource && (
-                <span className="text-text-muted text-[11px]">
-                  Add a photo first
-                </span>
+          {/* Prompt — opt-in, admin-enabled per preset (#182). The legacy
+              GenerationControls panel is retired; saved option data still
+              reads back on legacy result adjusts. */}
+          {(promptAllowed || promptNotice) && (
+            <div>
+              <div className="mb-2.5 flex items-baseline justify-between">
+                <p className="text-text-muted text-[11px] font-semibold uppercase tracking-wide">
+                  Prompt
+                </p>
+                {!hasSource && (
+                  <span className="text-text-muted text-[11px]">
+                    Add a photo first
+                  </span>
+                )}
+              </div>
+              {promptAllowed ? (
+                <PresetPromptComposer
+                  enabled={promptOn}
+                  value={promptText}
+                  maxChars={promptMaxChars}
+                  disabled={!hasSource || loading}
+                  error={promptError || null}
+                  onToggle={setPromptOn}
+                  onChange={(v) => {
+                    setPromptText(v);
+                    if (promptError) setPromptError("");
+                  }}
+                />
+              ) : (
+                <p className="text-text-muted text-[12px]">{promptNotice}</p>
               )}
             </div>
-            <GenerationControls
-              fields={product.active_fields}
-              values={options}
-              disabled={!hasSource || loading}
-              onChange={setOptions}
-            />
-            {isPoster && (
-              <p className="text-text-muted mt-3 text-[11px]">
-                Posters include text rendered over the finished image.
-              </p>
-            )}
-          </div>
+          )}
+          {isPoster && (
+            <p className="text-text-muted text-[11px]">
+              Posters include text rendered over the finished image.
+            </p>
+          )}
 
           {/* Output size */}
           <SettingTile label="Output size" disabled={loading}>
@@ -770,7 +1727,7 @@ export function CreateGenerationForm({
                 canAfford ? "text-cream-50" : "text-error"
               )}
             >
-              {displayCost} {creditUnit}
+              {displayCost !== null ? `${displayCost} ${creditUnit}` : "—"}
             </span>
           </div>
           {!isAnonymous && (
@@ -807,11 +1764,19 @@ export function CreateGenerationForm({
         </div>
       </aside>
 
-      {/* Visual stage */}
-      <StudioStage
-        previewUrl={previewUrl}
-        sourceName={file?.name ?? reusedSource?.name ?? null}
-        aspectRatio={
+      {/* Visual stage + multi-image rail (#178). Single-image presets keep
+          the original one-photo experience — the rail only exists when the
+          version's capability declares more than one input. */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <StudioStage
+          previewUrl={previewUrl}
+          sourceName={
+            isMulti
+              ? (focusedSlot?.file?.name ?? focusedSlot?.reused?.name ?? null)
+              : (file?.name ?? reusedSource?.name ?? null)
+          }
+          sourceLabel={isMulti ? focusedSlot?.roleLabel : undefined}
+          aspectRatio={
           selectedSize.match_source
             ? sourceDims
               ? sourceDims.width / sourceDims.height
@@ -820,16 +1785,44 @@ export function CreateGenerationForm({
               ? selectedSize.width / selectedSize.height
               : null
         }
-        disabled={loading}
-        submitting={loading}
-        submitStepIndex={stepIndex}
-        submitStepLabel={SUBMIT_STEPS[Math.min(stepIndex, 2)]}
-        submitSteps={SUBMIT_STEPS}
-        sourceError={sourceError || null}
-        sourceWarning={sourceWarning || null}
-        onFileSelected={handleFileSelected}
-        onClear={handleClearSource}
-      />
+          disabled={loading}
+          submitting={loading}
+          submitStepIndex={stepIndex}
+          submitStepLabel={SUBMIT_STEPS[Math.min(stepIndex, 2)]}
+          submitSteps={SUBMIT_STEPS}
+          sourceError={
+            isMulti
+              ? (focusedSlot?.error ?? sourceError) || null
+              : sourceError || null
+          }
+          sourceWarning={
+            isMulti
+              ? (focusedSlot?.warning ?? sourceWarning) || null
+              : sourceWarning || null
+          }
+          onFileSelected={handleStageFile}
+          onClear={handleStageClear}
+        />
+        {isMulti && (
+          <PresetImageInputs
+            slots={slots.map((s) => ({
+              ...s,
+              fileName: s.file?.name ?? s.reused?.name ?? null,
+            }))}
+            requiredCount={minImages}
+            maxCount={slots.length}
+            filledCount={filledSlots.length}
+            focusedSlotId={focusedSlot?.id ?? null}
+            disabled={loading}
+            onPick={handleSlotPick}
+            onRemove={handleSlotRemove}
+            onRetry={handleSlotRetry}
+            onFocus={setFocusedSlotId}
+            onMove={handleSlotMove}
+            canMove={canMoveSlot}
+          />
+        )}
+      </div>
 
       {/* Mobile docked bar — the only fixed bottom element on this route. */}
       <div className="order-last md:hidden">
@@ -839,7 +1832,7 @@ export function CreateGenerationForm({
         className="order-last"
         info={
           <>
-            Cost {displayCost} {creditUnit}
+            Cost {displayCost !== null ? `${displayCost} ${creditUnit}` : "—"}
             {!isAnonymous && <> · Balance {initialBalance}</>}
           </>
         }
@@ -850,20 +1843,30 @@ export function CreateGenerationForm({
       </DockedActionBar>
 
       <CreditConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        cost={displayCost ?? 0}
+        open={
+          confirmQuote !== null &&
+          confirmQuote.fingerprint === quoteFingerprint
+        }
+        onOpenChange={(open) => {
+          if (!open) setConfirmQuote(null);
+        }}
+        cost={confirmQuote?.credits ?? 0}
         balance={initialBalance}
-        onConfirm={() => void runGeneration()}
+        onConfirm={() => startRun()}
       />
       {blocked && (
         <BlockedCreditSurface
-          open={insufficientOpen}
-          onOpenChange={setInsufficientOpen}
+          open={
+            insufficientQuote !== null &&
+            insufficientQuote.fingerprint === quoteFingerprint
+          }
+          onOpenChange={(open) => {
+            if (!open) setInsufficientQuote(null);
+          }}
           segment={blocked.segment}
           offer={offer}
           plans={plans}
-          required={displayCost ?? 0}
+          required={insufficientQuote?.credits ?? 0}
           balance={initialBalance}
           presetName={product.name}
           presetThumbUrl={presetThumb}

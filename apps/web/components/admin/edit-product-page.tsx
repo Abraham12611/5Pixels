@@ -4,6 +4,8 @@ import {
   getProductAssetPreviews,
   getProductById,
   getProductReferenceAssets,
+  getEligibleParentPresets,
+  getPresetFamilyForAdmin,
   attachReferenceAsset,
   detachReferenceAsset,
   publishProductVersion,
@@ -11,6 +13,9 @@ import {
   transitionProductStatus,
   updateProduct,
   selectEditableVersion,
+  duplicateProductAsVariant,
+  reorderFamilyVariants,
+  updateVariantSummary,
 } from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { ProductForm } from "./product-form";
@@ -19,11 +24,14 @@ import { ProductActions } from "./product-actions";
 import { VersionRollback } from "./version-rollback";
 import { VersionList, type VersionSummary } from "./version-list";
 import { ReferenceAssetManager } from "./reference-asset-manager";
+import { FamilyPanel } from "./family-panel";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import type { ProductCreateInput } from "@5pixels/shared";
 import { validatePublishGates } from "@/lib/validation/publish-gates";
+import { getRouteCapability } from "@/lib/ai/route-capabilities";
+import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { coerceCreditCost } from "@/lib/admin/coerce";
 
 interface EditProductPageProps {
@@ -36,18 +44,50 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const product = await getProductById(id);
   if (!product || product.type !== type) notFound();
 
-  const [categories, assetPreviewById, referenceAssets, modelCatalog] =
-    await Promise.all([
-      getCategories(),
-      getProductAssetPreviews([
-        product.hero_asset_id,
-        product.poster_asset_id,
-        product.preview_video_asset_id,
-        product.preview_gif_asset_id,
-      ]),
-      getProductReferenceAssets(id),
-      getProviderModelCatalog(),
-    ]);
+  const [
+    categories,
+    assetPreviewById,
+    referenceAssets,
+    modelCatalog,
+    eligibleParents,
+    family,
+  ] = await Promise.all([
+    getCategories(),
+    getProductAssetPreviews([
+      product.hero_asset_id,
+      product.poster_asset_id,
+      product.preview_video_asset_id,
+      product.preview_gif_asset_id,
+    ]),
+    getProductReferenceAssets(id),
+    getProviderModelCatalog(),
+    getEligibleParentPresets(type, id),
+    getPresetFamilyForAdmin(id),
+  ]);
+
+  // Admin private reference assets share the route's input-image budget —
+  // the multi-image config must fit in what remains.
+  const adminReferenceCount = referenceAssets.filter((a) =>
+    ["style_reference", "composition_reference", "layout_reference"].includes(
+      a.role
+    )
+  ).length;
+
+  const familyHeroUrls = await getProductAssetPreviews([
+    family?.root.hero_asset_id,
+    ...(family?.children ?? []).map((c) => c.hero_asset_id),
+  ]);
+  const heroUrlByProduct: Record<string, string> = {};
+  if (family) {
+    if (family.root.hero_asset_id && familyHeroUrls[family.root.hero_asset_id]) {
+      heroUrlByProduct[family.root.id] = familyHeroUrls[family.root.hero_asset_id]!.publicUrl;
+    }
+    for (const child of family.children) {
+      if (child.hero_asset_id && familyHeroUrls[child.hero_asset_id]) {
+        heroUrlByProduct[child.id] = familyHeroUrls[child.hero_asset_id]!.publicUrl;
+      }
+    }
+  }
 
   const versions = Array.isArray(product.product_versions)
     ? product.product_versions
@@ -76,6 +116,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const metadata = (product.metadata ?? {}) as {
     filter_config?: ProductCreateInput["filter_config"];
     poster_config?: ProductCreateInput["poster_config"];
+    prompt_ui?: ProductCreateInput["prompt_ui"];
   };
 
   const initialData: ProductCreateInput & { id?: string } = {
@@ -96,6 +137,14 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     likeness_level: product.likeness_level ?? undefined,
     featured_rank: product.featured_rank ?? undefined,
     credit_cost: versionCreditCost ?? Number(product.credit_cost ?? 0),
+    parent_preset_id:
+      (product.parent_preset_id as string | null | undefined) ?? undefined,
+    standalone_discoverable: Boolean(product.standalone_discoverable),
+    variant_display_name:
+      (product.variant_display_name as string | null | undefined) ??
+      undefined,
+    variant_sort_order: Number(product.variant_sort_order ?? 0),
+    prompt_ui: metadata.prompt_ui,
     version: {
       id: version?.id as string | undefined,
       version_number: (version?.version_number as number) ?? 1,
@@ -121,6 +170,18 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         (version?.input_validation_config as
           | ProductCreateInput["version"]["input_validation_config"]
           | undefined) ?? {},
+      input_capability: {
+        input_mode:
+          ((version?.input_mode as "single" | "multi" | undefined) ??
+            "single"),
+        input_min_images: Number(version?.input_min_images ?? 1),
+        input_max_images: Number(version?.input_max_images ?? 1),
+        input_image_roles: Array.isArray(version?.input_image_roles)
+          ? (version.input_image_roles as ProductCreateInput["version"]["input_capability"]["input_image_roles"])
+          : [],
+        prompt_override_enabled: Boolean(version?.prompt_override_enabled),
+        prompt_max_chars: Number(version?.prompt_max_chars ?? 0),
+      },
       post_process_config: (version?.post_process_config as
         ProductCreateInput["version"]["post_process_config"] | undefined) ?? {
         crop: false,
@@ -194,6 +255,9 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       hero_asset_id: product.hero_asset_id ?? undefined,
       poster_asset_id: product.poster_asset_id ?? undefined,
       metadata,
+      parent_preset_id:
+        (product.parent_preset_id as string | null | undefined) ?? null,
+      standalone_discoverable: Boolean(product.standalone_discoverable),
     },
     {
       id: version?.id as string | undefined,
@@ -209,8 +273,36 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       },
       credit_cost: versionCreditCost ?? 0,
       safety_config: (version?.safety_config as Record<string, unknown>) ?? {},
+      input_mode:
+        (version?.input_mode as "single" | "multi" | undefined) ?? "single",
+      input_min_images: Number(version?.input_min_images ?? 1),
+      input_max_images: Number(version?.input_max_images ?? 1),
+      input_image_roles: Array.isArray(version?.input_image_roles)
+        ? (version.input_image_roles as ProductCreateInput["version"]["input_capability"]["input_image_roles"])
+        : [],
+      prompt_override_enabled: Boolean(version?.prompt_override_enabled),
+      prompt_max_chars: Number(version?.prompt_max_chars ?? 0),
     },
-    initialData.fields
+    initialData.fields,
+    {
+      parent:
+        family && product.parent_preset_id
+          ? {
+              id: family.root.id,
+              type,
+              public_status: family.root.public_status,
+              parent_preset_id: family.root.parent_preset_id,
+            }
+          : null,
+      routeCapability: getRouteCapability(
+        (version?.provider_strategy as Record<string, string> | undefined)
+          ?.primary_provider,
+        (version?.provider_strategy as Record<string, string> | undefined)
+          ?.primary_model
+      ),
+      adminReferenceCount,
+      userPromptReleased: isUserPromptReleased(),
+    }
   );
 
   const activeVersion = versions.find(
@@ -294,11 +386,46 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         </div>
       )}
 
+      {family && (family.children.length > 0 || product.parent_preset_id || product.public_status !== "retired") && (
+        <div className="mb-6">
+          <FamilyPanel
+            currentProductId={id}
+            type={type}
+            root={family.root}
+            children_={family.children}
+            heroUrls={heroUrlByProduct}
+            reorder={reorderFamilyVariants}
+            createVariant={async (parentId) => {
+              "use server";
+              const created = await duplicateProductAsVariant(parentId);
+              return { id: created.id };
+            }}
+            updateVariant={async (productId, patch) => {
+              "use server";
+              await updateVariantSummary(productId, patch);
+            }}
+          />
+        </div>
+      )}
+
       <ProductForm
         type={type}
         initialData={initialData}
         categories={categories}
         modelCatalog={modelCatalog}
+        eligibleParents={eligibleParents}
+        hasChildren={(family?.children.length ?? 0) > 0}
+        adminReferenceCount={adminReferenceCount}
+        currentParent={
+          family && product.parent_preset_id
+            ? {
+                id: family.root.id,
+                type,
+                public_status: family.root.public_status,
+                parent_preset_id: family.root.parent_preset_id,
+              }
+            : null
+        }
         assetPreviews={{
           hero: product.hero_asset_id
             ? assetPreviewById[product.hero_asset_id]

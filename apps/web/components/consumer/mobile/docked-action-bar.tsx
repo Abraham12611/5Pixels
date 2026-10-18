@@ -17,8 +17,9 @@ export function DockedActionBar({
 }: {
   /** Cost or context line above the action, e.g. "5 credits · 12 left". */
   info?: ReactNode;
-  /** Why the action is unavailable, e.g. "Add a photo to generate". */
-  reason?: string;
+  /** Why the action is unavailable, e.g. "Add a photo to generate". May
+   *  carry an inline retry affordance for recoverable failures. */
+  reason?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {

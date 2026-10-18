@@ -267,3 +267,225 @@ describe("ownerOverrideReasonSchema", () => {
     expect(result.data).toHaveLength(MIN_OWNER_OVERRIDE_REASON_LENGTH);
   });
 });
+
+describe("validatePublishGates — preset family + capability (#177)", () => {
+  const rootParent = {
+    id: "p0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
+    type: "filter",
+    public_status: "published",
+    parent_preset_id: null,
+  };
+
+  const verifiedRoute = {
+    max_input_images: 14,
+    supports_prompt_edit: true,
+    accepted_roles: null,
+    source: "test",
+  };
+
+  it("rejects a variant whose parent is retired", () => {
+    const result = validatePublishGates(
+      { ...validProduct(), parent_preset_id: rootParent.id },
+      validVersion(),
+      [],
+      {
+        parent: { ...rootParent, public_status: "retired" },
+        routeCapability: verifiedRoute,
+      }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain("INVALID_FAMILY");
+  });
+
+  it("rejects a variant of another variant (nested family)", () => {
+    const result = validatePublishGates(
+      { ...validProduct(), parent_preset_id: rootParent.id },
+      validVersion(),
+      [],
+      {
+        parent: { ...rootParent, parent_preset_id: "grandparent" },
+        routeCapability: verifiedRoute,
+      }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain("INVALID_FAMILY");
+  });
+
+  it("rejects a family-dependent variant while the parent is unpublished", () => {
+    const result = validatePublishGates(
+      {
+        ...validProduct(),
+        parent_preset_id: rootParent.id,
+        standalone_discoverable: false,
+      },
+      validVersion(),
+      [],
+      {
+        parent: { ...rootParent, public_status: "draft" },
+        routeCapability: verifiedRoute,
+      }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain("ORPHANED_VARIANT");
+  });
+
+  it("allows a standalone-discoverable variant with an unpublished parent", () => {
+    const result = validatePublishGates(
+      {
+        ...validProduct(),
+        parent_preset_id: rootParent.id,
+        standalone_discoverable: true,
+      },
+      validVersion(),
+      [],
+      {
+        parent: { ...rootParent, public_status: "draft" },
+        routeCapability: verifiedRoute,
+      }
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects multi-image configuration on an unverified route", () => {
+    const result = validatePublishGates(
+      validProduct(),
+      {
+        ...validVersion(),
+        input_mode: "multi",
+        input_min_images: 1,
+        input_max_images: 4,
+      },
+      [],
+      { routeCapability: null }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain(
+      "ROUTE_CAPABILITY_MISMATCH"
+    );
+  });
+
+  it("rejects prompt overrides on a route without prompt support", () => {
+    const result = validatePublishGates(
+      validProduct(),
+      {
+        ...validVersion(),
+        prompt_override_enabled: true,
+        prompt_max_chars: 200,
+      },
+      [],
+      {
+        routeCapability: { ...verifiedRoute, supports_prompt_edit: false },
+      }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain(
+      "ROUTE_CAPABILITY_MISMATCH"
+    );
+  });
+
+  it("rejects multi-image that exceeds route headroom once references count", () => {
+    const result = validatePublishGates(
+      validProduct(),
+      {
+        ...validVersion(),
+        input_mode: "multi",
+        input_min_images: 2,
+        input_max_images: 13,
+      },
+      [],
+      { routeCapability: verifiedRoute, adminReferenceCount: 2 }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain(
+      "ROUTE_CAPABILITY_MISMATCH"
+    );
+  });
+
+  it("blocks a route-compatible multi-image + prompt config at release gates", () => {
+    // Capability checks pass (route supports it) — but release readiness
+    // does not: multi-image is not executable until #179, and the prompt
+    // gate is off.
+    const result = validatePublishGates(
+      validProduct(),
+      {
+        ...validVersion(),
+        input_mode: "multi",
+        input_min_images: 1,
+        input_max_images: 3,
+        input_image_roles: [
+          { name: "subject", optional: false },
+          { name: "style_reference", optional: true },
+        ],
+        prompt_override_enabled: true,
+        prompt_max_chars: 200,
+      },
+      [],
+      { routeCapability: verifiedRoute }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    const codes = result.failures.map((f) => f.code);
+    expect(codes).toContain("MULTI_IMAGE_NOT_EXECUTABLE");
+    expect(codes).toContain("PROMPT_RELEASE_GATED");
+    expect(codes).not.toContain("ROUTE_CAPABILITY_MISMATCH");
+  });
+
+  it("still blocks multi-image when the prompt release flag is on", () => {
+    const result = validatePublishGates(
+      validProduct(),
+      {
+        ...validVersion(),
+        input_mode: "multi",
+        input_min_images: 1,
+        input_max_images: 3,
+      },
+      [],
+      { routeCapability: verifiedRoute, userPromptReleased: true }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    expect(result.failures.map((f) => f.code)).toContain(
+      "MULTI_IMAGE_NOT_EXECUTABLE"
+    );
+    expect(result.failures.map((f) => f.code)).not.toContain(
+      "PROMPT_RELEASE_GATED"
+    );
+  });
+
+  it("blocks prompt-enabled versions until the release flag is on, then passes", () => {
+    const version = {
+      ...validVersion(),
+      prompt_override_enabled: true,
+      prompt_max_chars: 200,
+    };
+    const gated = validatePublishGates(validProduct(), version, [], {
+      routeCapability: verifiedRoute,
+    });
+    expect(gated.ok).toBe(false);
+    if (gated.ok) throw new Error("expected failures");
+    expect(gated.failures.map((f) => f.code)).toContain(
+      "PROMPT_RELEASE_GATED"
+    );
+
+    const released = validatePublishGates(validProduct(), version, [], {
+      routeCapability: verifiedRoute,
+      userPromptReleased: true,
+    });
+    expect(released.ok).toBe(true);
+  });
+
+  it("keeps legacy single-image versions publishable without a context", () => {
+    const result = validatePublishGates(
+      validProduct(),
+      validVersion(),
+      []
+    );
+    expect(result.ok).toBe(true);
+  });
+});

@@ -15,6 +15,17 @@ export interface OutputSizeOption {
   match_reference?: boolean;
 }
 
+/** Public projection of a version's input contract (#176) — how many images
+ *  the preset accepts and whether a custom prompt is allowed. Never carries
+ *  provider routes or recipe data. */
+export interface PublicInputCapability {
+  mode: "single" | "multi";
+  min_images: number;
+  max_images: number;
+  roles: { name: string; optional?: boolean }[];
+  prompt: { enabled: boolean; max_chars: number };
+}
+
 export interface PublicProductSummary {
   id: string;
   slug: string;
@@ -39,6 +50,13 @@ export interface PublicProductSummary {
   created_at: string | null;
   /** very_high | high | medium | creative — consumer-facing fidelity signal. */
   likeness_level: string | null;
+  /** Non-null when this product is a family variant (#176). Optional so
+   *  clients/fixtures built before #176 remain valid. */
+  parent_preset_id?: string | null;
+  /** Variant opted into independent discovery; roots always false. */
+  standalone_discoverable?: boolean;
+  /** Published children count — powers "N styles" badges on family roots. */
+  variant_count?: number;
 }
 
 export interface PublicProductAsset {
@@ -68,7 +86,30 @@ export interface PublicProductField {
 export type PublicProductDetail = PublicProductSummary & {
   active_fields: PublicProductField[];
   public_assets: PublicProductAsset[];
+  /** Short label for family rails ("Warm"); NULL on roots/standalone. */
+  variant_display_name?: string | null;
+  /** Family root id — own id for roots/standalone, parent id for variants. */
+  family_id?: string;
+  /** The version's consumer-facing input contract. */
+  input_capability?: PublicInputCapability | null;
 };
+
+/** get_preset_family member row (#176). */
+export interface PresetFamilyMember {
+  product_id: string;
+  slug: string;
+  name: string;
+  variant_display_name: string | null;
+  variant_sort_order: number;
+  is_parent: boolean;
+  is_current: boolean;
+  public_status: string;
+  credit_cost: number;
+  hero_asset_id: string | null;
+  poster_asset_id: string | null;
+  preview_gif_asset_id: string | null;
+  preview_video_asset_id: string | null;
+}
 
 /**
  * A favorited preset. `isAvailable` is false when the preset has been retired

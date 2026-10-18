@@ -10,13 +10,23 @@ import {
   isRetryableSubmitError,
   type ProviderStrategy,
 } from "@/lib/ai/provider-routing";
-import { compilePrompt, referencePromptClause } from "@/lib/ai/prompt";
-import { extractUserText, screenUserText } from "@/lib/moderation/creem";
+import { getRouteCapability } from "@/lib/ai/route-capabilities";
+import {
+  compilePrompt,
+  referencePromptClause,
+  userPromptSection,
+} from "@/lib/ai/prompt";
+import {
+  extractUserText,
+  screenUserPrompt,
+  screenUserText,
+} from "@/lib/moderation/creem";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getSignedReferenceAssets } from "./reference-assets";
 import { resolveOutputSize } from "./output-size";
 import { createGenerationQuote } from "@/lib/pricing/quote";
+import { promptCapabilityOf, validateUserPrompt } from "./user-prompt";
 import type { CreateGenerationInput } from "./types";
 
 const TOKEN_COOKIE_PREFIX = "gen_token_";
@@ -46,6 +56,14 @@ interface PrivateRecipe {
   provider_strategy: ProviderStrategy;
   model_config: Record<string, unknown>;
   post_process_config: Record<string, unknown>;
+  /** Per-version prompt capability (#176) — immutable while the version is
+   *  active; absent/false means custom prompting is disabled. */
+  prompt_override_enabled: boolean;
+  prompt_max_chars: number;
+  products: {
+    type: "filter" | "poster";
+    metadata: Record<string, unknown> | null;
+  };
 }
 
 async function getPrivateRecipe(
@@ -67,7 +85,9 @@ async function getPrivateRecipe(
       provider_strategy,
       model_config,
       post_process_config,
-      products!inner(public_status, visibility, type)
+      prompt_override_enabled,
+      prompt_max_chars,
+      products!inner(public_status, visibility, type, metadata)
     `
     )
     .eq("id", versionId)
@@ -83,6 +103,16 @@ async function getPrivateRecipe(
   }
 
   return data as unknown as PrivateRecipe;
+}
+
+/** products.metadata->filter_config->identity_preservation, when declared. */
+function identityPreservationOf(recipe: PrivateRecipe): string | undefined {
+  const filterConfig = recipe.products?.metadata?.filter_config;
+  const level =
+    filterConfig && typeof filterConfig === "object"
+      ? (filterConfig as Record<string, unknown>).identity_preservation
+      : undefined;
+  return typeof level === "string" ? level : undefined;
 }
 
 function userFacingError(): string {
@@ -104,12 +134,41 @@ export async function createAndSubmitGeneration(
     return { error: "Please sign in to continue." };
   }
 
+  // Ordered inputs (#176): `inputs` is the contract; the deprecated
+  // `sourceAssetId` is the single-image alias. The RPC re-validates count,
+  // ownership, roles and quote binding — this normalization only shapes the
+  // request.
+  const inputs =
+    input.inputs && input.inputs.length > 0
+      ? input.inputs
+      : input.sourceAssetId
+        ? [{ assetId: input.sourceAssetId }]
+        : [];
+  if (inputs.length === 0) {
+    return { error: "A source image is required." };
+  }
+
+  // Fail-closed guard (#176 review, removal owned by #179): the provider
+  // pipeline still submits only the primary image — multi-input requests
+  // are rejected before moderation/quoting so no credits can be held for
+  // functionality the pipeline cannot honor. The create_generation RPC
+  // enforces the same guard for direct callers.
+  // The prompt guard that stood here was lifted by #183: prompt requests
+  // now flow through validateUserPrompt + screenUserPrompt below.
+  if (inputs.length > 1) {
+    return {
+      error: "Multi-image generation is not yet available for this preset.",
+    };
+  }
+
   // Creem content-policy screen (required for AI image products): every
   // generation path must call the Moderation API before credits are
   // reserved or the provider is invoked. Free-text options are screened
   // verbatim; image-only requests send a fixed neutral descriptor so the
   // call still happens (repeat payloads are cached/free server-side).
   // deny/flag → blocked; an unreachable moderator fails closed.
+  // The optional user-edited prompt is intentionally screened separately
+  // below via the guarded fail-closed path (#183).
   const userText = extractUserText(input.options).join("\n");
   const screening = await screenUserText(
     userText || "user photo transformation",
@@ -128,11 +187,11 @@ export async function createAndSubmitGeneration(
     };
   }
 
-  // "Match photo" sizes resolve from the uploaded source image (clamped to
-  // the 4 MP cap); fixed sizes are validated as-is.
+  // "Match photo" sizes resolve from the primary (ordinal-1) input image
+  // (clamped to the 4 MP cap); fixed sizes are validated as-is.
   const outputSize = await resolveOutputSize(
     input.outputSize,
-    input.sourceAssetId,
+    inputs[0]!.assetId,
     input.productId
   );
   if (!outputSize) {
@@ -144,6 +203,57 @@ export async function createAndSubmitGeneration(
   const recipe = await getPrivateRecipe(input.productId, input.productVersionId);
   if (!recipe) {
     return { error: userFacingError() };
+  }
+
+  // User-edited preset prompt (#183): the PINNED version's capability and
+  // the server release gate decide — a hand-crafted `prompt` field on an
+  // ineligible preset/version is rejected here, before any quote or charge.
+  const promptValidation = validateUserPrompt(
+    input.prompt,
+    promptCapabilityOf(recipe)
+  );
+  if (!promptValidation.ok) {
+    return { error: promptValidation.error };
+  }
+  const userPrompt = promptValidation.prompt;
+
+  if (userPrompt) {
+    // Route compatibility (#183): the version capability only declares the
+    // preset eligible — every route that could serve the request must also
+    // honor an appended user edit. Unknown/unsupported endpoints fail
+    // closed before any quote or credit reservation.
+    const routesAllowPrompt =
+      getRouteCapability(
+        recipe.provider_strategy.primary_provider,
+        recipe.provider_strategy.primary_model
+      )?.supports_prompt_edit === true &&
+      (!recipe.provider_strategy.fallback_provider ||
+        getRouteCapability(
+          recipe.provider_strategy.fallback_provider,
+          recipe.provider_strategy.fallback_model
+        )?.supports_prompt_edit === true);
+    if (!routesAllowPrompt) {
+      return { error: "Custom prompts are not enabled for this preset." };
+    }
+
+    // Custom prompts take the guarded fail-closed path: the legacy
+    // flag-off "allow" inside screenUserText must never authorize them.
+    const promptScreen = await screenUserPrompt(
+      userPrompt,
+      `user_${user.id}:product_${input.productId}`
+    );
+    if (promptScreen.kind === "blocked") {
+      return {
+        error:
+          "That text can't be used — it violates our content policy. Please revise it and try again.",
+      };
+    }
+    if (promptScreen.kind === "unavailable") {
+      return {
+        error:
+          "We couldn't verify your input right now. Please try again in a moment.",
+      };
+    }
   }
 
   const endpoint = getProviderEndpoint(recipe.provider_strategy);
@@ -160,6 +270,9 @@ export async function createAndSubmitGeneration(
     productId: input.productId,
     productVersionId: input.productVersionId,
     options: input.options,
+    inputAssetIds: inputs.map((i) => i.assetId),
+    inputRoles: inputs.map((i) => i.role ?? null),
+    userPrompt,
     outputWidth: outputSize.width,
     outputHeight: outputSize.height,
     requestConfig: recipe.model_config,
@@ -177,8 +290,12 @@ export async function createAndSubmitGeneration(
     "create_generation",
     {
       p_quote_id: quote.quoteId,
-      p_source_asset_id: input.sourceAssetId,
+      p_input_assets: inputs.map((i) => ({
+        asset_id: i.assetId,
+        role: i.role ?? null,
+      })),
       p_options: input.options,
+      p_user_prompt: userPrompt,
       p_idempotency_key: input.idempotencyKey,
     }
   );
@@ -227,9 +344,12 @@ export async function createAndSubmitGeneration(
   let failureStage: string | null = null;
 
   try {
+    // Provider submission stays single-source today; additional inputs are
+    // pinned on the generation row (generation_input_assets) for the
+    // pipeline lane (#179) to wire into multi-input provider routes.
     const [sourceUrl, references] = await Promise.all([
       import("./upload").then((m) =>
-        m.getSignedSourceUrlByAssetId(input.sourceAssetId)
+        m.getSignedSourceUrlByAssetId(inputs[0]!.assetId)
       ),
       getSignedReferenceAssets(input.productId),
     ]);
@@ -237,7 +357,13 @@ export async function createAndSubmitGeneration(
 
     const prompt =
       compilePrompt(recipe.private_instruction_template, input.options) +
-      referencePromptClause(references.flatMap((r) => r.roles));
+      referencePromptClause(references.flatMap((r) => r.roles)) +
+      (userPrompt
+        ? userPromptSection(userPrompt, {
+            productType: recipe.products?.type,
+            identityPreservation: identityPreservationOf(recipe),
+          })
+        : "");
 
     const modelConfig: Record<string, unknown> = {
       ...recipe.model_config,
@@ -361,7 +487,7 @@ export async function regenerateGeneration(
   const { data: previous, error } = await supabase
     .from("generations")
     .select(
-      "product_id, product_version_id, source_asset_id, requested_options, progress"
+      "product_id, product_version_id, source_asset_id, requested_options, progress, user_prompt"
     )
     .eq("id", generationId)
     .eq("user_id", user.id)
@@ -374,6 +500,22 @@ export async function regenerateGeneration(
     return { error: "This transformation can't be regenerated." };
   }
 
+  // Replay the full ordered input set (owner-readable via RLS); generations
+  // predating the mapping table fall back to the source_asset_id column.
+  const { data: inputRows } = await supabase
+    .from("generation_input_assets")
+    .select("asset_id, role, ordinal")
+    .eq("generation_id", generationId)
+    .order("ordinal", { ascending: true });
+
+  const inputs =
+    inputRows && inputRows.length > 0
+      ? inputRows.map((r) => ({
+          assetId: r.asset_id as string,
+          role: (r.role as string | null) ?? undefined,
+        }))
+      : [{ assetId: previous.source_asset_id as string }];
+
   const progress = (previous.progress ?? {}) as Record<string, unknown>;
   const outputWidth = Number(progress.output_width);
   const outputHeight = Number(progress.output_height);
@@ -382,7 +524,8 @@ export async function regenerateGeneration(
   return createAndSubmitGeneration({
     productId: previous.product_id,
     productVersionId: previous.product_version_id,
-    sourceAssetId: previous.source_asset_id,
+    inputs,
+    prompt: (previous.user_prompt as string | null) ?? undefined,
     options:
       (previous.requested_options as Record<string, unknown> | null) ?? {},
     outputSize: {

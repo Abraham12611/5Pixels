@@ -22,6 +22,8 @@ const BASE_DATA = {
   public_status: "draft" as const,
   visibility: "public" as const,
   credit_cost: 2,
+  standalone_discoverable: false,
+  variant_sort_order: 0,
   version: {
     version_number: 1,
     state: "draft" as const,
@@ -33,6 +35,14 @@ const BASE_DATA = {
     model_config: {},
     output_sizes: [],
     input_validation_config: {},
+    input_capability: {
+      input_mode: "single" as const,
+      input_min_images: 1,
+      input_max_images: 1,
+      input_image_roles: [],
+      prompt_override_enabled: false,
+      prompt_max_chars: 0,
+    },
     post_process_config: {
       crop: false,
       format: "webp" as const,
@@ -86,4 +96,109 @@ describe("ProductForm", () => {
     },
     30_000
   );
+});
+
+describe("ProductForm — Preset Studio 2.0 defaults (#177)", () => {
+  const parents = [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      slug: "chrome-portrait",
+      name: "Chrome Portrait",
+      public_status: "published",
+    },
+  ];
+
+  it("defaults to standalone, single-image, prompt edits OFF", async () => {
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        eligibleParents={parents}
+        initialData={BASE_DATA}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    // Family: standalone selected; no parent-picker UI.
+    expect(
+      screen.getByRole("radio", { name: /standalone preset/i })
+    ).toBeChecked();
+    expect(
+      screen.queryByLabelText(/variant display name/i)
+    ).not.toBeInTheDocument();
+
+    // Images: single mode → no min/max/roles controls.
+    expect(
+      screen.queryByLabelText(/min images/i)
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/declared input roles/i)).not.toBeInTheDocument();
+
+    // Prompt: the enable switch exists but is OFF and hides its config.
+    const promptToggle = screen.getByRole("checkbox", {
+      name: /allow custom prompt edits/i,
+    });
+    expect(promptToggle).not.toBeChecked();
+    expect(
+      screen.queryByLabelText(/max characters/i)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/placeholder text/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("reveals variant controls when family mode switches to variant", async () => {
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        eligibleParents={parents}
+        initialData={BASE_DATA}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("radio", { name: /variant of a root preset/i })
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(/variant display name/i)
+      ).toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole("checkbox", {
+        name: /also show this variant independently in explore/i,
+      })
+    ).toBeInTheDocument();
+    // The first eligible parent is auto-selected.
+    expect(screen.getByText(/Chrome Portrait/)).toBeInTheDocument();
+  });
+
+  it("reveals prompt configuration when the enable switch turns on", async () => {
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        eligibleParents={parents}
+        initialData={BASE_DATA}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /allow custom prompt edits/i })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/max characters/i)).toBeInTheDocument()
+    );
+    expect(screen.getByLabelText(/placeholder text/i)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/allowed scope/i)
+    ).toBeInTheDocument();
+  });
 });
