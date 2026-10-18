@@ -5,12 +5,21 @@ import { usePathname, useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import {
   ArrowRight,
+  Briefcase,
+  Camera,
   Clock,
+  FilmSlate,
+  FrameCorners,
   GridFour,
   Image as ImageIcon,
   MagnifyingGlass,
+  PaintBrush,
+  Snowflake,
+  Sparkle,
+  User,
   Warning,
   X,
+  type Icon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { FivePixelMark } from "@/components/consumer/five-pixel";
@@ -18,6 +27,7 @@ import {
   filterCategories,
   filterLibrary,
   filterPresets,
+  libraryStatusLabel,
   type SearchCategory,
   type SearchLibraryItem,
   type SearchPreset,
@@ -39,6 +49,21 @@ const SCOPES: { key: SearchScope; label: string }[] = [
   { key: "categories", label: "Categories" },
   { key: "library", label: "Library" },
 ];
+
+/** Representative icon per category slug — mirrors category-faq.tsx. */
+const CATEGORY_ICON: Record<string, Icon> = {
+  portraits: User,
+  professional: Briefcase,
+  cinematic: FilmSlate,
+  covers: FrameCorners,
+  posters: FrameCorners,
+  illustration: PaintBrush,
+  retro: Camera,
+  vintage: Camera,
+  fantasy: Sparkle,
+  seasonal: Snowflake,
+  "new-season": Snowflake,
+};
 
 const ITEM_CLASS =
   "group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-sm outline-none data-[selected=true]:bg-charcoal-700";
@@ -550,9 +575,6 @@ function PresetRow({
           NEW
         </span>
       )}
-      <span className="text-text-muted shrink-0 font-mono text-xs">
-        {preset.creditCost} cr
-      </span>
     </Command.Item>
   );
 }
@@ -564,6 +586,7 @@ function CategoryRow({
   category: SearchCategory;
   onSelect: () => void;
 }) {
+  const Icon = CATEGORY_ICON[category.slug] ?? GridFour;
   return (
     <Command.Item
       value={`category-${category.slug}`}
@@ -572,7 +595,7 @@ function CategoryRow({
     >
       <RowMarker />
       <span className="bg-charcoal-800 text-text-secondary flex h-10 w-10 shrink-0 items-center justify-center rounded-md">
-        <GridFour size={16} weight="bold" />
+        <Icon size={16} weight="bold" />
       </span>
       <span className="text-cream-100 min-w-0 flex-1 truncate text-sm font-medium">
         {category.name}
@@ -597,6 +620,7 @@ function LibraryRow({
     month: "short",
     day: "numeric",
   });
+  const statusLabel = libraryStatusLabel(item.status);
   return (
     <Command.Item
       value={`library-${item.id}`}
@@ -613,7 +637,7 @@ function LibraryRow({
           {item.productName}
         </span>
         <span className="text-text-muted block truncate text-xs">
-          {item.status === "completed" ? "Result" : "In progress"} · {date}
+          {statusLabel} · {date}
         </span>
       </span>
     </Command.Item>
