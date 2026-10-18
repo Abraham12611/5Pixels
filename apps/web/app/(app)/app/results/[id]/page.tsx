@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getSignedAssetUrl } from "@/lib/generation/upload";
 import { resultFilename } from "@/lib/generation/download";
 import { getMyFeedbackForGeneration } from "@/lib/db/feedback";
+import { loadVariantRailContext } from "@/lib/generation/variant-handoff-server";
 import { ResultView } from "@/components/consumer/result-view";
+import { ResultVariantPicker } from "@/components/consumer/result-variant-picker";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 
 export default async function ResultPage({
@@ -63,7 +65,8 @@ export default async function ResultPage({
   let outputUrl: string | null = null;
   let sourceUrl: string | null = null;
 
-  const [myFeedback, shareMetaResult, outputAssetResult] = await Promise.all([
+  const [myFeedback, shareMetaResult, outputAssetResult, variantContext] =
+    await Promise.all([
     getMyFeedbackForGeneration(id),
     supabase
       .from("generations")
@@ -78,6 +81,10 @@ export default async function ResultPage({
           .eq("id", generation.output_asset_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    loadVariantRailContext({
+      generationId: id,
+      productSlug: generation.product_slug,
+    }),
   ]);
   const shareMeta = shareMetaResult.data;
   const outputAsset = outputAssetResult.data;
@@ -183,6 +190,14 @@ export default async function ResultPage({
         >
           {generation.product_name}
         </Link>
+        {variantContext?.familyParent && (
+          <Link
+            href={`/presets/${variantContext.familyParent.slug}`}
+            className="text-text-muted hover:text-cream-100 text-xs transition-colors"
+          >
+            part of {variantContext.familyParent.name}
+          </Link>
+        )}
         <span className="text-text-muted text-xs">
           {[
             createdLabel,
@@ -214,6 +229,17 @@ export default async function ResultPage({
           initialNotes={myFeedback?.notes ?? null}
           details={details}
           downloadUrls={downloadUrls}
+          variantSection={
+            variantContext ? (
+              <ResultVariantPicker
+                handoffs={variantContext.handoffs}
+                currentProductId={variantContext.currentProductId}
+                resultAsSourceAvailable={
+                  variantContext.resultAsSourceAvailable
+                }
+              />
+            ) : undefined
+          }
         />
       ) : (
         <div className="media-frame bg-charcoal-850 mt-4 flex min-h-[40dvh] flex-1 items-center justify-center rounded-2xl">

@@ -27,6 +27,9 @@ interface ResultViewProps {
   details: ResultDetailsData;
   /** Signed URLs for every output — enables "Download all" when >1. */
   downloadUrls?: string[];
+  /** Family-variation continuation surface (#184) — rendered in the rail
+   *  when the preset has siblings. */
+  variantSection?: React.ReactNode;
   stageClassName?: string;
 }
 
@@ -51,6 +54,7 @@ export function ResultView({
   initialNotes,
   details,
   downloadUrls,
+  variantSection,
   stageClassName,
 }: ResultViewProps) {
   const [mode, setMode] = useState<CompareMode>("result");
@@ -116,17 +120,18 @@ export function ResultView({
         <div className="order-4 md:order-3">
           <ResultDetails details={details} />
         </div>
+        {variantSection && <div className="order-5">{variantSection}</div>}
         <Button
           asChild
           variant="tertiary"
-          className="order-5 min-h-11 w-full md:hidden"
+          className="order-6 min-h-11 w-full md:hidden"
         >
           <Link href="/explore">
             <SquaresFour size={15} weight="bold" />
             Try another look
           </Link>
         </Button>
-        <div className="order-6">
+        <div className="order-7">
           <MobilePageBottomSpacer withDockedBar />
         </div>
       </aside>
