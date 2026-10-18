@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getActivePricingPolicy } from "./policy";
 import { getEndpointState, getFreshSnapshot } from "./snapshots";
@@ -11,6 +12,18 @@ export interface CreateQuoteInput {
   productVersionId: string;
   /** The exact options blob create_generation will later receive. */
   options: Record<string, unknown>;
+  /**
+   * Ordered input asset ids the caller will submit (#176). Stored in
+   * `params.input_asset_ids` so create_generation can reject substituted
+   * inputs — the quote is bound to the exact image set it priced.
+   */
+  inputAssetIds?: string[];
+  /**
+   * The caller's custom prompt (already length/policy-checked by the
+   * caller's contract). Stored as `params.prompt_hash` (sha256 of the
+   * trimmed text) so a different prompt can't replay the quote.
+   */
+  userPrompt?: string | null;
   outputWidth: number;
   outputHeight: number;
   /**
@@ -56,6 +69,18 @@ async function optionsFingerprint(
     return null;
   }
   return data;
+}
+
+/**
+ * SHA-256 of the caller's trimmed prompt — the same digest
+ * create_generation computes via `extensions.digest(text::bytea,
+ * 'sha256')`. Plain UTF-8 text hashes deterministically on both sides
+ * (unlike jsonb, there is no normalization ambiguity). NULL in, NULL out.
+ */
+function promptHash(prompt: string | null | undefined): string | null {
+  const text = prompt?.trim();
+  if (!text) return null;
+  return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
 function quoteEndpoint(
@@ -187,6 +212,11 @@ export async function createGenerationQuote(
         height: input.outputHeight,
         primary_components: primaryQuote.components,
         fallback_components: fallbackComponents,
+        // Input binding (#176): create_generation rejects any submitted
+        // input set or prompt that differs from what was quoted.
+        input_asset_ids: input.inputAssetIds ?? null,
+        input_count: input.inputAssetIds?.length ?? null,
+        prompt_hash: promptHash(input.userPrompt),
       },
       options_fingerprint: fingerprint,
       expires_at: expiresAt.toISOString(),

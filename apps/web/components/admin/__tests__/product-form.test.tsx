@@ -22,6 +22,8 @@ const BASE_DATA = {
   public_status: "draft" as const,
   visibility: "public" as const,
   credit_cost: 2,
+  standalone_discoverable: false,
+  variant_sort_order: 0,
   version: {
     version_number: 1,
     state: "draft" as const,
@@ -33,6 +35,14 @@ const BASE_DATA = {
     model_config: {},
     output_sizes: [],
     input_validation_config: {},
+    input_capability: {
+      input_mode: "single" as const,
+      input_min_images: 1,
+      input_max_images: 1,
+      input_image_roles: [],
+      prompt_override_enabled: false,
+      prompt_max_chars: 0,
+    },
     post_process_config: {
       crop: false,
       format: "webp" as const,

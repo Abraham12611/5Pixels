@@ -104,6 +104,21 @@ export async function createAndSubmitGeneration(
     return { error: "Please sign in to continue." };
   }
 
+  // Ordered inputs (#176): `inputs` is the contract; the deprecated
+  // `sourceAssetId` is the single-image alias. The RPC re-validates count,
+  // ownership, roles and quote binding — this normalization only shapes the
+  // request.
+  const inputs =
+    input.inputs && input.inputs.length > 0
+      ? input.inputs
+      : input.sourceAssetId
+        ? [{ assetId: input.sourceAssetId }]
+        : [];
+  if (inputs.length === 0) {
+    return { error: "A source image is required." };
+  }
+  const userPrompt = input.prompt?.trim() || null;
+
   // Creem content-policy screen (required for AI image products): every
   // generation path must call the Moderation API before credits are
   // reserved or the provider is invoked. Free-text options are screened
@@ -112,7 +127,8 @@ export async function createAndSubmitGeneration(
   // deny/flag → blocked; an unreachable moderator fails closed.
   const userText = extractUserText(input.options).join("\n");
   const screening = await screenUserText(
-    userText || "user photo transformation",
+    [userText, userPrompt].filter(Boolean).join("\n") ||
+      "user photo transformation",
     `user_${user.id}:product_${input.productId}`
   );
   if (screening.kind === "blocked") {
@@ -128,11 +144,11 @@ export async function createAndSubmitGeneration(
     };
   }
 
-  // "Match photo" sizes resolve from the uploaded source image (clamped to
-  // the 4 MP cap); fixed sizes are validated as-is.
+  // "Match photo" sizes resolve from the primary (ordinal-1) input image
+  // (clamped to the 4 MP cap); fixed sizes are validated as-is.
   const outputSize = await resolveOutputSize(
     input.outputSize,
-    input.sourceAssetId,
+    inputs[0]!.assetId,
     input.productId
   );
   if (!outputSize) {
@@ -160,6 +176,8 @@ export async function createAndSubmitGeneration(
     productId: input.productId,
     productVersionId: input.productVersionId,
     options: input.options,
+    inputAssetIds: inputs.map((i) => i.assetId),
+    userPrompt,
     outputWidth: outputSize.width,
     outputHeight: outputSize.height,
     requestConfig: recipe.model_config,
@@ -177,8 +195,12 @@ export async function createAndSubmitGeneration(
     "create_generation",
     {
       p_quote_id: quote.quoteId,
-      p_source_asset_id: input.sourceAssetId,
+      p_input_assets: inputs.map((i) => ({
+        asset_id: i.assetId,
+        role: i.role ?? null,
+      })),
       p_options: input.options,
+      p_user_prompt: userPrompt,
       p_idempotency_key: input.idempotencyKey,
     }
   );
@@ -227,9 +249,12 @@ export async function createAndSubmitGeneration(
   let failureStage: string | null = null;
 
   try {
+    // Provider submission stays single-source today; additional inputs are
+    // pinned on the generation row (generation_input_assets) for the
+    // pipeline lane (#179) to wire into multi-input provider routes.
     const [sourceUrl, references] = await Promise.all([
       import("./upload").then((m) =>
-        m.getSignedSourceUrlByAssetId(input.sourceAssetId)
+        m.getSignedSourceUrlByAssetId(inputs[0]!.assetId)
       ),
       getSignedReferenceAssets(input.productId),
     ]);
@@ -361,7 +386,7 @@ export async function regenerateGeneration(
   const { data: previous, error } = await supabase
     .from("generations")
     .select(
-      "product_id, product_version_id, source_asset_id, requested_options, progress"
+      "product_id, product_version_id, source_asset_id, requested_options, progress, user_prompt"
     )
     .eq("id", generationId)
     .eq("user_id", user.id)
@@ -374,6 +399,22 @@ export async function regenerateGeneration(
     return { error: "This transformation can't be regenerated." };
   }
 
+  // Replay the full ordered input set (owner-readable via RLS); generations
+  // predating the mapping table fall back to the source_asset_id column.
+  const { data: inputRows } = await supabase
+    .from("generation_input_assets")
+    .select("asset_id, role, ordinal")
+    .eq("generation_id", generationId)
+    .order("ordinal", { ascending: true });
+
+  const inputs =
+    inputRows && inputRows.length > 0
+      ? inputRows.map((r) => ({
+          assetId: r.asset_id as string,
+          role: (r.role as string | null) ?? undefined,
+        }))
+      : [{ assetId: previous.source_asset_id as string }];
+
   const progress = (previous.progress ?? {}) as Record<string, unknown>;
   const outputWidth = Number(progress.output_width);
   const outputHeight = Number(progress.output_height);
@@ -382,7 +423,8 @@ export async function regenerateGeneration(
   return createAndSubmitGeneration({
     productId: previous.product_id,
     productVersionId: previous.product_version_id,
-    sourceAssetId: previous.source_asset_id,
+    inputs,
+    prompt: (previous.user_prompt as string | null) ?? undefined,
     options:
       (previous.requested_options as Record<string, unknown> | null) ?? {},
     outputSize: {

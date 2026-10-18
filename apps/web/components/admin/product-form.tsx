@@ -94,6 +94,10 @@ export function ProductForm({
       preview_gif_asset_id: undefined,
       credit_cost: 0,
       featured_rank: undefined,
+      parent_preset_id: undefined,
+      standalone_discoverable: false,
+      variant_display_name: undefined,
+      variant_sort_order: 0,
       version: {
         version_number: 1,
         state: "draft",
@@ -106,6 +110,14 @@ export function ProductForm({
         model_config: {},
         output_sizes: [],
         input_validation_config: {},
+        input_capability: {
+          input_mode: "single",
+          input_min_images: 1,
+          input_max_images: 1,
+          input_image_roles: [],
+          prompt_override_enabled: false,
+          prompt_max_chars: 0,
+        },
         post_process_config: {
           crop: false,
           format: "webp",

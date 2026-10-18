@@ -192,6 +192,7 @@ export async function runLabGeneration(
     productId: input.productId,
     productVersionId: input.productVersionId,
     options: input.options,
+    inputAssetIds: [input.sourceAssetId],
     outputWidth: outputSize.width,
     outputHeight: outputSize.height,
     requestConfig: recipe.model_config,
