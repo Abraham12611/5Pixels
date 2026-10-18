@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
+import { familyAttribution } from "@/lib/catalog/discovery";
 import { ProductCard } from "@/components/consumer/product-card";
 import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { RetiredPresetCard } from "@/components/consumer/retired-preset-card";
@@ -61,6 +63,10 @@ export function FavoritesGrid({
       >
         {favorites.map(({ product, isAvailable }) => {
           if (removedIds.has(product.id)) return null;
+          // #181: a saved dependent variant still resolves via its direct
+          // URL but is attributed to its family root instead of presenting
+          // as a standalone look.
+          const attribution = familyAttribution(product);
           return isAvailable ? (
             <div key={product.id} className="mb-5 break-inside-avoid">
               <ProductCard
@@ -70,6 +76,14 @@ export function FavoritesGrid({
                 returnPath={returnPath}
                 onFavoriteChange={handleFavoriteChange}
               />
+              {attribution && (
+                <Link
+                  href={`/presets/${attribution.slug}`}
+                  className="text-text-secondary mt-1.5 block px-1 text-xs hover:underline"
+                >
+                  Part of the {attribution.name} look
+                </Link>
+              )}
             </div>
           ) : (
             <RetiredPresetCard key={product.id} product={product} />

@@ -57,6 +57,10 @@ export interface PublicProductSummary {
   standalone_discoverable?: boolean;
   /** Published children count — powers "N styles" badges on family roots. */
   variant_count?: number;
+  /** Family-parent slug/name for "part of" attribution — emitted by the
+   *  owner-scoped favorites RPC, not the public catalog (#181). */
+  parent_slug?: string | null;
+  parent_name?: string | null;
 }
 
 export interface PublicProductAsset {
@@ -92,6 +96,9 @@ export type PublicProductDetail = PublicProductSummary & {
   family_id?: string;
   /** The version's consumer-facing input contract. */
   input_capability?: PublicInputCapability | null;
+  /** Whether the parent's own public page resolves — drives the
+   *  canonical-to-parent vs noindex decision for dependent variants (#181). */
+  parent_is_public?: boolean | null;
 };
 
 /** get_preset_family member row (#176). */
