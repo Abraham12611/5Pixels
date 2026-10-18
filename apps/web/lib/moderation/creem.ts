@@ -117,6 +117,38 @@ export async function screenUserText(
 }
 
 /**
+ * Is the moderation pipeline actually configured end-to-end? The guarded
+ * user-prompt path (#183) requires this before accepting custom text.
+ */
+export function isPromptModerationConfigured(): boolean {
+  return (
+    process.env.CREEM_MODERATION_ENABLED?.trim() === "true" &&
+    Boolean(process.env.CREEM_API_KEY?.trim())
+  );
+}
+
+/**
+ * Fail-closed screen for opt-in preset user prompts (#183). Unlike
+ * {@link screenUserText} — whose flag-off/key-less early "allow" preserves
+ * legacy curated-preset behavior — this path requires moderation to be
+ * configured in EVERY environment. Missing config, timeouts, non-OK or
+ * malformed responses, and unreachable services all return "unavailable",
+ * and the caller must reject before credits move or the provider is called.
+ */
+export async function screenUserPrompt(
+  text: string,
+  externalId?: string
+): Promise<ScreenOutcome> {
+  if (!isPromptModerationConfigured()) {
+    console.error(
+      "[moderation] user-prompt screen requested without moderation configured — failing closed"
+    );
+    return { kind: "unavailable" };
+  }
+  return screenUserText(text, externalId);
+}
+
+/**
  * Collect every user-controlled string from a preset's option values —
  * poster text fields and free-text fields are the only user input that can
  * reach the compiled model prompt (numbers/booleans/selects are inert).
