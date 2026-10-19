@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,7 +59,21 @@ export function PresetFamilyFields({
     | string
     | null
     | undefined;
-  const isVariant = Boolean(parentPresetId);
+  const productType = useWatch({ control, name: "type" }) as
+    | "filter"
+    | "poster"
+    | undefined;
+
+  // "Variant" is an explicit mode (#223): choosing it no longer auto-assigns
+  // the first eligible parent — the preset only becomes a variant once the
+  // admin deliberately picks a root. Until then the section warns that the
+  // record would save as standalone.
+  const [mode, setMode] = useState<"standalone" | "variant">(() =>
+    parentPresetId ? "variant" : "standalone"
+  );
+  const isVariant = mode === "variant";
+  const variantBlocked =
+    hasChildren || (!parentPresetId && eligibleParents.length === 0);
 
   if (!schemaAvailable) {
     return (
@@ -90,6 +105,7 @@ export function PresetFamilyFields({
               name="__family_mode"
               checked={!isVariant}
               onChange={() => {
+                setMode("standalone");
                 setValue("parent_preset_id", null, { shouldDirty: true });
                 setValue("standalone_discoverable", false, {
                   shouldDirty: true,
@@ -104,14 +120,8 @@ export function PresetFamilyFields({
               type="radio"
               name="__family_mode"
               checked={isVariant}
-              disabled={hasChildren}
-              onChange={() => {
-                if (!parentPresetId && eligibleParents[0]) {
-                  setValue("parent_preset_id", eligibleParents[0].id, {
-                    shouldDirty: true,
-                  });
-                }
-              }}
+              disabled={variantBlocked}
+              onChange={() => setMode("variant")}
               className="h-4 w-4 text-lime-500"
             />
             Variant of a root preset
@@ -121,6 +131,19 @@ export function PresetFamilyFields({
           <p className={hintClass}>
             This preset already has variants of its own, so it cannot become
             a variant itself — families are single-level.
+          </p>
+        )}
+        {!parentPresetId && eligibleParents.length === 0 && (
+          <p className={hintClass}>
+            No eligible root{" "}
+            {productType === "poster" ? "posters" : "filters"} exist yet —{" "}
+            <Link
+              href={`/admin/${productType === "poster" ? "posters" : "filters"}/new`}
+              className="text-lime-400 hover:text-lime-300 underline"
+            >
+              create a root preset
+            </Link>{" "}
+            first.
           </p>
         )}
 
@@ -142,11 +165,25 @@ export function PresetFamilyFields({
                   }))}
                 />
               </div>
+              {!parentPresetId && (
+                <p className="text-warning mt-1 text-sm">
+                  No parent selected — this preset will save as standalone
+                  until you choose a root.
+                </p>
+              )}
               {productId === parentPresetId && (
                 <p className="text-error mt-1 text-sm">
                   A preset cannot be its own parent.
                 </p>
               )}
+              {currentParent &&
+                parentPresetId &&
+                currentParent.id !== parentPresetId && (
+                  <p className={hintClass}>
+                    Changing the parent moves this variant into a different
+                    family and out of its current sibling order.
+                  </p>
+                )}
               {currentParent?.public_status === "retired" && (
                 <p className="text-error mt-1 text-sm">
                   The current parent is retired — pick a different root

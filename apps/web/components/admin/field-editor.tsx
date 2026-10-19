@@ -1,12 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useFieldArray, useFormContext } from "react-hook-form";
+import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RichSelect } from "@/components/ui/rich-select";
 import { optionalNumberInput } from "./form-utils";
 import type { ProductCreateInput } from "@5pixels/shared";
+
+type FieldItem = ProductCreateInput["fields"][number];
 
 const FIELD_TYPES = [
   { value: "short_text", label: "Short text", description: "Free text input" },
@@ -26,37 +30,133 @@ const FIELD_TYPES = [
 const CHOICE_TYPES = ["select", "radio", "layout", "background", "wardrobe", "era", "mood"];
 const RANGE_TYPES = ["intensity"];
 
+/**
+ * Next never-before-used `field_${n}` key (#223). Counting from
+ * `fields.length + 1` collided after a remove-then-add; reusing the smallest
+ * free number could resurrect a deleted key's stored values, so scan for the
+ * largest numeric suffix instead and guarantee uniqueness.
+ */
+function nextFieldKey(existing: FieldItem[]): string {
+  const used = new Set(
+    existing.map((f) => (f.field_key ?? "").trim().toLowerCase())
+  );
+  let n =
+    existing.reduce((max, f) => {
+      const m = /^field_(\d+)$/.exec(f.field_key ?? "");
+      return m ? Math.max(max, parseInt(m[1] ?? "0", 10)) : max;
+    }, 0) + 1;
+  while (used.has(`field_${n}`)) n += 1;
+  return `field_${n}`;
+}
+
 export function FieldEditor() {
-  const { control, register, watch, setValue } =
-    useFormContext<ProductCreateInput>();
-  const { fields, append, remove } = useFieldArray({
+  const {
+    control,
+    register,
+    watch,
+    setValue,
+    getValues,
+    formState: { errors },
+  } = useFormContext<ProductCreateInput>();
+  const { fields, append, remove, move, insert } = useFieldArray({
     control,
     name: "fields",
   });
+  const [undo, setUndo] = useState<{ index: number; field: FieldItem } | null>(
+    null
+  );
+
+  /** Position IS the persisted order: after every structural change,
+   *  sort_order is rewritten to the row index so saved data reloads in the
+   *  same sequence the admin sees. */
+  const normalizeSortOrder = () => {
+    (getValues("fields") ?? []).forEach((f, i) => {
+      if (f.sort_order !== i) {
+        setValue(`fields.${i}.sort_order`, i, { shouldDirty: true });
+      }
+    });
+  };
+
+  const addField = () => {
+    setUndo(null);
+    append({
+      field_key: nextFieldKey(getValues("fields") ?? []),
+      label: "New field",
+      field_type: "short_text",
+      required: false,
+      sort_order: fields.length,
+      config: {},
+      validation: {},
+      active: true,
+    });
+    normalizeSortOrder();
+  };
+
+  const moveField = (index: number, direction: -1 | 1) => {
+    setUndo(null);
+    move(index, index + direction);
+    normalizeSortOrder();
+  };
+
+  const removeField = (index: number) => {
+    const snapshot = getValues(`fields.${index}`);
+    remove(index);
+    normalizeSortOrder();
+    setUndo(snapshot ? { index, field: snapshot } : null);
+  };
+
+  const undoRemove = () => {
+    if (!undo) return;
+    insert(Math.min(undo.index, fields.length), undo.field);
+    setUndo(null);
+    normalizeSortOrder();
+  };
+
+  // Duplicate keys break option wiring — flag them inline (normalized, so
+  // "Title" and "title" count as the same collision).
+  const watchedFields = watch("fields") ?? [];
+  const keyCounts = new Map<string, number>();
+  for (const f of watchedFields) {
+    const k = (f?.field_key ?? "").trim().toLowerCase();
+    if (k) keyCounts.set(k, (keyCounts.get(k) ?? 0) + 1);
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-cream-50 text-lg font-semibold">User controls</h2>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() =>
-            append({
-              field_key: `field_${fields.length + 1}`,
-              label: "New field",
-              field_type: "short_text",
-              required: false,
-              sort_order: fields.length,
-              config: {},
-              validation: {},
-              active: true,
-            })
-          }
-        >
+        <Button type="button" variant="secondary" onClick={addField}>
           Add field
         </Button>
       </div>
+
+      {undo && (
+        <div
+          role="status"
+          className="border-warning/40 bg-warning/10 text-warning flex items-center justify-between gap-3 rounded-xl border px-4 py-2 text-sm"
+        >
+          <span>
+            Removed &ldquo;{undo.field.label || undo.field.field_key}&rdquo;.
+          </span>
+          <span className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={undoRemove}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={() => setUndo(null)}
+              aria-label="Dismiss"
+              className="text-warning/80 hover:text-warning"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
 
       {fields.length === 0 && (
         <p className="text-text-secondary text-sm">
@@ -65,16 +165,27 @@ export function FieldEditor() {
       )}
 
       <div className="space-y-4">
-        {fields.map((field, index) => (
-          <FieldRow
-            key={field.id}
-            index={index}
-            onRemove={() => remove(index)}
-            register={register}
-            watch={watch}
-            setValue={setValue}
-          />
-        ))}
+        {fields.map((field, index) => {
+          const normalized = (watchedFields[index]?.field_key ?? "")
+            .trim()
+            .toLowerCase();
+          return (
+            <FieldRow
+              key={field.id}
+              index={index}
+              total={fields.length}
+              onMove={(dir) => moveField(index, dir)}
+              onRemove={() => removeField(index)}
+              duplicateKey={
+                normalized.length > 0 && (keyCounts.get(normalized) ?? 0) > 1
+              }
+              rowErrors={errors.fields?.[index]}
+              register={register}
+              watch={watch}
+              setValue={setValue}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -82,28 +193,78 @@ export function FieldEditor() {
 
 interface FieldRowProps {
   index: number;
+  total: number;
+  onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
+  duplicateKey: boolean;
+  rowErrors?: {
+    label?: { message?: string };
+    field_key?: { message?: string };
+  };
   register: ReturnType<typeof useFormContext<ProductCreateInput>>["register"];
   watch: ReturnType<typeof useFormContext<ProductCreateInput>>["watch"];
   setValue: ReturnType<typeof useFormContext<ProductCreateInput>>["setValue"];
 }
 
-function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps) {
+function FieldRow({
+  index,
+  total,
+  onMove,
+  onRemove,
+  duplicateKey,
+  rowErrors,
+  register,
+  watch,
+  setValue,
+}: FieldRowProps) {
   const fieldType = watch(`fields.${index}.field_type`);
   const isChoiceType = CHOICE_TYPES.includes(fieldType);
   const isRangeType = RANGE_TYPES.includes(fieldType);
 
   return (
     <div className="border-cream-100/10 bg-charcoal-800 rounded-xl border p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="text-text-muted text-xs">
+          Control {index + 1} of {total}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label={`Move control ${index + 1} up`}
+            disabled={index === 0}
+            onClick={() => onMove(-1)}
+          >
+            <ArrowUp size={14} />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label={`Move control ${index + 1} down`}
+            disabled={index === total - 1}
+            onClick={() => onMove(1)}
+          >
+            <ArrowDown size={14} />
+          </Button>
+          <Button type="button" variant="destructive" onClick={onRemove}>
+            Remove
+          </Button>
+        </div>
+      </div>
+
       {/* Row 1: label, key, type */}
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-4">
         <div className="md:col-span-2">
           <Label htmlFor={`fields.${index}.label`}>Label</Label>
           <Input
             id={`fields.${index}.label`}
             {...register(`fields.${index}.label`)}
             className="mt-1"
+            aria-invalid={Boolean(rowErrors?.label)}
           />
+          {rowErrors?.label?.message && (
+            <p className="text-error mt-1 text-sm">{rowErrors.label.message}</p>
+          )}
         </div>
         <div>
           <Label htmlFor={`fields.${index}.field_key`}>Key</Label>
@@ -112,7 +273,18 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
             {...register(`fields.${index}.field_key`)}
             className="mt-1"
             placeholder="e.g. background"
+            aria-invalid={Boolean(rowErrors?.field_key) || duplicateKey}
           />
+          {rowErrors?.field_key?.message && (
+            <p className="text-error mt-1 text-sm">
+              {rowErrors.field_key.message}
+            </p>
+          )}
+          {duplicateKey && (
+            <p className="text-error mt-1 text-sm">
+              Another control already uses this key.
+            </p>
+          )}
         </div>
         <div>
           <Label htmlFor={`fields.${index}.field_type`}>Type</Label>
@@ -136,14 +308,9 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
             />
           </div>
         </div>
-        <div className="flex items-end gap-2">
-          <Button type="button" variant="destructive" onClick={onRemove}>
-            Remove
-          </Button>
-        </div>
       </div>
 
-      {/* Row 2: help_text, required, sort_order */}
+      {/* Row 2: help_text, required */}
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         <div className="md:col-span-2">
           <Label htmlFor={`fields.${index}.help_text`}>Help text</Label>
@@ -163,15 +330,6 @@ function FieldRow({ index, onRemove, register, watch, setValue }: FieldRowProps)
             />
             Required
           </label>
-          <div className="flex items-center gap-2">
-            <Label htmlFor={`fields.${index}.sort_order`}>Order</Label>
-            <Input
-              id={`fields.${index}.sort_order`}
-              type="number"
-              {...register(`fields.${index}.sort_order`, optionalNumberInput)}
-              className="mt-0 w-20"
-            />
-          </div>
         </div>
       </div>
 
