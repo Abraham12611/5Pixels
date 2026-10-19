@@ -24,7 +24,24 @@ Ordering matters and cannot be compressed: #189 and #193 both redefine
 #202's fix presumes nothing about the earlier files (it is independently
 safe), but the app layer that #208 is debugging needs all five.
 
-Hosted is registered through `20261027000001`, so all five are pending.
+Hosted is registered through `20261027000001`, so all five are pending —
+**verified against hosted `euoasoqxowgcafcnzljq` on 2026-10-19**: registered
+tip is `20261027000001 article_editorial_blocks`; `generation_input_assets`,
+`release_gates`, and all ten family/input columns are absent; `is_admin()` is
+still `LANGUAGE sql`; its ACL is `{postgres, authenticated, service_role}`
+with **no `anon` grant** — the direct cause of the 12 `42501
+permission denied for function is_admin` errors (policies without a `TO`
+clause are planned for `anon` too, and any policy containing `is_admin()`
+then 42501s for anonymous requests). `20261028000001` and `20261031000001`
+both grant `anon` EXECUTE — the chain fixes it.
+
+**Hosted `profiles_read_self` note:** the hosted policy text is already
+`auth.uid() = id OR is_admin()` — no raw self-subquery. The hosted `42P17`
+recursion comes purely from `is_admin()` being an **inlinable `LANGUAGE
+sql`** function: inlining it into the policy inserts a `profiles` read
+under caller RLS, which re-enters `profiles_read_self` forever. The
+`plpgsql` conversion alone terminates it; the policy rewrite in
+`20261031000001` is belt-and-braces.
 
 ## Step 0 — backup (before anything writes)
 
@@ -64,7 +81,13 @@ checked-in chain and needs reconciliation before proceeding.
 
 Preferred: `supabase db push` (or `supabase migration up`) from the repo with
 the project linked — the CLI applies files in filename order and registers
-each version verbatim, so checked-in versions == hosted versions.
+each version verbatim, so checked-in versions == hosted versions. Requires
+`SUPABASE_ACCESS_TOKEN` + project link (not provisioned on this machine).
+
+Fallback already proven available: Supabase MCP `execute_sql` — apply each
+file body verbatim in order, spot-verify each landed, then insert the
+matching version row per the rule below. Do **not** use MCP
+`apply_migration` — it generates divergent version names.
 
 If a different tool is used (e.g. Supabase MCP `apply_migration`, dashboard
 SQL), it **must** register the checked-in version strings — `apply_migration`
