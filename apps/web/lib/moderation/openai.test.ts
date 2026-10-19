@@ -183,6 +183,9 @@ describe("screenUserPrompt (OpenAI guarded path)", () => {
       { results: [] },
       { results: [{}] },
       { results: [{ flagged: "yes" }] },
+      { results: [{ flagged: false }] },
+      { results: [{ flagged: false, categories: {} }] },
+      { results: [{ flagged: false, categories: [] }] },
       { results: [{ flagged: false, categories: { hate: "yes" } }] },
       { results: null },
     ]) {
