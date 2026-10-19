@@ -7,6 +7,10 @@ import {
   getUserFavoriteProductIds,
 } from "@/lib/db/explore";
 import { getPresetFamilyRail } from "@/lib/catalog/family";
+import {
+  familyAttribution,
+  presetIndexPolicy,
+} from "@/lib/catalog/discovery";
 import { PresetFamilySelector } from "@/components/consumer/preset-family-selector";
 import { ProductMedia } from "@/components/consumer/product-media";
 import { ProductVideoPlayer } from "@/components/consumer/product-video-player";
@@ -60,10 +64,16 @@ export async function generateMetadata({
   const ogImage = heroAsset
     ? publicAssetUrl(heroAsset.bucket, heroAsset.storage_key)
     : undefined;
+  // #181: dependent variants are direct-URL-only — consolidate indexing at
+  // the family root (or noindex when the parent itself is unreachable).
+  const indexPolicy = presetIndexPolicy(product);
 
   return {
     title,
     description,
+    robots: indexPolicy.noindex
+      ? { index: false, follow: true }
+      : undefined,
     openGraph: {
       title,
       description,
@@ -76,9 +86,9 @@ export async function generateMetadata({
       description,
       images: ogImage ? [ogImage] : undefined,
     },
-    alternates: {
-      canonical: `/presets/${product.slug}`,
-    },
+    alternates: indexPolicy.canonical
+      ? { canonical: indexPolicy.canonical }
+      : undefined,
   };
 }
 
@@ -123,6 +133,10 @@ export default async function PresetDetailPage({
 
   const isFavorite = favoriteIds.includes(product.id);
   const { data: familyMembers } = await getPresetFamilyRail(product);
+  // #181: dependent variants are reached by direct link — attribute them to
+  // the family root so the shared URL still leads back to discoverable
+  // context.
+  const attribution = familyAttribution(product);
   const heroAsset = selectCatalogMediaAsset(product.public_assets, "hero");
   const stillAsset =
     product.public_assets.find((a) => isImageMimeType(a.mime_type)) ?? null;
@@ -205,6 +219,14 @@ export default async function PresetDetailPage({
                     className="text-sm font-medium text-lime-400 hover:underline"
                   >
                     {product.category_name}
+                  </Link>
+                )}
+                {attribution && (
+                  <Link
+                    href={`/presets/${attribution.slug}`}
+                    className="text-text-secondary mt-0.5 block text-[13px] hover:underline"
+                  >
+                    Part of the {attribution.name} look
                   </Link>
                 )}
               </div>
@@ -341,6 +363,14 @@ export default async function PresetDetailPage({
                   <p className="text-text-muted mt-1 text-sm capitalize">
                     {product.type}
                   </p>
+                  {attribution && (
+                    <Link
+                      href={`/presets/${attribution.slug}`}
+                      className="text-text-secondary mt-1 block text-sm hover:underline"
+                    >
+                      Part of the {attribution.name} look
+                    </Link>
+                  )}
                 </div>
                 <FavoriteButton
                   productId={product.id}

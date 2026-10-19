@@ -98,6 +98,9 @@ export async function getPublicProductBySlug(
       variant_display_name: row.variant_display_name ?? null,
       family_id: row.family_id ?? row.id,
       input_capability: row.input_capability ?? null,
+      parent_slug: row.parent_slug ?? null,
+      parent_name: row.parent_name ?? null,
+      parent_is_public: row.parent_is_public ?? null,
     } as PublicProductDetail,
   };
 }
