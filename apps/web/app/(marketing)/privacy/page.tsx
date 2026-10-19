@@ -203,6 +203,12 @@ export default function PrivacyPage() {
                   transformations.
                 </li>
                 <li>
+                  <strong>OpenAI</strong>, our content-moderation provider.
+                  Text you enter for a transformation (for example, custom
+                  edit instructions or text options) may be sent to OpenAI&apos;s
+                  moderation service to enforce our Acceptable Use Policy.
+                </li>
+                <li>
                   <strong>Bachs</strong>, our payment processor, to process
                   payments, subscriptions, refunds, and receipts.
                 </li>
