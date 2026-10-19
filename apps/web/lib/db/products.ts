@@ -23,6 +23,7 @@ import {
 } from "@/lib/ai/provider-routing";
 import { getRouteCapability } from "@/lib/ai/route-capabilities";
 import { assertVersionQuotable } from "@/lib/validation/route-publish-check";
+import { isFamilySchemaUnavailableError } from "./schema-errors";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
 
@@ -993,10 +994,16 @@ export interface EligibleParentPreset {
  * Root presets eligible to parent a new variant: same type, not retired, not
  * itself a variant, and not the product being edited.
  */
+export interface EligibleParentPresetsResult {
+  parents: EligibleParentPreset[];
+  /** False when the preset-family contract is not deployed on this DB. */
+  familySchemaAvailable: boolean;
+}
+
 export async function getEligibleParentPresets(
   type: "filter" | "poster",
   excludeProductId?: string
-): Promise<EligibleParentPreset[]> {
+): Promise<EligibleParentPresetsResult> {
   await requireAdminOrOwner();
   const supabase = await createClient();
 
@@ -1012,8 +1019,20 @@ export async function getEligibleParentPresets(
   }
 
   const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as EligibleParentPreset[];
+  if (error) {
+    if (isFamilySchemaUnavailableError(error)) {
+      console.warn(
+        "[admin] preset-family schema not deployed — parent picker unavailable:",
+        error.message
+      );
+      return { parents: [], familySchemaAvailable: false };
+    }
+    throw error;
+  }
+  return {
+    parents: (data ?? []) as EligibleParentPreset[],
+    familySchemaAvailable: true,
+  };
 }
 
 export interface PresetFamilyMember {
@@ -1034,13 +1053,19 @@ export interface PresetFamily {
   children: PresetFamilyMember[];
 }
 
+export interface PresetFamilyResult {
+  family: PresetFamily | null;
+  /** False when the preset-family contract is not deployed on this DB. */
+  familySchemaAvailable: boolean;
+}
+
 /**
  * The family a product belongs to — itself when it's a root without
  * children. Admin-only; used by the edit page's family panel.
  */
 export async function getPresetFamilyForAdmin(
   productId: string
-): Promise<PresetFamily | null> {
+): Promise<PresetFamilyResult> {
   await requireAdminOrOwner();
   const supabase = await createClient();
 
@@ -1051,7 +1076,16 @@ export async function getPresetFamilyForAdmin(
     )
     .eq("id", productId)
     .single();
-  if (selfError || !self) return null;
+  if (selfError || !self) {
+    if (selfError && isFamilySchemaUnavailableError(selfError)) {
+      console.warn(
+        "[admin] preset-family schema not deployed — family panel unavailable:",
+        selfError.message
+      );
+      return { family: null, familySchemaAvailable: false };
+    }
+    return { family: null, familySchemaAvailable: true };
+  }
 
   const rootId = (self.parent_preset_id as string | null) ?? self.id;
   const { data: members, error: membersError } = await supabase
@@ -1062,14 +1096,26 @@ export async function getPresetFamilyForAdmin(
     .or(`id.eq.${rootId},parent_preset_id.eq.${rootId}`)
     .order("variant_sort_order", { ascending: true })
     .order("created_at", { ascending: true });
-  if (membersError) throw membersError;
+  if (membersError) {
+    if (isFamilySchemaUnavailableError(membersError)) {
+      console.warn(
+        "[admin] preset-family schema not deployed — family panel unavailable:",
+        membersError.message
+      );
+      return { family: null, familySchemaAvailable: false };
+    }
+    throw membersError;
+  }
 
   const rows = (members ?? []) as PresetFamilyMember[];
   const root = rows.find((m) => m.id === rootId);
-  if (!root) return null;
+  if (!root) return { family: null, familySchemaAvailable: true };
   return {
-    root,
-    children: rows.filter((m) => m.id !== rootId),
+    family: {
+      root,
+      children: rows.filter((m) => m.id !== rootId),
+    },
+    familySchemaAvailable: true,
   };
 }
 

@@ -50,8 +50,8 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     assetPreviewById,
     referenceAssets,
     modelCatalog,
-    eligibleParents,
-    family,
+    eligibleResult,
+    familyResult,
   ] = await Promise.all([
     getCategories(),
     getProductAssetPreviews([
@@ -65,6 +65,11 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     getEligibleParentPresets(type, id),
     getPresetFamilyForAdmin(id),
   ]);
+
+  const eligibleParents = eligibleResult.parents;
+  const family = familyResult.family;
+  const familySchemaAvailable =
+    eligibleResult.familySchemaAvailable && familyResult.familySchemaAvailable;
 
   // Admin private reference assets share the route's input-image budget —
   // the multi-image config must fit in what remains.
@@ -416,6 +421,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         categories={categories}
         modelCatalog={modelCatalog}
         eligibleParents={eligibleParents}
+        familySchemaAvailable={familySchemaAvailable}
         hasChildren={(family?.children.length ?? 0) > 0}
         adminReferenceCount={adminReferenceCount}
         currentParent={
