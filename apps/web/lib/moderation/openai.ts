@@ -55,13 +55,19 @@ function parseResults(body: unknown): ModerationResultShape[] | null {
     const flagged = (r as { flagged?: unknown }).flagged;
     if (typeof flagged !== "boolean") return null;
     const categories = (r as { categories?: unknown }).categories;
+    // A response with no category results cannot prove the content was
+    // screened. Fail closed instead of treating missing signals as clear.
+    if (
+      !categories ||
+      typeof categories !== "object" ||
+      Array.isArray(categories)
+    ) return null;
+    const catEntries = Object.entries(categories);
+    if (catEntries.length === 0) return null;
     const catMap: Record<string, boolean> = {};
-    if (categories !== undefined) {
-      if (!categories || typeof categories !== "object") return null;
-      for (const [k, v] of Object.entries(categories)) {
-        if (typeof v !== "boolean") return null;
-        catMap[k] = v;
-      }
+    for (const [k, v] of catEntries) {
+      if (typeof v !== "boolean") return null;
+      catMap[k] = v;
     }
     parsed.push({ flagged, categories: catMap });
   }
