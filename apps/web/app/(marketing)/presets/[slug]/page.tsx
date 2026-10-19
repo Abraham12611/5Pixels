@@ -319,7 +319,11 @@ export default async function PresetDetailPage({
 
           <div className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-2 lg:py-12">
             <div>
-              <div className="bg-charcoal-800 relative aspect-[4/5] overflow-hidden rounded-2xl lg:sticky lg:top-6">
+              {/* Height-bounded width: keeps the 4:5 ratio but never grows
+                  taller than the viewport, so the whole preview stays on
+                  screen instead of requiring a scroll (same technique as
+                  StudioStage). 10rem covers the top bar + section padding. */}
+              <div className="bg-charcoal-800 relative aspect-[4/5] overflow-hidden rounded-2xl lg:sticky lg:top-6 lg:w-[min(100%,calc((100dvh_-_10rem)*0.8))]">
                 <ProductMedia
                   asset={heroAsset}
                   alt={product.name}
