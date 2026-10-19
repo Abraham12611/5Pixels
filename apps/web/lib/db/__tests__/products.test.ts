@@ -172,7 +172,10 @@ describe("preset-family loaders on an un-migrated database (#208)", () => {
   it("getEligibleParentPresets returns [] when family columns are absent (42703)", async () => {
     const { getEligibleParentPresets } = await import("../products");
     await wireClient({ data: null, error: missingColumn });
-    await expect(getEligibleParentPresets("filter")).resolves.toEqual([]);
+    await expect(getEligibleParentPresets("filter")).resolves.toEqual({
+      parents: [],
+      familySchemaAvailable: false,
+    });
   });
 
   it("getEligibleParentPresets returns [] for PostgREST schema-cache misses", async () => {
@@ -181,7 +184,10 @@ describe("preset-family loaders on an un-migrated database (#208)", () => {
       data: null,
       error: { ...missingColumn, code: "PGRST204" },
     });
-    await expect(getEligibleParentPresets("poster")).resolves.toEqual([]);
+    await expect(getEligibleParentPresets("poster")).resolves.toEqual({
+      parents: [],
+      familySchemaAvailable: false,
+    });
   });
 
   it("getEligibleParentPresets still throws on real database errors", async () => {
@@ -195,7 +201,10 @@ describe("preset-family loaders on an un-migrated database (#208)", () => {
   it("getPresetFamilyForAdmin returns null when family columns are absent", async () => {
     const { getPresetFamilyForAdmin } = await import("../products");
     await wireClient({ data: null, error: missingColumn });
-    await expect(getPresetFamilyForAdmin("prod-1")).resolves.toBeNull();
+    await expect(getPresetFamilyForAdmin("prod-1")).resolves.toEqual({
+      family: null,
+      familySchemaAvailable: false,
+    });
   });
 
   it("getPresetFamilyForAdmin still throws on real database errors", async () => {
@@ -233,9 +242,28 @@ describe("preset-family loaders on an un-migrated database (#208)", () => {
     );
   });
 
-  it("getPresetFamilyForAdmin degrades on missing relation (42P01)", async () => {
+  it("does not flag unrelated missing relations as family-schema absent", async () => {
     const { getPresetFamilyForAdmin } = await import("../products");
+    // release_gates is not a preset-family-contract object — a missing
+    // relation error naming it must not mark the family schema absent.
     await wireClient({ data: null, error: missingTable });
-    await expect(getPresetFamilyForAdmin("prod-1")).resolves.toBeNull();
+    await expect(getPresetFamilyForAdmin("prod-1")).resolves.toEqual({
+      family: null,
+      familySchemaAvailable: true,
+    });
+  });
+
+  it("does NOT degrade on schema errors naming unrelated objects", async () => {
+    const { getEligibleParentPresets } = await import("../products");
+    const unrelated = {
+      code: "42703",
+      message: 'column products.some_other_column does not exist',
+      details: null,
+      hint: null,
+    };
+    await wireClient({ data: null, error: unrelated });
+    await expect(getEligibleParentPresets("filter")).rejects.toEqual(
+      unrelated
+    );
   });
 });

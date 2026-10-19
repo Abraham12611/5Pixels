@@ -8,7 +8,7 @@ import { ProductForm } from "@/components/admin/product-form";
 
 export default async function NewFilterPage() {
   await requireAdmin();
-  const [categories, modelCatalog, eligibleParents] = await Promise.all([
+  const [categories, modelCatalog, eligibleResult] = await Promise.all([
     getCategories(),
     getProviderModelCatalog(),
     getEligibleParentPresets("filter"),
@@ -34,7 +34,8 @@ export default async function NewFilterPage() {
         type="filter"
         categories={categories}
         modelCatalog={modelCatalog}
-        eligibleParents={eligibleParents}
+        eligibleParents={eligibleResult.parents}
+        familySchemaAvailable={eligibleResult.familySchemaAvailable}
         onSubmit={createProduct}
       />
     </>
