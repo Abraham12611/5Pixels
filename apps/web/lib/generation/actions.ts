@@ -19,11 +19,11 @@ import {
   referencePromptClause,
   userPromptSection,
 } from "@/lib/ai/prompt";
+import { extractUserText, screenUserText } from "@/lib/moderation/creem";
 import {
-  extractUserText,
+  isOpenAiModerationConfigured,
   screenUserPrompt,
-  screenUserText,
-} from "@/lib/moderation/creem";
+} from "@/lib/moderation/openai";
 import { screenUserImage } from "@/lib/moderation/image";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -196,10 +196,19 @@ export async function createAndSubmitGeneration(
   // The optional user-edited prompt is intentionally screened separately
   // below via the guarded fail-closed path (#183).
   const userText = extractUserText(input.options).join("\n");
-  const screening = await screenUserText(
-    userText || "user photo transformation",
-    `user_${user.id}:product_${input.productId}`
-  );
+  // Legacy text fields must not bypass moderation: when the OpenAI screen
+  // is configured it takes over from the flag-gated Creem path for ALL
+  // user-entered option text — fail-closed. Without the key, the paused
+  // Creem gate keeps prompt-less presets' behavior unchanged.
+  const screening = isOpenAiModerationConfigured()
+    ? await screenUserPrompt(
+        userText || "user photo transformation",
+        `user_${user.id}:product_${input.productId}`
+      )
+    : await screenUserText(
+        userText || "user photo transformation",
+        `user_${user.id}:product_${input.productId}`
+      );
   if (screening.kind === "blocked") {
     return {
       error:
@@ -345,10 +354,13 @@ export async function createAndSubmitGeneration(
       return { error: "Custom prompts are not enabled for this preset." };
     }
 
-    // Custom prompts take the guarded fail-closed path: the legacy
-    // flag-off "allow" inside screenUserText must never authorize them.
+    // Custom prompts take the guarded fail-closed OpenAI screen: the
+    // legacy flag-off "allow" inside screenUserText must never authorize
+    // them. Free-text option values are screened in the same call — a
+    // legacy text field cannot bypass the moderated path while prompt
+    // mode is active.
     const promptScreen = await screenUserPrompt(
-      userPrompt,
+      [userPrompt, ...extractUserText(input.options)],
       `user_${user.id}:product_${input.productId}`
     );
     if (promptScreen.kind === "blocked") {

@@ -1,10 +1,13 @@
 /**
- * Creem Moderation API client (docs.creem.io/features/moderation).
+ * Creem Moderation API client (docs.creem.io/features/moderation) — the
+ * legacy text screen, paused with the Creem billing migration
+ * (`CREEM_MODERATION_ENABLED`, default off).
  *
- * Required for AI image/video generation products on Creem: every
- * user-supplied text input that will be routed to a generation model must be
- * screened through POST /v1/moderation/prompt BEFORE generation — before
- * queueing, billing, or the model call.
+ * The guarded opt-in user-prompt path (#183) no longer lives here — it was
+ * replaced by the OpenAI `omni-moderation-latest` screen in
+ * `./openai.ts`, which is fail-closed in every environment. This file
+ * keeps the legacy flag-gated screen for free-text option fields on
+ * prompt-less presets and the provider-agnostic `extractUserText`.
  *
  * Routing policy (per Creem guidance):
  * - "allow" → proceed.
@@ -114,38 +117,6 @@ export async function screenUserText(
   // Unrecognized decision — experimental API may add values; fail closed.
   console.error("[moderation] unrecognized decision", body.decision);
   return { kind: "unavailable" };
-}
-
-/**
- * Is the moderation pipeline actually configured end-to-end? The guarded
- * user-prompt path (#183) requires this before accepting custom text.
- */
-export function isPromptModerationConfigured(): boolean {
-  return (
-    process.env.CREEM_MODERATION_ENABLED?.trim() === "true" &&
-    Boolean(process.env.CREEM_API_KEY?.trim())
-  );
-}
-
-/**
- * Fail-closed screen for opt-in preset user prompts (#183). Unlike
- * {@link screenUserText} — whose flag-off/key-less early "allow" preserves
- * legacy curated-preset behavior — this path requires moderation to be
- * configured in EVERY environment. Missing config, timeouts, non-OK or
- * malformed responses, and unreachable services all return "unavailable",
- * and the caller must reject before credits move or the provider is called.
- */
-export async function screenUserPrompt(
-  text: string,
-  externalId?: string
-): Promise<ScreenOutcome> {
-  if (!isPromptModerationConfigured()) {
-    console.error(
-      "[moderation] user-prompt screen requested without moderation configured — failing closed"
-    );
-    return { kind: "unavailable" };
-  }
-  return screenUserText(text, externalId);
 }
 
 /**

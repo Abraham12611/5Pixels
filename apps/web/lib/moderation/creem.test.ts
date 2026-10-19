@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  extractUserText,
-  isPromptModerationConfigured,
-  screenUserPrompt,
-  screenUserText,
-} from "./creem";
+import { extractUserText, screenUserText } from "./creem";
 
 const fetchStub = vi.fn();
 
@@ -138,40 +133,3 @@ describe("screenUserText", () => {
   });
 });
 
-describe("screenUserPrompt (#183 guarded path)", () => {
-  it("fails closed when the moderation flag is off — even outside production", async () => {
-    vi.stubEnv("CREEM_MODERATION_ENABLED", "false");
-    vi.stubEnv("NODE_ENV", "development");
-    expect(await screenUserPrompt("make it brighter")).toEqual({
-      kind: "unavailable",
-    });
-    expect(fetchStub).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when the API key is missing — even outside production", async () => {
-    delete process.env.CREEM_API_KEY;
-    vi.stubEnv("NODE_ENV", "development");
-    expect(isPromptModerationConfigured()).toBe(false);
-    expect(await screenUserPrompt("make it brighter")).toEqual({
-      kind: "unavailable",
-    });
-    expect(fetchStub).not.toHaveBeenCalled();
-  });
-
-  it("screens through the API and propagates decisions when configured", async () => {
-    fetchStub.mockResolvedValue(apiResponse({ decision: "allow" }));
-    expect(await screenUserPrompt("make it brighter")).toEqual({
-      kind: "allow",
-    });
-    expect(fetchStub).toHaveBeenCalledTimes(1);
-
-    fetchStub.mockResolvedValue(apiResponse({ decision: "deny" }));
-    const blocked = await screenUserPrompt("disallowed content");
-    expect(blocked.kind).toBe("blocked");
-
-    fetchStub.mockRejectedValue(new Error("timeout"));
-    expect(await screenUserPrompt("anything")).toEqual({
-      kind: "unavailable",
-    });
-  });
-});
