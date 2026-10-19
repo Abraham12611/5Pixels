@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useFieldArray, useFormContext } from "react-hook-form";
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -31,20 +31,23 @@ const CHOICE_TYPES = ["select", "radio", "layout", "background", "wardrobe", "er
 const RANGE_TYPES = ["intensity"];
 
 /**
- * Next never-before-used `field_${n}` key (#223). Counting from
- * `fields.length + 1` collided after a remove-then-add; reusing the smallest
- * free number could resurrect a deleted key's stored values, so scan for the
- * largest numeric suffix instead and guarantee uniqueness.
+ * Next never-before-used `field_${n}` key (#223). `existing` alone is not
+ * enough: deleting the highest-numbered field lowers the max, so `keyFloor`
+ * additionally remembers every number ever assigned in this editing session
+ * — deleted, reordered, and undo-restored keys can never be reissued.
  */
-function nextFieldKey(existing: FieldItem[]): string {
+function nextFieldKey(existing: FieldItem[], keyFloor: number): string {
   const used = new Set(
     existing.map((f) => (f.field_key ?? "").trim().toLowerCase())
   );
   let n =
-    existing.reduce((max, f) => {
-      const m = /^field_(\d+)$/.exec(f.field_key ?? "");
-      return m ? Math.max(max, parseInt(m[1] ?? "0", 10)) : max;
-    }, 0) + 1;
+    Math.max(
+      keyFloor,
+      existing.reduce((max, f) => {
+        const m = /^field_(\d+)$/.exec(f.field_key ?? "");
+        return m ? Math.max(max, parseInt(m[1] ?? "0", 10)) : max;
+      }, 0)
+    ) + 1;
   while (used.has(`field_${n}`)) n += 1;
   return `field_${n}`;
 }
@@ -65,6 +68,15 @@ export function FieldEditor() {
   const [undo, setUndo] = useState<{ index: number; field: FieldItem } | null>(
     null
   );
+  // Monotonic floor for generated keys — only ever rises within the form's
+  // lifetime, so a key removed (or later restored via Undo) is never reused.
+  const keyFloor = useRef(0);
+
+  const generateFieldKey = () => {
+    const key = nextFieldKey(getValues("fields") ?? [], keyFloor.current);
+    keyFloor.current = parseInt(key.slice("field_".length), 10);
+    return key;
+  };
 
   /** Position IS the persisted order: after every structural change,
    *  sort_order is rewritten to the row index so saved data reloads in the
@@ -78,9 +90,10 @@ export function FieldEditor() {
   };
 
   const addField = () => {
-    setUndo(null);
+    // Deliberately does NOT clear `undo`: appending a new row can't collide
+    // with restoring a removed one, so the recover offer survives (#223).
     append({
-      field_key: nextFieldKey(getValues("fields") ?? []),
+      field_key: generateFieldKey(),
       label: "New field",
       field_type: "short_text",
       required: false,

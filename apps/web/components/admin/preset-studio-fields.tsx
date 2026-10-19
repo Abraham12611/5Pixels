@@ -30,6 +30,11 @@ const hintClass = "text-text-muted mt-1.5 text-xs";
 const flagClass =
   "border-warning/40 bg-warning/10 text-warning mt-4 rounded-xl border px-4 py-3 text-sm";
 
+/** Sentinel for "variant mode chosen, parent not yet picked" (#223). It is
+ *  never a valid UUID, so a submit attempt fails `parent_preset_id`
+ *  validation instead of silently persisting a standalone preset. */
+const PENDING_PARENT = "__pending_parent__";
+
 /**
  * Preset Studio 2.0 admin configuration (#177): family assignment, user
  * image inputs, and optional prompt edits. All three capabilities are
@@ -66,14 +71,18 @@ export function PresetFamilyFields({
 
   // "Variant" is an explicit mode (#223): choosing it no longer auto-assigns
   // the first eligible parent — the preset only becomes a variant once the
-  // admin deliberately picks a root. Until then the section warns that the
-  // record would save as standalone.
+  // admin deliberately picks a root. While the choice is pending the field
+  // carries a sentinel that fails schema validation, so a variant selection
+  // can never silently commit as a standalone preset.
   const [mode, setMode] = useState<"standalone" | "variant">(() =>
     parentPresetId ? "variant" : "standalone"
   );
   const isVariant = mode === "variant";
+  const hasRealParent = Boolean(
+    parentPresetId && parentPresetId !== PENDING_PARENT
+  );
   const variantBlocked =
-    hasChildren || (!parentPresetId && eligibleParents.length === 0);
+    hasChildren || (!hasRealParent && eligibleParents.length === 0);
 
   if (!schemaAvailable) {
     return (
@@ -121,7 +130,14 @@ export function PresetFamilyFields({
               name="__family_mode"
               checked={isVariant}
               disabled={variantBlocked}
-              onChange={() => setMode("variant")}
+              onChange={() => {
+                setMode("variant");
+                if (!hasRealParent) {
+                  setValue("parent_preset_id", PENDING_PARENT, {
+                    shouldDirty: true,
+                  });
+                }
+              }}
               className="h-4 w-4 text-lime-500"
             />
             Variant of a root preset
@@ -133,7 +149,7 @@ export function PresetFamilyFields({
             a variant itself — families are single-level.
           </p>
         )}
-        {!parentPresetId && eligibleParents.length === 0 && (
+        {!hasRealParent && eligibleParents.length === 0 && (
           <p className={hintClass}>
             No eligible root{" "}
             {productType === "poster" ? "posters" : "filters"} exist yet —{" "}
@@ -165,10 +181,10 @@ export function PresetFamilyFields({
                   }))}
                 />
               </div>
-              {!parentPresetId && (
+              {!hasRealParent && (
                 <p className="text-warning mt-1 text-sm">
-                  No parent selected — this preset will save as standalone
-                  until you choose a root.
+                  No parent selected — a variant can&apos;t be saved until you
+                  choose a root preset or switch back to standalone.
                 </p>
               )}
               {productId === parentPresetId && (

@@ -49,17 +49,41 @@ describe("FieldEditor", () => {
     const add = screen.getByRole("button", { name: "Add field" });
     fireEvent.click(add);
     fireEvent.click(add);
+    fireEvent.click(add);
     expect(fieldKeyInputs().map((i) => (i as HTMLInputElement).value)).toEqual([
       "field_1",
       "field_2",
+      "field_3",
     ]);
-    // Remove the first control, then add — the new key must be field_3,
-    // not the colliding field_2.
-    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    // Remove the highest-numbered control, then add — scanning the current
+    // array would reassign field_3; the key floor must not (#223 review).
+    const removes = screen.getAllByRole("button", { name: "Remove" });
+    fireEvent.click(removes[removes.length - 1]!);
     fireEvent.click(add);
     const keys = fieldKeyInputs().map((i) => (i as HTMLInputElement).value);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).toContain("field_3");
+    expect(keys).toContain("field_4");
+    expect(keys).not.toContain("field_3");
+  });
+
+  it("keeps deleted keys retired even when undo restores them", () => {
+    render(
+      <Form>
+        <FieldEditor />
+      </Form>
+    );
+    const add = screen.getByRole("button", { name: "Add field" });
+    fireEvent.click(add);
+    fireEvent.click(add);
+    const removes = screen.getAllByRole("button", { name: "Remove" });
+    fireEvent.click(removes[removes.length - 1]!); // removes field_2
+    fireEvent.click(add); // gets field_3, not field_2
+    fireEvent.click(screen.getByRole("button", { name: "Undo" })); // field_2 back
+    fireEvent.click(add); // must be field_4 — nothing may collide
+    const keys = fieldKeyInputs().map((i) => (i as HTMLInputElement).value);
+    expect(new Set(keys).size).toBe(keys.length);
+    // Undo reinserts field_2 at its old index; nothing collides.
+    expect(keys).toEqual(["field_1", "field_2", "field_3", "field_4"]);
   });
 
   it("reorders controls with keyboard-accessible buttons", () => {

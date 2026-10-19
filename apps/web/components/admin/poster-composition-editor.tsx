@@ -93,6 +93,7 @@ export function PosterCompositionEditor() {
     register,
     control,
     setValue,
+    getValues,
     formState: { errors },
   } = useFormContext<ProductCreateInput>();
 
@@ -109,7 +110,6 @@ export function PosterCompositionEditor() {
     control,
     name: "poster_config.text_fields",
   });
-  const userFieldArray = useFieldArray({ control, name: "fields" });
 
   const watchedTextFields =
     (useWatch({ control, name: "poster_config.text_fields" }) as
@@ -135,17 +135,31 @@ export function PosterCompositionEditor() {
       ? contrastRatio(textColor.trim(), REFERENCE_BACKDROP)
       : null;
 
+  // `setValue` is deliberate (#223 review): a second `useFieldArray` on
+  // `fields` (as in FieldEditor) only updates its own local row state on
+  // append — the sibling instance would go stale. `setValue` on the array
+  // name emits the field-array subject, so every mounted useFieldArray
+  // resyncs from the same shared formValues snapshot.
   const addMatchingUserControl = (key: string, label: string) => {
-    userFieldArray.append({
-      field_key: key,
-      label: label || key,
-      field_type: "short_text",
-      required: false,
-      sort_order: userFields.length,
-      config: {},
-      validation: {},
-      active: true,
-    });
+    const existing = (getValues("fields") ??
+      []) as ProductCreateInput["fields"];
+    setValue(
+      "fields",
+      [
+        ...existing,
+        {
+          field_key: key,
+          label: label || key,
+          field_type: "short_text",
+          required: false,
+          sort_order: existing.length,
+          config: {},
+          validation: {},
+          active: true,
+        },
+      ],
+      { shouldDirty: true }
+    );
   };
 
   return (
