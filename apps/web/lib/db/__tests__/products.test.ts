@@ -127,3 +127,115 @@ describe("getAdminProductBySlug", () => {
     expect(product!.version_number).toBe(2);
   });
 });
+
+describe("preset-family loaders on an un-migrated database (#208)", () => {
+  function mockThenable(result: { data: unknown; error: unknown }) {
+    const q: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "is", "neq", "or", "in", "order"]) {
+      q[m] = vi.fn(() => q);
+    }
+    q.single = vi.fn(async () => result);
+    q.maybeSingle = vi.fn(async () => result);
+    q.then = (onF: (v: unknown) => unknown, onR: (e: unknown) => unknown) =>
+      Promise.resolve(result).then(onF, onR);
+    return q;
+  }
+
+  const missingColumn = {
+    code: "42703",
+    message: 'column products.parent_preset_id does not exist',
+    details: null,
+    hint: null,
+  };
+  const missingTable = {
+    code: "42P01",
+    message: 'relation "public.release_gates" does not exist',
+    details: null,
+    hint: null,
+  };
+  const transient = {
+    code: "57014",
+    message: "canceling statement due to statement timeout",
+    details: null,
+    hint: null,
+  };
+
+  async function wireClient(result: { data: unknown; error: unknown }) {
+    const { createClient } = await import("@/lib/supabase/server");
+    const query = mockThenable(result);
+    (createClient as ReturnType<typeof vi.fn>).mockResolvedValue({
+      from: vi.fn(() => query),
+    });
+    return query;
+  }
+
+  it("getEligibleParentPresets returns [] when family columns are absent (42703)", async () => {
+    const { getEligibleParentPresets } = await import("../products");
+    await wireClient({ data: null, error: missingColumn });
+    await expect(getEligibleParentPresets("filter")).resolves.toEqual([]);
+  });
+
+  it("getEligibleParentPresets returns [] for PostgREST schema-cache misses", async () => {
+    const { getEligibleParentPresets } = await import("../products");
+    await wireClient({
+      data: null,
+      error: { ...missingColumn, code: "PGRST204" },
+    });
+    await expect(getEligibleParentPresets("poster")).resolves.toEqual([]);
+  });
+
+  it("getEligibleParentPresets still throws on real database errors", async () => {
+    const { getEligibleParentPresets } = await import("../products");
+    await wireClient({ data: null, error: transient });
+    await expect(getEligibleParentPresets("filter")).rejects.toEqual(
+      transient
+    );
+  });
+
+  it("getPresetFamilyForAdmin returns null when family columns are absent", async () => {
+    const { getPresetFamilyForAdmin } = await import("../products");
+    await wireClient({ data: null, error: missingColumn });
+    await expect(getPresetFamilyForAdmin("prod-1")).resolves.toBeNull();
+  });
+
+  it("getPresetFamilyForAdmin still throws on real database errors", async () => {
+    const { getPresetFamilyForAdmin } = await import("../products");
+    const self = {
+      data: {
+        id: "prod-1",
+        slug: "x",
+        name: "X",
+        public_status: "active",
+        parent_preset_id: null,
+        standalone_discoverable: false,
+        variant_display_name: null,
+        variant_sort_order: 0,
+        hero_asset_id: null,
+      },
+      error: null,
+    };
+    // self resolves ok, members query fails with a transient error
+    const { createClient } = await import("@/lib/supabase/server");
+    const calls: unknown[] = [];
+    let queryIndex = 0;
+    (createClient as ReturnType<typeof vi.fn>).mockResolvedValue({
+      from: vi.fn(() => {
+        queryIndex += 1;
+        calls.push(queryIndex);
+        return mockThenable(queryIndex === 1 ? self : {
+          data: null,
+          error: transient,
+        });
+      }),
+    });
+    await expect(getPresetFamilyForAdmin("prod-1")).rejects.toEqual(
+      transient
+    );
+  });
+
+  it("getPresetFamilyForAdmin degrades on missing relation (42P01)", async () => {
+    const { getPresetFamilyForAdmin } = await import("../products");
+    await wireClient({ data: null, error: missingTable });
+    await expect(getPresetFamilyForAdmin("prod-1")).resolves.toBeNull();
+  });
+});

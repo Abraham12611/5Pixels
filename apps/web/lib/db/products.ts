@@ -23,6 +23,7 @@ import {
 } from "@/lib/ai/provider-routing";
 import { getRouteCapability } from "@/lib/ai/route-capabilities";
 import { assertVersionQuotable } from "@/lib/validation/route-publish-check";
+import { isSchemaUnavailableError } from "./schema-errors";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
 
@@ -1012,7 +1013,16 @@ export async function getEligibleParentPresets(
   }
 
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) {
+    if (isSchemaUnavailableError(error)) {
+      console.warn(
+        "[admin] preset-family schema not deployed — parent picker unavailable:",
+        error.message
+      );
+      return [];
+    }
+    throw error;
+  }
   return (data ?? []) as EligibleParentPreset[];
 }
 
@@ -1062,7 +1072,16 @@ export async function getPresetFamilyForAdmin(
     .or(`id.eq.${rootId},parent_preset_id.eq.${rootId}`)
     .order("variant_sort_order", { ascending: true })
     .order("created_at", { ascending: true });
-  if (membersError) throw membersError;
+  if (membersError) {
+    if (isSchemaUnavailableError(membersError)) {
+      console.warn(
+        "[admin] preset-family schema not deployed — family panel unavailable:",
+        membersError.message
+      );
+      return null;
+    }
+    throw membersError;
+  }
 
   const rows = (members ?? []) as PresetFamilyMember[];
   const root = rows.find((m) => m.id === rootId);
