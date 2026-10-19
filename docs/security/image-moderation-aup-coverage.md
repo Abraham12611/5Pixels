@@ -1,13 +1,16 @@
 # Image moderation vs. Acceptable Use Policy — coverage assessment (#185)
 
-Status: release-checklist artifact · Written: 2026-10-19 · Scope: input
-screening shipped in #193, text screening via Creem, generated-output path.
+Status: release-checklist artifact · Written: 2026-10-19 · Updated:
+2026-10-19 (text screen swapped to OpenAI in #206; staging validation
+evidence in `apps/web/lib/generation/__tests__/actions-moderation-staging.test.ts`)
+· Scope: input screening shipped in #193, text screening via OpenAI,
+generated-output path.
 
 ## Mechanism inventory
 
 | Layer | Mechanism | Covers |
 |---|---|---|
-| User text (options, prompt) | `lib/moderation/creem.ts` — Creem `/v1/moderation/prompt` | Text policy violations; flag/deny blocked; transport errors fail closed (in prod) |
+| User text (options, prompt) | `lib/moderation/openai.ts` — OpenAI `omni-moderation-latest` when `OPENAI_API_KEY` is configured; `lib/moderation/creem.ts` flag-gated fallback when it isn't | Text policy violations; `flagged` or any true category blocks; missing key/timeout/non-OK/malformed fail closed |
 | User input images | `lib/moderation/image.ts` — fal `fal-ai/imageutils/nsfw`, `nsfw_probability >= 0.5` blocks | **Sexual/explicit image content only** |
 | Durable verdict | `assets.moderation_status` + `moderation_object_version` | Version-bound approval; Storage trigger makes approved bytes immutable; `create_generation` re-verifies |
 | Prompt gate | DB `release_gates('preset_user_prompt')` + app flag + per-version `prompt_override_enabled` | Custom prompts fully disabled by default |
@@ -24,10 +27,10 @@ screening shipped in #193, text screening via Creem, generated-output path.
 | Non-consensual intimate imagery | NSFW subset only | none | **Partially — consent undetectable; policy/reporting path** |
 | Deepfakes / identity manipulation | None | none | **Not covered — preset-first design is the main mitigant** |
 | Deceptive/fraudulent (fake IDs, docs) | None | none | **Not covered — narrow recipe space limits scope** |
-| Sensitive data / doxxing | Text via Creem; images none | none | **Partially** |
+| Sensitive data / doxxing | Text via OpenAI; images none | none | **Partially** |
 | Biometric identification | n/a (conduct) | n/a | **N/A — product can't do it** |
-| Harassment / hate | Text via Creem; images none | none | **Not covered for image inputs** |
-| Extremist content | Text via Creem; images none | none | **Not covered for image inputs** |
+| Harassment / hate | Text via OpenAI; images none | none | **Not covered for image inputs** |
+| Extremist content | Text via OpenAI; images none | none | **Not covered for image inputs** |
 | Illegal content | NSFW subset only | none | **Partially** |
 | IP infringement (likeness, characters) | None | recipe-only | **Not covered — preset-first mitigant** |
 | Graphic violence / self-harm | None | none | **Not covered** |
@@ -46,7 +49,7 @@ That margin shrinks exactly where the release adds risk:
   combinations → identity/deepfake-adjacent outcomes the classifier
   cannot see).
 - **Custom prompts** (still gated) let users steer semantics — the
-  Creem text screen covers the text side, but prompt+image combinations
+  OpenAI text screen covers the text side, but prompt+image combinations
   can produce outputs neither gate predicts.
 - **The AUP page itself claims** "safety rules that block NSFW output,
   harmful depictions of minors, and unauthorized use of public figures"
