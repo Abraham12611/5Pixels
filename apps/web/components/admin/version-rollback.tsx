@@ -79,10 +79,10 @@ export function VersionRollback({
 
   return (
     <>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <RichSelect
           aria-label="Version to roll back to"
-          className="w-64"
+          className="w-full min-w-0 sm:w-64"
           value={selectedVersionId ?? ""}
           onValueChange={(v) => setSelectedVersionId(v || undefined)}
           noneLabel="Select prior version…"

@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { PublishGateFailure } from "@/lib/validation/publish-gates";
+import {
+  editorSectionForField,
+  sectionLabel,
+  ALL_EDITOR_SECTIONS,
+} from "./editor-shell";
 
 export type PublishState =
   | { status: "idle" }
@@ -19,6 +24,9 @@ interface PublishButtonProps {
   versionId?: string;
   isOwner?: boolean;
   gateFailures?: PublishGateFailure[];
+  /** True while the editor holds unsaved changes — publishing must not
+   * silently exclude them, so the click is guarded with an explanation. */
+  hasUnsavedChanges?: boolean;
   action: (
     productId: string,
     versionId: string,
@@ -31,6 +39,7 @@ export function PublishButton({
   versionId,
   isOwner = false,
   gateFailures = [],
+  hasUnsavedChanges = false,
   action,
 }: PublishButtonProps) {
   const router = useRouter();
@@ -43,7 +52,23 @@ export function PublishButton({
   const hasFailures = gateFailures.length > 0;
   const canOverride = isOwner && hasFailures;
 
+  const failuresBySection = new Map<string, PublishGateFailure[]>();
+  for (const failure of gateFailures) {
+    const sectionId = editorSectionForField(failure.field);
+    const group = failuresBySection.get(sectionId) ?? [];
+    group.push(failure);
+    failuresBySection.set(sectionId, group);
+  }
+
   const runPublish = () => {
+    if (hasUnsavedChanges) {
+      setState({
+        status: "error",
+        message:
+          "You have unsaved changes. Save first — publishing always uses the last saved version.",
+      });
+      return;
+    }
     if (hasFailures && !canOverride) {
       setState({ status: "blocked", failures: gateFailures });
       return;
@@ -82,10 +107,53 @@ export function PublishButton({
   };
 
   return (
-    <div className="flex flex-col items-end gap-3">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col items-stretch gap-3">
+      {hasFailures && (
+        <div className="border-error/30 bg-error/10 rounded-xl border p-4 text-sm">
+          <p className="text-error font-semibold">
+            {gateFailures.length}{" "}
+            {gateFailures.length === 1
+              ? "requirement blocks"
+              : "requirements block"}{" "}
+            publishing
+          </p>
+          <div className="mt-2 space-y-3">
+            {Array.from(failuresBySection.entries()).map(
+              ([sectionId, failures]) => (
+                <div key={sectionId}>
+                  <a
+                    href={`#${sectionId}`}
+                    className="text-lime-400 hover:text-lime-300 text-xs font-medium underline underline-offset-2"
+                  >
+                    {sectionLabel(ALL_EDITOR_SECTIONS, sectionId)} →
+                  </a>
+                  <ul className="text-cream-100 mt-1 list-disc space-y-1 pl-5">
+                    {failures.map((f) => (
+                      <li key={f.code + (f.field ?? "")}>{f.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            )}
+          </div>
+          {!isOwner && (
+            <p className="text-text-secondary mt-3">
+              Only the owner can override these failures.
+            </p>
+          )}
+        </div>
+      )}
+
+      {hasUnsavedChanges && (
+        <p className="text-text-secondary text-xs">
+          Save your changes before publishing — unsaved edits are never part of
+          a published version.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
         {canOverride && (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <Label htmlFor="override-reason" className="sr-only">
               Owner override reason
             </Label>
@@ -95,7 +163,7 @@ export function PublishButton({
               onChange={(e) => setOverrideReason(e.target.value)}
               placeholder="Owner override reason (min 12 chars)"
               disabled={isPending}
-              className="w-72"
+              className="w-full sm:w-72"
             />
           </div>
         )}
@@ -113,19 +181,9 @@ export function PublishButton({
       </div>
 
       {state.status === "blocked" && (
-        <div className="border-error/30 bg-error/10 max-w-md rounded-xl border p-4 text-sm">
-          <p className="text-error font-semibold">Cannot publish</p>
-          <ul className="text-cream-100 mt-2 list-disc space-y-1 pl-5">
-            {state.failures.map((f) => (
-              <li key={f.code + f.field}>{f.message}</li>
-            ))}
-          </ul>
-          {!isOwner && (
-            <p className="text-text-secondary mt-2">
-              Only the owner can override these failures.
-            </p>
-          )}
-        </div>
+        <p role="alert" className="text-error text-sm">
+          Publishing is blocked — resolve the requirements listed above.
+        </p>
       )}
 
       {state.status === "error" && (

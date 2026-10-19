@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FormProvider, useForm, useWatch } from "react-hook-form";
+import {
+  FormProvider,
+  useForm,
+  useWatch,
+  type FieldErrors,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
 import type { z } from "zod";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,6 +27,21 @@ import {
   UserImageInputFields,
   type EligibleParentOption,
 } from "./preset-studio-fields";
+import {
+  EditorSectionGroup,
+  EditorSectionNav,
+  FORM_SECTIONS,
+  editorSectionForField,
+  focusFieldInSection,
+  type EditorSectionDef,
+} from "./editor-shell";
+import { SaveDock } from "./save-dock";
+import {
+  FormErrorSummary,
+  flattenFormErrors,
+  type FormErrorItem,
+} from "./form-error-summary";
+import { UnsavedChangesGuard } from "./unsaved-changes-guard";
 import type { ParentCandidate } from "@/lib/validation/preset-family";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
@@ -34,6 +53,7 @@ export interface ProductAssetPreview {
 type ProductFormInput = z.input<typeof productCreateSchema>;
 
 const SAVE_TIMEOUT_MS = 45_000;
+const FORM_ID = "product-editor-form";
 
 function saveWithTimeout<T>(promise: Promise<T>) {
   return new Promise<T>((resolve, reject) => {
@@ -59,6 +79,10 @@ function saveWithTimeout<T>(promise: Promise<T>) {
   });
 }
 
+const sectionClass =
+  "border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6";
+const sectionHeadingClass = "text-cream-50 mb-4 text-lg font-semibold";
+
 interface ProductFormProps {
   type: "filter" | "poster";
   initialData?: ProductCreateInput & { id?: string };
@@ -70,7 +94,6 @@ interface ProductFormProps {
       ProductAssetPreview
     >
   >;
-  headerAction?: React.ReactNode;
   modelCatalog?: ProviderModelOption[];
   /** Preset Studio 2.0 (#177): root presets eligible as family parents. */
   eligibleParents?: EligibleParentOption[];
@@ -81,6 +104,16 @@ interface ProductFormProps {
   adminReferenceCount?: number;
   /** Resolved current parent for family validation feedback. */
   currentParent?: ParentCandidate | null;
+  /**
+   * Extra nav entries for page-level sections rendered via `children`
+   * (edit pages: References, Publishing & history).
+   */
+  additionalSections?: EditorSectionDef[];
+  /**
+   * Page-level blocks rendered after the form but still inside the
+   * FormProvider — they can read dirty/save state via RHF context.
+   */
+  children?: React.ReactNode;
 }
 
 export function ProductForm({
@@ -89,17 +122,19 @@ export function ProductForm({
   categories: categoryList,
   onSubmit,
   assetPreviews,
-  headerAction,
   modelCatalog = [],
   eligibleParents = [],
   familySchemaAvailable = true,
   hasChildren = false,
   adminReferenceCount = 0,
   currentParent = null,
+  additionalSections,
+  children,
 }: ProductFormProps) {
   const router = useRouter();
   const [submitError, setSubmitError] = useState<string>();
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [errorItems, setErrorItems] = useState<FormErrorItem[]>([]);
   const defaultValues = useMemo<ProductCreateInput>(
     () => ({
       type,
@@ -185,20 +220,18 @@ export function ProductForm({
     handleSubmit,
     control,
     setValue,
+    getValues,
+    reset,
     formState: { errors, isSubmitting, isDirty },
   } = methods;
 
-  // Dirty-state navigation warning — admin edits are dense; losing them to
-  // an accidental close is expensive.
+  // The "saved" acknowledgement is transient — revert the dock to the
+  // steady-state label a few seconds after the server confirms.
   useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+    if (!submitSuccess) return;
+    const timer = setTimeout(() => setSubmitSuccess(false), 5000);
+    return () => clearTimeout(timer);
+  }, [submitSuccess]);
 
   const [heroAssetId, posterAssetId, previewVideoAssetId, previewGifAssetId] =
     useWatch({
@@ -214,9 +247,13 @@ export function ProductForm({
   const submitHandler = async (data: ProductCreateInput) => {
     setSubmitError(undefined);
     setSubmitSuccess(false);
+    setErrorItems([]);
     try {
       const product = await saveWithTimeout(onSubmit(data));
       setSubmitSuccess(true);
+      // The server-acknowledged values are the new clean baseline — this
+      // clears isDirty so the dock/guard stop warning after a real save.
+      reset(getValues());
       router.push(`/admin/${type}s/${product.id}`);
       router.refresh();
     } catch (error) {
@@ -228,561 +265,620 @@ export function ProductForm({
     }
   };
 
+  // Invalid submit → actionable summary + scroll/focus the first offender.
+  const onInvalid = (invalid: FieldErrors<ProductFormInput>) => {
+    setSubmitSuccess(false);
+    setSubmitError(undefined);
+    const items = flattenFormErrors(invalid).map((item) => ({
+      ...item,
+      sectionId: editorSectionForField(item.path),
+    }));
+    setErrorItems(items);
+    requestAnimationFrame(() => {
+      if (items[0]) focusFieldInSection(items[0].path);
+    });
+  };
+
   const title = type === "filter" ? "Filter" : "Poster";
+  const isEdit = Boolean(initialData?.id);
+  const navSections = useMemo(
+    () =>
+      additionalSections?.length
+        ? [...FORM_SECTIONS, ...additionalSections]
+        : FORM_SECTIONS,
+    [additionalSections]
+  );
 
   return (
     <FormProvider {...methods}>
-    <form
-      onSubmit={handleSubmit(submitHandler, () => {
-        setSubmitSuccess(false);
-        setSubmitError("Please correct the highlighted fields before saving.");
-      })}
-      className="space-y-8"
-    >
-      <div className="flex items-center justify-between">
-        <h1 className="text-cream-50 text-2xl font-bold">
-          {initialData?.id ? `Edit ${title}` : `New ${title}`}
-        </h1>
-        <div className="flex items-center gap-3">
-          {headerAction}
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? "Saving..."
-              : initialData?.id
-                ? "Save changes"
-                : `Create ${title}`}
-          </Button>
-        </div>
-      </div>
-
-      {submitError && (
-        <div
-          role="alert"
-          className="border-error/30 bg-error/10 text-error rounded-xl border px-4 py-3 text-sm"
+      <div>
+        <UnsavedChangesGuard active={isDirty || isSubmitting} />
+        <EditorSectionNav sections={navSections} />
+        <form
+          id={FORM_ID}
+          onSubmit={handleSubmit(submitHandler, onInvalid)}
+          className="space-y-8"
         >
-          {submitError}
-        </div>
-      )}
-      {submitSuccess && (
-        <div
-          role="status"
-          className="rounded-xl border border-lime-500/30 bg-lime-500/10 px-4 py-3 text-sm text-lime-400"
-        >
-          {title} saved successfully. Opening the editor…
-        </div>
-      )}
-
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">Basic info</h2>
-        <div className="grid gap-6 md:grid-cols-2">
-          <div>
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" {...register("name")} className="mt-2" />
-            {errors.name && (
-              <p className="text-error mt-1 text-sm">{errors.name.message}</p>
-            )}
-          </div>
-
-          <div>
-            <Label htmlFor="slug">Slug</Label>
-            <Input id="slug" {...register("slug")} className="mt-2" />
-            {errors.slug && (
-              <p className="text-error mt-1 text-sm">{errors.slug.message}</p>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="category_id">Category</Label>
-              <Link
-                href="/admin/categories"
-                className="text-text-secondary hover:text-cream-50 text-xs"
-              >
-                Manage categories
-              </Link>
+          <FormErrorSummary items={errorItems} sections={navSections} />
+          {submitError && (
+            <div
+              role="alert"
+              className="border-error/30 bg-error/10 text-error rounded-xl border px-4 py-3 text-sm"
+            >
+              {submitError}
             </div>
-            <div className="mt-2">
-              <FormRichSelect
-                name="category_id"
-                label="Category"
-                noneLabel="No category"
-                emptyToUndefined
-                searchable={categoryList.length > 12}
-                searchPlaceholder="Search categories…"
-                placeholder="No category"
-                options={categoryList.map((c) => ({
-                  value: c.id,
-                  label: c.name,
-                }))}
-              />
-            </div>
-            {errors.category_id && (
-              <p className="text-error mt-1 text-sm">
-                {errors.category_id.message}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <Label htmlFor="public_status">Status</Label>
-            <div className="mt-2">
-              <FormRichSelect
-                name="public_status"
-                label="Status"
-                options={[
-                  { value: "draft", label: "Draft", description: "Work in progress — not public" },
-                  { value: "internal_test", label: "Internal test", description: "Staff and admins only" },
-                  { value: "private_beta", label: "Private beta", description: "Limited beta audience" },
-                  { value: "scheduled", label: "Scheduled", description: "Goes live on a set date" },
-                  { value: "active", label: "Active", description: "Live for everyone" },
-                  { value: "paused", label: "Paused", description: "Temporarily hidden" },
-                  { value: "retired", label: "Retired", description: "Permanently removed" },
-                ]}
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="visibility">Visibility</Label>
-            <div className="mt-2">
-              <FormRichSelect
-                name="visibility"
-                label="Visibility"
-                options={[
-                  { value: "public", label: "Public", description: "Visible to all users" },
-                  { value: "internal", label: "Internal", description: "Staff and admins only" },
-                  { value: "beta", label: "Beta", description: "Beta testers only" },
-                ]}
-              />
-            </div>
-          </div>
-
-        </div>
-
-        <div className="mt-6">
-          <Label htmlFor="short_description">Short description</Label>
-          <Input
-            id="short_description"
-            {...register("short_description")}
-            className="mt-2"
-          />
-        </div>
-
-        <div className="mt-6">
-          <Label htmlFor="long_description">Long description</Label>
-          <Textarea
-            id="long_description"
-            {...register("long_description")}
-            className="mt-2"
-          />
-        </div>
-
-        <div className="mt-6">
-          <Label htmlFor="public_prompt_recipe">Public prompt recipe</Label>
-          <Textarea
-            id="public_prompt_recipe"
-            {...register("public_prompt_recipe")}
-            className="mt-2 font-mono"
-            rows={5}
-            placeholder="Write the steps/creative prompt a reader could reuse — public editorial copy only."
-          />
-          <p className="text-text-muted mt-1.5 text-xs">
-            Optional. Shown in articles as a prefilled prompt recipe readers
-            can copy. This is public editorial copy — never paste the real
-            generation prompt or any private instructions here.
-          </p>
-        </div>
-      </section>
-
-      <PresetFamilyFields
-        eligibleParents={eligibleParents}
-        schemaAvailable={familySchemaAvailable}
-        productId={initialData?.id}
-        hasChildren={hasChildren}
-        currentParent={currentParent}
-      />
-
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">Media</h2>
-        <div className="grid gap-6 md:grid-cols-2">
-          <AssetUploader
-            role="hero"
-            label="Hero image"
-            value={heroAssetId}
-            initialPreviewUrl={assetPreviews?.hero?.publicUrl}
-            initialMimeType={assetPreviews?.hero?.mimeType}
-            onChange={(id) =>
-              setValue("hero_asset_id", id, { shouldDirty: true })
-            }
-            disabled={isSubmitting}
-          />
-          <AssetUploader
-            role="poster"
-            label="Poster image"
-            value={posterAssetId}
-            initialPreviewUrl={assetPreviews?.poster?.publicUrl}
-            initialMimeType={assetPreviews?.poster?.mimeType}
-            onChange={(id) =>
-              setValue("poster_asset_id", id, { shouldDirty: true })
-            }
-            disabled={isSubmitting}
-          />
-          <AssetUploader
-            role="preview-video"
-            label="Preview video"
-            value={previewVideoAssetId}
-            initialPreviewUrl={assetPreviews?.["preview-video"]?.publicUrl}
-            initialMimeType={assetPreviews?.["preview-video"]?.mimeType}
-            onChange={(id) =>
-              setValue("preview_video_asset_id", id, { shouldDirty: true })
-            }
-            disabled={isSubmitting}
-          />
-          <AssetUploader
-            role="preview-gif"
-            label="Preview GIF"
-            value={previewGifAssetId}
-            initialPreviewUrl={assetPreviews?.["preview-gif"]?.publicUrl}
-            initialMimeType={assetPreviews?.["preview-gif"]?.mimeType}
-            onChange={(id) =>
-              setValue("preview_gif_asset_id", id, { shouldDirty: true })
-            }
-            disabled={isSubmitting}
-          />
-        </div>
-      </section>
-
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
-          {type === "filter" ? "Filter settings" : "Poster settings"}
-        </h2>
-
-        {type === "filter" ? (
-          <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <Label htmlFor="filter_config.style_archetype">
-                Style archetype
-              </Label>
-              <Input
-                id="filter_config.style_archetype"
-                {...register("filter_config.style_archetype")}
-                className="mt-2"
-              />
-              {errors.filter_config?.style_archetype && (
-                <p className="text-error mt-1 text-sm">
-                  {errors.filter_config.style_archetype.message}
-                </p>
-              )}
-            </div>
-            <div>
-              <Label htmlFor="filter_config.identity_preservation">
-                Identity preservation
-              </Label>
-              <div className="mt-2">
-                <FormRichSelect
-                  name="filter_config.identity_preservation"
-                  label="Identity preservation"
-                  options={[
-                    { value: "very_high", label: "Very high", description: "Face stays closest to source" },
-                    { value: "high", label: "High", description: "Strong likeness, light styling" },
-                    { value: "medium", label: "Medium", description: "Balanced look and likeness" },
-                    { value: "creative", label: "Creative", description: "Most stylized result" },
-                  ]}
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <Label htmlFor="poster_config.layout_template">Layout</Label>
-              <div className="mt-2">
-                <FormRichSelect
-                  name="poster_config.layout_template"
-                  label="Layout"
-                  options={[
-                    { value: "portrait", label: "Portrait", description: "Tall 3:4-style layout" },
-                    { value: "square", label: "Square", description: "1:1 feed-friendly layout" },
-                    { value: "landscape", label: "Landscape", description: "Wide banner layout" },
-                  ]}
-                />
-              </div>
-              {errors.poster_config?.layout_template && (
-                <p className="text-error mt-1 text-sm">
-                  {errors.poster_config.layout_template.message}
-                </p>
-              )}
-            </div>
-            <div>
-              <Label htmlFor="poster_config.background_handling">
-                Background
-              </Label>
-              <div className="mt-2">
-                <FormRichSelect
-                  name="poster_config.background_handling"
-                  label="Background"
-                  options={[
-                    { value: "replace", label: "Replace", description: "AI regenerates the backdrop" },
-                    { value: "preserve", label: "Preserve", description: "Keep the source background" },
-                  ]}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">AI recipe</h2>
-        <ProviderStrategyFields catalog={modelCatalog} />
-        <div className="mt-6">
-          <Label htmlFor="version.private_instruction_template">
-            Private instruction template
-          </Label>
-          <Textarea
-            id="version.private_instruction_template"
-            {...register("version.private_instruction_template")}
-            className="mt-2"
-          />
-          {errors.version?.private_instruction_template && (
-            <p className="text-error mt-1 text-sm">
-              {errors.version.private_instruction_template.message}
-            </p>
           )}
-        </div>
-        <div className="mt-6">
-          <Label htmlFor="version.private_negative_instruction">
-            Private negative instruction
-          </Label>
-          <Textarea
-            id="version.private_negative_instruction"
-            {...register("version.private_negative_instruction")}
-            className="mt-2"
-          />
-        </div>
-      </section>
 
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
-          Model parameters
-        </h2>
-        <div className="grid gap-6 md:grid-cols-4">
-          <div>
-            <Label htmlFor="version.model_config.width">Width</Label>
-            <Input
-              id="version.model_config.width"
-              type="number"
-              {...register("version.model_config.width", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.model_config.height">Height</Label>
-            <Input
-              id="version.model_config.height"
-              type="number"
-              {...register("version.model_config.height", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.model_config.guidance_scale">
-              Guidance scale
-            </Label>
-            <Input
-              id="version.model_config.guidance_scale"
-              type="number"
-              step="any"
-              {...register("version.model_config.guidance_scale", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.model_config.num_inference_steps">
-              Inference steps
-            </Label>
-            <Input
-              id="version.model_config.num_inference_steps"
-              type="number"
-              {...register("version.model_config.num_inference_steps", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-        </div>
-      </section>
+          <EditorSectionGroup id="overview">
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>Basic info</h2>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <Label htmlFor="name">Name</Label>
+                  <Input id="name" {...register("name")} className="mt-2" />
+                  {errors.name && (
+                    <p className="text-error mt-1 text-sm">
+                      {errors.name.message}
+                    </p>
+                  )}
+                </div>
 
-      <OutputSizesField />
+                <div>
+                  <Label htmlFor="slug">Slug</Label>
+                  <Input id="slug" {...register("slug")} className="mt-2" />
+                  {errors.slug && (
+                    <p className="text-error mt-1 text-sm">
+                      {errors.slug.message}
+                    </p>
+                  )}
+                </div>
 
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
-          Input compatibility
-        </h2>
-        <div className="grid gap-6 md:grid-cols-4">
-          <div>
-            <Label htmlFor="version.input_validation_config.min_width">
-              Min width (px)
-            </Label>
-            <Input
-              id="version.input_validation_config.min_width"
-              type="number"
-              {...register("version.input_validation_config.min_width", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.input_validation_config.min_height">
-              Min height (px)
-            </Label>
-            <Input
-              id="version.input_validation_config.min_height"
-              type="number"
-              {...register("version.input_validation_config.min_height", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.input_validation_config.max_people_count">
-              Max people
-            </Label>
-            <Input
-              id="version.input_validation_config.max_people_count"
-              type="number"
-              {...register("version.input_validation_config.max_people_count", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.input_validation_config.max_face_count">
-              Max faces
-            </Label>
-            <Input
-              id="version.input_validation_config.max_face_count"
-              type="number"
-              {...register("version.input_validation_config.max_face_count", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-        </div>
-      </section>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="category_id">Category</Label>
+                    <Link
+                      href="/admin/categories"
+                      className="text-text-secondary hover:text-cream-50 text-xs"
+                    >
+                      Manage categories
+                    </Link>
+                  </div>
+                  <div className="mt-2">
+                    <FormRichSelect
+                      name="category_id"
+                      label="Category"
+                      noneLabel="No category"
+                      emptyToUndefined
+                      searchable={categoryList.length > 12}
+                      searchPlaceholder="Search categories…"
+                      placeholder="No category"
+                      options={categoryList.map((c) => ({
+                        value: c.id,
+                        label: c.name,
+                      }))}
+                    />
+                  </div>
+                  {errors.category_id && (
+                    <p className="text-error mt-1 text-sm">
+                      {errors.category_id.message}
+                    </p>
+                  )}
+                </div>
 
-      <UserImageInputFields adminReferenceCount={adminReferenceCount} />
+                <div>
+                  <Label htmlFor="public_status">Status</Label>
+                  <div className="mt-2">
+                    <FormRichSelect
+                      name="public_status"
+                      label="Status"
+                      options={[
+                        { value: "draft", label: "Draft", description: "Work in progress — not public" },
+                        { value: "internal_test", label: "Internal test", description: "Staff and admins only" },
+                        { value: "private_beta", label: "Private beta", description: "Limited beta audience" },
+                        { value: "scheduled", label: "Scheduled", description: "Goes live on a set date" },
+                        { value: "active", label: "Active", description: "Live for everyone" },
+                        { value: "paused", label: "Paused", description: "Temporarily hidden" },
+                        { value: "retired", label: "Retired", description: "Permanently removed" },
+                      ]}
+                    />
+                  </div>
+                </div>
 
-      <PromptEditFields adminReferenceCount={adminReferenceCount} />
+                <div>
+                  <Label htmlFor="visibility">Visibility</Label>
+                  <div className="mt-2">
+                    <FormRichSelect
+                      name="visibility"
+                      label="Visibility"
+                      options={[
+                        { value: "public", label: "Public", description: "Visible to all users" },
+                        { value: "internal", label: "Internal", description: "Staff and admins only" },
+                        { value: "beta", label: "Beta", description: "Beta testers only" },
+                      ]}
+                    />
+                  </div>
+                </div>
 
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
-          Post-processing
-        </h2>
-        <div className="grid gap-6 md:grid-cols-4">
-          <div>
-            <Label htmlFor="version.post_process_config.resize_width">
-              Resize width
-            </Label>
-            <Input
-              id="version.post_process_config.resize_width"
-              type="number"
-              {...register("version.post_process_config.resize_width", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.post_process_config.resize_height">
-              Resize height
-            </Label>
-            <Input
-              id="version.post_process_config.resize_height"
-              type="number"
-              {...register("version.post_process_config.resize_height", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label htmlFor="version.post_process_config.format">
-              Output format
-            </Label>
-            <div className="mt-2">
-              <FormRichSelect
-                name="version.post_process_config.format"
-                label="Output format"
-                options={[
-                  { value: "webp", label: "WebP", description: "Smallest files, wide support" },
-                  { value: "png", label: "PNG", description: "Lossless, larger files" },
-                  { value: "jpeg", label: "JPEG", description: "Universal compatibility" },
-                  { value: "jpg", label: "JPG", description: "JPEG alias for legacy pipelines" },
-                ]}
-              />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="version.post_process_config.quality">
-              Quality (1–100)
-            </Label>
-            <Input
-              id="version.post_process_config.quality"
-              type="number"
-              min={1}
-              max={100}
-              {...register("version.post_process_config.quality", optionalNumberInput)}
-              className="mt-2"
-            />
-          </div>
-        </div>
-        <div className="mt-4 flex gap-6">
-          <label className="text-cream-50 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              {...register("version.post_process_config.crop")}
-              className="h-4 w-4 rounded text-lime-500"
-            />
-            Crop to target size
-          </label>
-          <label className="text-cream-50 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              {...register("version.post_process_config.metadata_stripped")}
-              className="h-4 w-4 rounded text-lime-500"
-            />
-            Strip metadata
-          </label>
-        </div>
-      </section>
+              </div>
 
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <h2 className="text-cream-50 mb-4 text-lg font-semibold">
-          Safety config
-        </h2>
-        <div className="flex flex-wrap gap-6">
-          <label className="text-cream-50 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              {...register("version.safety_config.allowed_nsfw")}
-              className="h-4 w-4 rounded text-lime-500"
-            />
-            Allow NSFW
-          </label>
-          <label className="text-cream-50 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              {...register("version.safety_config.block_public_figures")}
-              className="h-4 w-4 rounded text-lime-500"
-            />
-            Block public figures
-          </label>
-          <label className="text-cream-50 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              {...register("version.safety_config.block_minors")}
-              className="h-4 w-4 rounded text-lime-500"
-            />
-            Block minors
-          </label>
-        </div>
-      </section>
+              <div className="mt-6">
+                <Label htmlFor="short_description">Short description</Label>
+                <Input
+                  id="short_description"
+                  {...register("short_description")}
+                  className="mt-2"
+                />
+              </div>
 
-      <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
-        <FieldEditor />
-      </section>
-    </form>
+              <div className="mt-6">
+                <Label htmlFor="long_description">Long description</Label>
+                <Textarea
+                  id="long_description"
+                  {...register("long_description")}
+                  className="mt-2"
+                />
+              </div>
+
+              <div className="mt-6">
+                <Label htmlFor="public_prompt_recipe">
+                  Public prompt recipe
+                </Label>
+                <Textarea
+                  id="public_prompt_recipe"
+                  {...register("public_prompt_recipe")}
+                  className="mt-2 font-mono"
+                  rows={5}
+                  placeholder="Write the steps/creative prompt a reader could reuse — public editorial copy only."
+                />
+                <p className="text-text-muted mt-1.5 text-xs">
+                  Optional. Shown in articles as a prefilled prompt recipe
+                  readers can copy. This is public editorial copy — never
+                  paste the real generation prompt or any private
+                  instructions here.
+                </p>
+              </div>
+            </section>
+
+            <PresetFamilyFields
+              eligibleParents={eligibleParents}
+              schemaAvailable={familySchemaAvailable}
+              productId={initialData?.id}
+              hasChildren={hasChildren}
+              currentParent={currentParent}
+            />
+          </EditorSectionGroup>
+
+          <EditorSectionGroup id="media">
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>Media</h2>
+              <div className="grid gap-6 md:grid-cols-2">
+                <AssetUploader
+                  role="hero"
+                  label="Hero image"
+                  value={heroAssetId}
+                  initialPreviewUrl={assetPreviews?.hero?.publicUrl}
+                  initialMimeType={assetPreviews?.hero?.mimeType}
+                  onChange={(id) =>
+                    setValue("hero_asset_id", id, { shouldDirty: true })
+                  }
+                  disabled={isSubmitting}
+                />
+                <AssetUploader
+                  role="poster"
+                  label="Poster image"
+                  value={posterAssetId}
+                  initialPreviewUrl={assetPreviews?.poster?.publicUrl}
+                  initialMimeType={assetPreviews?.poster?.mimeType}
+                  onChange={(id) =>
+                    setValue("poster_asset_id", id, { shouldDirty: true })
+                  }
+                  disabled={isSubmitting}
+                />
+                <AssetUploader
+                  role="preview-video"
+                  label="Preview video"
+                  value={previewVideoAssetId}
+                  initialPreviewUrl={assetPreviews?.["preview-video"]?.publicUrl}
+                  initialMimeType={assetPreviews?.["preview-video"]?.mimeType}
+                  onChange={(id) =>
+                    setValue("preview_video_asset_id", id, {
+                      shouldDirty: true,
+                    })
+                  }
+                  disabled={isSubmitting}
+                />
+                <AssetUploader
+                  role="preview-gif"
+                  label="Preview GIF"
+                  value={previewGifAssetId}
+                  initialPreviewUrl={assetPreviews?.["preview-gif"]?.publicUrl}
+                  initialMimeType={assetPreviews?.["preview-gif"]?.mimeType}
+                  onChange={(id) =>
+                    setValue("preview_gif_asset_id", id, {
+                      shouldDirty: true,
+                    })
+                  }
+                  disabled={isSubmitting}
+                />
+              </div>
+            </section>
+          </EditorSectionGroup>
+
+          <EditorSectionGroup id="creative">
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>
+                {type === "filter" ? "Filter settings" : "Poster settings"}
+              </h2>
+
+              {type === "filter" ? (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="filter_config.style_archetype">
+                      Style archetype
+                    </Label>
+                    <Input
+                      id="filter_config.style_archetype"
+                      {...register("filter_config.style_archetype")}
+                      className="mt-2"
+                    />
+                    {errors.filter_config?.style_archetype && (
+                      <p className="text-error mt-1 text-sm">
+                        {errors.filter_config.style_archetype.message}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label htmlFor="filter_config.identity_preservation">
+                      Identity preservation
+                    </Label>
+                    <div className="mt-2">
+                      <FormRichSelect
+                        name="filter_config.identity_preservation"
+                        label="Identity preservation"
+                        options={[
+                          { value: "very_high", label: "Very high", description: "Face stays closest to source" },
+                          { value: "high", label: "High", description: "Strong likeness, light styling" },
+                          { value: "medium", label: "Medium", description: "Balanced look and likeness" },
+                          { value: "creative", label: "Creative", description: "Most stylized result" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <Label htmlFor="poster_config.layout_template">
+                      Layout
+                    </Label>
+                    <div className="mt-2">
+                      <FormRichSelect
+                        name="poster_config.layout_template"
+                        label="Layout"
+                        options={[
+                          { value: "portrait", label: "Portrait", description: "Tall 3:4-style layout" },
+                          { value: "square", label: "Square", description: "1:1 feed-friendly layout" },
+                          { value: "landscape", label: "Landscape", description: "Wide banner layout" },
+                        ]}
+                      />
+                    </div>
+                    {errors.poster_config?.layout_template && (
+                      <p className="text-error mt-1 text-sm">
+                        {errors.poster_config.layout_template.message}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label htmlFor="poster_config.background_handling">
+                      Background
+                    </Label>
+                    <div className="mt-2">
+                      <FormRichSelect
+                        name="poster_config.background_handling"
+                        label="Background"
+                        options={[
+                          { value: "replace", label: "Replace", description: "AI regenerates the backdrop" },
+                          { value: "preserve", label: "Preserve", description: "Keep the source background" },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          </EditorSectionGroup>
+
+          <EditorSectionGroup id="ai-routing">
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>AI recipe</h2>
+              <ProviderStrategyFields catalog={modelCatalog} />
+              <div className="mt-6">
+                <Label htmlFor="version.private_instruction_template">
+                  Private instruction template
+                </Label>
+                <Textarea
+                  id="version.private_instruction_template"
+                  {...register("version.private_instruction_template")}
+                  className="mt-2"
+                />
+                {errors.version?.private_instruction_template && (
+                  <p className="text-error mt-1 text-sm">
+                    {errors.version.private_instruction_template.message}
+                  </p>
+                )}
+              </div>
+              <div className="mt-6">
+                <Label htmlFor="version.private_negative_instruction">
+                  Private negative instruction
+                </Label>
+                <Textarea
+                  id="version.private_negative_instruction"
+                  {...register("version.private_negative_instruction")}
+                  className="mt-2"
+                />
+              </div>
+            </section>
+
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>Model parameters</h2>
+              <div className="grid gap-6 md:grid-cols-4">
+                <div>
+                  <Label htmlFor="version.model_config.width">Width</Label>
+                  <Input
+                    id="version.model_config.width"
+                    type="number"
+                    {...register(
+                      "version.model_config.width",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.model_config.height">Height</Label>
+                  <Input
+                    id="version.model_config.height"
+                    type="number"
+                    {...register(
+                      "version.model_config.height",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.model_config.guidance_scale">
+                    Guidance scale
+                  </Label>
+                  <Input
+                    id="version.model_config.guidance_scale"
+                    type="number"
+                    step="any"
+                    {...register(
+                      "version.model_config.guidance_scale",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.model_config.num_inference_steps">
+                    Inference steps
+                  </Label>
+                  <Input
+                    id="version.model_config.num_inference_steps"
+                    type="number"
+                    {...register(
+                      "version.model_config.num_inference_steps",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+              </div>
+            </section>
+          </EditorSectionGroup>
+
+          <EditorSectionGroup id="inputs">
+            <UserImageInputFields adminReferenceCount={adminReferenceCount} />
+
+            <PromptEditFields adminReferenceCount={adminReferenceCount} />
+
+            <section className={sectionClass}>
+              <FieldEditor />
+            </section>
+          </EditorSectionGroup>
+
+          <EditorSectionGroup id="advanced">
+            <OutputSizesField />
+
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>Input compatibility</h2>
+              <div className="grid gap-6 md:grid-cols-4">
+                <div>
+                  <Label htmlFor="version.input_validation_config.min_width">
+                    Min width (px)
+                  </Label>
+                  <Input
+                    id="version.input_validation_config.min_width"
+                    type="number"
+                    {...register(
+                      "version.input_validation_config.min_width",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.input_validation_config.min_height">
+                    Min height (px)
+                  </Label>
+                  <Input
+                    id="version.input_validation_config.min_height"
+                    type="number"
+                    {...register(
+                      "version.input_validation_config.min_height",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.input_validation_config.max_people_count">
+                    Max people
+                  </Label>
+                  <Input
+                    id="version.input_validation_config.max_people_count"
+                    type="number"
+                    {...register(
+                      "version.input_validation_config.max_people_count",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.input_validation_config.max_face_count">
+                    Max faces
+                  </Label>
+                  <Input
+                    id="version.input_validation_config.max_face_count"
+                    type="number"
+                    {...register(
+                      "version.input_validation_config.max_face_count",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>Post-processing</h2>
+              <div className="grid gap-6 md:grid-cols-4">
+                <div>
+                  <Label htmlFor="version.post_process_config.resize_width">
+                    Resize width
+                  </Label>
+                  <Input
+                    id="version.post_process_config.resize_width"
+                    type="number"
+                    {...register(
+                      "version.post_process_config.resize_width",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.post_process_config.resize_height">
+                    Resize height
+                  </Label>
+                  <Input
+                    id="version.post_process_config.resize_height"
+                    type="number"
+                    {...register(
+                      "version.post_process_config.resize_height",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="version.post_process_config.format">
+                    Output format
+                  </Label>
+                  <div className="mt-2">
+                    <FormRichSelect
+                      name="version.post_process_config.format"
+                      label="Output format"
+                      options={[
+                        { value: "webp", label: "WebP", description: "Smallest files, wide support" },
+                        { value: "png", label: "PNG", description: "Lossless, larger files" },
+                        { value: "jpeg", label: "JPEG", description: "Universal compatibility" },
+                        { value: "jpg", label: "JPG", description: "JPEG alias for legacy pipelines" },
+                      ]}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="version.post_process_config.quality">
+                    Quality (1–100)
+                  </Label>
+                  <Input
+                    id="version.post_process_config.quality"
+                    type="number"
+                    min={1}
+                    max={100}
+                    {...register(
+                      "version.post_process_config.quality",
+                      optionalNumberInput
+                    )}
+                    className="mt-2"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-6">
+                <label className="text-cream-50 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    {...register("version.post_process_config.crop")}
+                    className="h-4 w-4 rounded text-lime-500"
+                  />
+                  Crop to target size
+                </label>
+                <label className="text-cream-50 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    {...register("version.post_process_config.metadata_stripped")}
+                    className="h-4 w-4 rounded text-lime-500"
+                  />
+                  Strip metadata
+                </label>
+              </div>
+            </section>
+
+            <section className={sectionClass}>
+              <h2 className={sectionHeadingClass}>Safety config</h2>
+              <div className="flex flex-wrap gap-6">
+                <label className="text-cream-50 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    {...register("version.safety_config.allowed_nsfw")}
+                    className="h-4 w-4 rounded text-lime-500"
+                  />
+                  Allow NSFW
+                </label>
+                <label className="text-cream-50 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    {...register("version.safety_config.block_public_figures")}
+                    className="h-4 w-4 rounded text-lime-500"
+                  />
+                  Block public figures
+                </label>
+                <label className="text-cream-50 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    {...register("version.safety_config.block_minors")}
+                    className="h-4 w-4 rounded text-lime-500"
+                  />
+                  Block minors
+                </label>
+              </div>
+            </section>
+          </EditorSectionGroup>
+        </form>
+        {children}
+        <SaveDock
+          formId={FORM_ID}
+          isEdit={isEdit}
+          title={title}
+          submitError={submitError}
+          submitSuccess={submitSuccess}
+        />
+      </div>
     </FormProvider>
   );
 }
