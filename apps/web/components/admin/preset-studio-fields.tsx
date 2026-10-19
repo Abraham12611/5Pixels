@@ -39,6 +39,8 @@ const flagClass =
  */
 interface FamilyFieldsProps {
   eligibleParents: EligibleParentOption[];
+  /** False when the family contract migration is not deployed on this DB. */
+  schemaAvailable?: boolean;
   productId?: string;
   hasChildren?: boolean;
   currentParent?: ParentCandidate | null;
@@ -46,6 +48,7 @@ interface FamilyFieldsProps {
 
 export function PresetFamilyFields({
   eligibleParents,
+  schemaAvailable = true,
   productId,
   hasChildren = false,
   currentParent = null,
@@ -56,6 +59,20 @@ export function PresetFamilyFields({
     | null
     | undefined;
   const isVariant = Boolean(parentPresetId);
+
+  if (!schemaAvailable) {
+    return (
+      <section className={sectionClass}>
+        <h2 className={headingClass}>Preset family</h2>
+        <p className={flagClass}>
+          Preset family features are unavailable — the family schema
+          migration is not deployed on this environment. Standalone/variant
+          configuration cannot be read or saved here; other edits may also
+          fail until the migration is applied. Contact the release owner.
+        </p>
+      </section>
+    );
+  }
 
   return (
       <section className={sectionClass}>

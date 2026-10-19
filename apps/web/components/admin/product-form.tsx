@@ -74,6 +74,7 @@ interface ProductFormProps {
   modelCatalog?: ProviderModelOption[];
   /** Preset Studio 2.0 (#177): root presets eligible as family parents. */
   eligibleParents?: EligibleParentOption[];
+  familySchemaAvailable?: boolean;
   /** A preset that already has variants cannot itself become a variant. */
   hasChildren?: boolean;
   /** Private reference assets consuming the route's input-image budget. */
@@ -91,6 +92,7 @@ export function ProductForm({
   headerAction,
   modelCatalog = [],
   eligibleParents = [],
+  familySchemaAvailable = true,
   hasChildren = false,
   adminReferenceCount = 0,
   currentParent = null,
@@ -394,6 +396,7 @@ export function ProductForm({
 
       <PresetFamilyFields
         eligibleParents={eligibleParents}
+        schemaAvailable={familySchemaAvailable}
         productId={initialData?.id}
         hasChildren={hasChildren}
         currentParent={currentParent}
