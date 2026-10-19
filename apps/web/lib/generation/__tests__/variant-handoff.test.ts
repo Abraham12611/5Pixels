@@ -80,10 +80,10 @@ describe("buildSiblingHandoffs (#184)", () => {
       images: [{ assetId: "a1", role: null }],
       prompt: null,
     });
-    expect(handoffs[1].hrefFor("original")).toBe(
+    expect(handoffs[1].hrefs.original).toBe(
       "/app/create/warm?variant_from=gen-1"
     );
-    expect(handoffs[1].hrefFor("output")).toBe(
+    expect(handoffs[1].hrefs.output).toBe(
       "/app/create/warm?variant_from=gen-1&variant_source=output"
     );
     expect(handoffs[1].carriedCount).toBe(1);

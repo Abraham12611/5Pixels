@@ -22,8 +22,10 @@ import type {
 
 export interface VariantHandoff {
   member: FamilyRailMember;
-  /** /app/create/{slug}?variant_from={generationId} (+ variant_source). */
-  hrefFor: (sourceMode: "original" | "output") => string;
+  /** /app/create/{slug}?variant_from={generationId} (+ variant_source).
+   *  Plain data — handoffs cross the RSC boundary into
+   *  ResultVariantPicker, so a function shape would break serialization. */
+  hrefs: { original: string; output: string };
   /** User-facing explanations from the compat assessment. */
   notices: string[];
   /** Count of the source generation's images that would carry. */
@@ -44,11 +46,10 @@ export function buildSiblingHandoffs(opts: {
       images: opts.images,
       prompt: opts.prompt,
     });
+    const base = `/app/create/${member.slug}?variant_from=${opts.generationId}`;
     return {
       member,
-      hrefFor: (sourceMode) =>
-        `/app/create/${member.slug}?variant_from=${opts.generationId}` +
-        (sourceMode === "output" ? "&variant_source=output" : ""),
+      hrefs: { original: base, output: `${base}&variant_source=output` },
       notices: assessment.notices,
       carriedCount: assessment.images.length,
     };

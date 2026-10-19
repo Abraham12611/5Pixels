@@ -44,9 +44,10 @@ function handoff(
   };
   return {
     member,
-    hrefFor: (mode) =>
-      `/app/create/${slug}?variant_from=gen-1` +
-      (mode === "output" ? "&variant_source=output" : ""),
+    hrefs: {
+      original: `/app/create/${slug}?variant_from=gen-1`,
+      output: `/app/create/${slug}?variant_from=gen-1&variant_source=output`,
+    },
     notices,
     carriedCount: 1,
   };
