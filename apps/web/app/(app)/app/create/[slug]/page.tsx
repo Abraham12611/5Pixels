@@ -9,6 +9,7 @@ import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
+import { resolveVariantHandoff } from "@/lib/generation/variant-handoff-server";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
@@ -23,10 +24,22 @@ export default async function CreatePage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string; inputs?: string; roles?: string }>;
+  searchParams: Promise<{
+    from?: string;
+    inputs?: string;
+    roles?: string;
+    variant_from?: string;
+    variant_source?: string;
+  }>;
 }) {
   const { slug } = await params;
-  const { from, inputs: inputsParam, roles: rolesParam } = await searchParams;
+  const {
+    from,
+    inputs: inputsParam,
+    roles: rolesParam,
+    variant_from: variantFrom,
+    variant_source: variantSource,
+  } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -87,8 +100,12 @@ export default async function CreatePage({
   // Adjust flow (?from=<generationId>): restore the source photo and the
   // options used for that run. Everything is re-validated at submit time —
   // this only prefills what the user already owned.
-  let initialSource: { assetId: string; url: string; name: string } | null =
-    null;
+  let initialSource: {
+    assetId: string;
+    url: string;
+    name: string;
+    role?: string | null;
+  } | null = null;
   let initialOptions: Record<string, unknown> | null = null;
   let initialSize: OutputSizeOption | null = null;
   /** The owner's own prompt text from a previous run (Adjust) — private,
@@ -104,6 +121,9 @@ export default async function CreatePage({
     name: string;
     role?: string | null;
   }[] = [];
+  /** Sibling handoff explanations (#184) — drops/reassignments are
+   *  surfaced, never silent. */
+  let variantNotices: string[] = [];
 
   if (from && user) {
     const { data: previous } = await supabase
@@ -178,6 +198,27 @@ export default async function CreatePage({
     }
   }
 
+  // Result → sibling handoff (?variant_from=<generationId>): a completed
+  // generation's context carried onto a different preset in the same
+  // family. Distinct from ?from (same-preset Adjust) — resolveVariantHandoff
+  // verifies ownership + shared family root and filters every input,
+  // option and the prompt against THIS preset's capability, returning
+  // notices for whatever can't carry. ?variant_source=output opts into
+  // the finished result as the derivative input instead.
+  if (!from && variantFrom && user) {
+    const restored = await resolveVariantHandoff(product, variantFrom, {
+      useOutputAsSource: variantSource === "output",
+      multiReleased,
+    });
+    if (restored) {
+      initialSource = restored.initialSource;
+      initialInputs.push(...restored.initialInputs);
+      initialOptions = restored.initialOptions;
+      if (restored.initialPrompt) initialPrompt = restored.initialPrompt;
+      variantNotices = restored.notices;
+    }
+  }
+
   // Sibling-variant carry (?inputs=a1,a2&roles=r1,,r3): a family switch
   // hands already-uploaded input assets forward with the roles the
   // switch-time assessment resolved against the target capability —
@@ -229,6 +270,21 @@ export default async function CreatePage({
             Sign in
           </Link>
         </header>
+      )}
+      {variantNotices.length > 0 && (
+        <div
+          role="status"
+          className="border-amber-300/20 bg-amber-300/10 mx-4 mt-3 rounded-xl border px-4 py-3 sm:mx-6"
+        >
+          <p className="text-[12px] font-semibold text-amber-300">
+            Carried over from your last look
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-amber-200/90">
+            {variantNotices.map((notice) => (
+              <li key={notice}>{notice}</li>
+            ))}
+          </ul>
+        </div>
       )}
       <CreateGenerationForm
         userId={user?.id ?? null}
