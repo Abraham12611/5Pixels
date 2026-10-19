@@ -37,7 +37,7 @@ export function ResultVariantPicker({
     handoffs.map((h) => [h.member.productId, h.notices[0] ?? null])
   );
   const hrefById = new Map(
-    handoffs.map((h) => [h.member.productId, h.hrefFor])
+    handoffs.map((h) => [h.member.productId, h.hrefs])
   );
 
   return (
@@ -105,7 +105,7 @@ export function ResultVariantPicker({
         <PresetFamilySelector
           members={members}
           currentProductId={currentProductId}
-          hrefFor={(member) => hrefById.get(member.productId)!(sourceMode)}
+          hrefFor={(member) => hrefById.get(member.productId)![sourceMode]}
           noticeFor={(member) => noticeById.get(member.productId) ?? null}
           title="Styles in this set"
         />
