@@ -184,12 +184,15 @@ export default function TermsPage() {
           body: (
             <>
               <p>
-                User inputs are screened by automated content-moderation systems
-                — including our payment partner&rsquo;s moderation API — before
-                a transformation is generated. Inputs flagged or denied as
-                violating our policies are refused, and we may review content
-                and accounts where abuse is suspected. Repeated or severe
-                violations lead to account termination.
+                We use automated content-moderation services to review inputs
+                before a transformation is generated: text you enter may be
+                screened by OpenAI&rsquo;s content-moderation service, and
+                uploaded images may be screened by an automated NSFW image
+                check. The specific controls can vary by feature and over
+                time. Inputs flagged or denied as violating our policies are
+                refused, and we may review content and accounts where abuse is
+                suspected. Repeated or severe violations lead to account
+                termination.
               </p>
               <p>
                 Requests blocked before generation do not consume credits: any

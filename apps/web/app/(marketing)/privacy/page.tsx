@@ -176,13 +176,15 @@ export default function PrivacyPage() {
                 handling are governed by our provider agreements.
               </p>
               <p>
-                We do not name our model providers publicly as part of the
-                product experience, but all processing happens server-side.
-                Your photos are not sold and are not shared for unrelated
-                purposes. We do not use your uploads or results to train AI
-                models, and our primary generation provider is contractually
-                prohibited from using customer content to create, train, or
-                develop its models or services.
+                We do not name our generation-model providers publicly as part
+                of the product experience, but all processing happens
+                server-side. Our content-moderation provider, OpenAI, is
+                identified in the sharing section above. Your photos are not
+                sold and are not shared for unrelated purposes. We do not use
+                your uploads or results to train AI models, and our primary
+                generation provider is contractually prohibited from using
+                customer content to create, train, or develop its models or
+                services.
               </p>
             </>
           ),
