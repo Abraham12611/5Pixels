@@ -45,12 +45,14 @@ export function SaveDock({
   } else if (submitError) {
     statusText = "Save failed";
     statusTone = "text-error";
+  } else if (isDirty) {
+    // Dirty outranks "saved": edits made while the previous save was in
+    // flight are real unsaved changes, not part of the acknowledged batch.
+    statusText = "Unsaved changes";
+    statusTone = "text-warning";
   } else if (submitSuccess) {
     statusText = isEdit ? "All changes saved" : `${title} created`;
     statusTone = "text-lime-400";
-  } else if (isDirty) {
-    statusText = "Unsaved changes";
-    statusTone = "text-warning";
   } else {
     statusText = isEdit ? "All changes saved" : "Not saved yet";
     statusTone = "text-text-muted";

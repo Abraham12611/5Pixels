@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ProductForm } from "../product-form";
 import { PublishButton } from "../publish-button";
+import { UnsavedChangesGuard } from "../unsaved-changes-guard";
 import {
   editorSectionForField,
   FORM_SECTIONS,
@@ -270,6 +271,56 @@ describe("ProductForm editor shell (#222)", () => {
     fireEvent.click(screen.getByRole("link", { name: /back to filters/i }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("keeps edits made during an in-flight save dirty and intact", async () => {
+    let resolveSave: (value: { id: string }) => void = () => {};
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{
+          ...BASE_DATA,
+          id: "00000000-0000-4000-8000-000000000001",
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const nameInput = screen.getByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "Saved name" } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    // Full-schema validation is slow in jsdom — use the repo's convention.
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled(), {
+      timeout: 20000,
+    });
+
+    // The save request is still in flight — this edit is NOT part of it.
+    fireEvent.change(nameInput, {
+      target: { value: "Edited during save" },
+    });
+
+    await act(async () => {
+      resolveSave({ id: "00000000-0000-4000-8000-000000000001" });
+    });
+
+    // The in-flight edit survives the rebase and stays unsaved — it must be
+    // neither reverted to the submitted value nor folded into the clean
+    // baseline as if it had been saved.
+    await waitFor(() =>
+      expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument()
+    );
+    expect(nameInput).toHaveValue("Edited during save");
+    expect(
+      screen.queryByText(/all changes saved/i)
+    ).not.toBeInTheDocument();
+  }, 30_000);
 });
 
 describe("PublishButton readiness (#222)", () => {
@@ -337,5 +388,105 @@ describe("PublishButton readiness (#222)", () => {
       ).toBeInTheDocument()
     );
     expect(action).not.toHaveBeenCalled();
+  });
+});
+
+describe("UnsavedChangesGuard history navigation (#222)", () => {
+  const PREV_PATH = "/admin/filters";
+  const EDITOR_PATH = "/admin/filters/prod-1";
+
+  // Simulate arriving at the editor from the list page; the guard pushes
+  // its own sentinel entry on mount, giving [prev, editor, sentinel].
+  const seedHistory = () => {
+    window.history.replaceState({}, "", PREV_PATH);
+    window.history.pushState({}, "", EDITOR_PATH);
+  };
+
+  const pressBack = async () => {
+    await act(async () => {
+      window.history.back();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  it("Back → Stay keeps the user on the editor and re-arms", async () => {
+    seedHistory();
+    render(<UnsavedChangesGuard active />);
+
+    await pressBack();
+    await waitFor(() =>
+      expect(screen.getByRole("dialog")).toHaveTextContent(
+        /discard unsaved changes/i
+      )
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^stay$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+    expect(window.location.pathname).toBe(EDITOR_PATH);
+  });
+
+  it("Back → Discard navigates to the previous page", async () => {
+    seedHistory();
+    render(<UnsavedChangesGuard active />);
+
+    await pressBack();
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /discard changes/i })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() =>
+      expect(window.location.pathname).toBe(PREV_PATH)
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("prompts again on a repeated Back attempt", async () => {
+    seedHistory();
+    render(<UnsavedChangesGuard active />);
+
+    await pressBack();
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /^stay$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+
+    await pressBack();
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(window.location.pathname).toBe(EDITOR_PATH);
+  });
+
+  it("does not disturb forward navigation after leaving", async () => {
+    seedHistory();
+    const { unmount } = render(<UnsavedChangesGuard active />);
+
+    await pressBack();
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /discard changes/i })
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(window.location.pathname).toBe(PREV_PATH));
+
+    // Leaving the editor unmounts the guard; Forward must traverse freely.
+    unmount();
+    await act(async () => {
+      window.history.forward();
+    });
+    // jsdom queues history traversals — allow several task turns.
+    await waitFor(
+      () => expect(window.location.pathname).toBe(EDITOR_PATH),
+      { timeout: 5000 }
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

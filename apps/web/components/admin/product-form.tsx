@@ -6,6 +6,8 @@ import {
   useForm,
   useWatch,
   type FieldErrors,
+  type Path,
+  type PathValue,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
@@ -20,7 +22,12 @@ import { FieldEditor } from "./field-editor";
 import { OutputSizesField } from "./output-sizes-field";
 import { ProviderStrategyFields } from "./provider-strategy-fields";
 import { FormRichSelect } from "./form-rich-select";
-import { optionalNumberInput } from "./form-utils";
+import {
+  flattenDirtyLeaves,
+  formValueEquals,
+  getPathValue,
+  optionalNumberInput,
+} from "./form-utils";
 import {
   PresetFamilyFields,
   PromptEditFields,
@@ -250,10 +257,26 @@ export function ProductForm({
     setErrorItems([]);
     try {
       const product = await saveWithTimeout(onSubmit(data));
+      // Edits made while the request was in flight aren't part of `data`.
+      // Rebase the clean snapshot onto the server-acknowledged values, then
+      // restore the in-flight edits and keep them dirty — they must be
+      // neither silently reverted nor wrongly marked as saved.
+      const inFlightEdits = flattenDirtyLeaves(methods.formState.dirtyFields)
+        .map(
+          (path) => [path, getValues(path as Path<ProductFormInput>)] as const
+        )
+        .filter(
+          ([path, value]) => !formValueEquals(value, getPathValue(data, path))
+        );
+      reset(data as unknown as ProductFormInput);
+      for (const [path, value] of inFlightEdits) {
+        setValue(
+          path as Path<ProductFormInput>,
+          value as PathValue<ProductFormInput, Path<ProductFormInput>>,
+          { shouldDirty: true }
+        );
+      }
       setSubmitSuccess(true);
-      // The server-acknowledged values are the new clean baseline — this
-      // clears isDirty so the dock/guard stop warning after a real save.
-      reset(getValues());
       router.push(`/admin/${type}s/${product.id}`);
       router.refresh();
     } catch (error) {

@@ -109,8 +109,12 @@ export function UnsavedChangesGuard({ active }: { active: boolean }) {
     if (nav?.kind === "link") {
       router.push(nav.href);
     } else {
+      // The stack is [previous page, editor entry, re-armed sentinel], so a
+      // single step back only reaches the editor's own history entry. Going
+      // back two traverses both copies and lands on the real previous page;
+      // the resulting pop is swallowed by the bypass flag.
       bypassNextPopRef.current = true;
-      history.back();
+      history.go(-2);
     }
   };
 
