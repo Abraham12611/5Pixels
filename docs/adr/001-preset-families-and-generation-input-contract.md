@@ -16,7 +16,11 @@ preset-first workflow at `/app/create/[slug]`:
    real, administratively authored product with its own slug, version, recipe
    and price — not an AI-generated output option).
 3. **Optional user prompt** — admin-enabled per preset; off by default,
-   server-enforced.
+   server-enforced. When released, user-entered generation text (the
+   normalized prompt plus free-text option fields) is screened through the
+   OpenAI Moderation API (`omni-moderation-latest`) before quoting — the
+   fail-closed provider for the Bachs-backed workflow; the earlier
+   Creem-based prompt screen was replaced.
 
 The shipped schema had none of these: `products` had no parent/variant
 relation, `generations.source_asset_id` and `CreateGenerationInput.sourceAssetId`
