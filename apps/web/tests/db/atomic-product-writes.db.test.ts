@@ -69,7 +69,7 @@ async function makeRichSource(
        featured_rank, metadata
      ) VALUES ($1, $2, $3, $4, 'short copy', 'long copy',
        'public recipe', 'active', 'public', 'creative', 3,
-       '{"filter_config":{"intensity":0.7}}'::jsonb)`,
+       '{"filter_config":{"intensity":0.7},"prompt_ui":{"placeholder":"Describe your tweak","examples":["warmer","softer light"],"helper":"Short plain-English edits only"}}'::jsonb)`,
     [productId, opts.type ?? "filter", slug, `Source ${slug}`]
   );
   await client.query(
@@ -167,7 +167,8 @@ describe("admin_duplicate_product — complete atomic copy", () => {
                   input_mode, input_min_images, input_max_images,
                   input_image_roles, prompt_override_enabled,
                   prompt_max_chars, post_process_config, safety_config,
-                  credit_cost
+                  credit_cost, published_at, retired_at,
+                  created_by_admin_id
            FROM public.product_versions WHERE product_id = $1`,
           [copyId]
         );
@@ -200,7 +201,14 @@ describe("admin_duplicate_product — complete atomic copy", () => {
         likeness_level: "creative",
         parent_preset_id: null,
         standalone_discoverable: false,
-        metadata: { filter_config: { intensity: 0.7 } },
+        metadata: {
+          filter_config: { intensity: 0.7 },
+          prompt_ui: {
+            placeholder: "Describe your tweak",
+            examples: ["warmer", "softer light"],
+            helper: "Short plain-English edits only",
+          },
+        },
       });
       expect(copy.version).toMatchObject({
         version_number: 1,
@@ -218,6 +226,16 @@ describe("admin_duplicate_product — complete atomic copy", () => {
         primary_provider: "fal",
         primary_model: "m1",
       });
+      expect(copy.version.model_config).toEqual({ cfg: 7 });
+      expect(copy.version.output_sizes).toEqual(["1024x1024"]);
+      expect(copy.version.input_validation_config).toEqual({ min: 1024 });
+      expect(copy.version.post_process_config).toEqual({ upscale: true });
+      expect(copy.version.safety_config).toEqual({ nsfw: false });
+      // The copy must not look published: no publish/retire timestamps,
+      // and ownership is attributed to the duplicating admin.
+      expect(copy.version.published_at).toBeNull();
+      expect(copy.version.retired_at).toBeNull();
+      expect(copy.version.created_by_admin_id).toBe(staffId);
       expect(copy.version.input_image_roles).toEqual([
         { name: "subject" },
         { name: "style", optional: true },
