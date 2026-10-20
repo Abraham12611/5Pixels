@@ -41,6 +41,7 @@ export function FormRichSelect({
 
   return (
     <RichSelect
+      id={name}
       aria-label={label}
       value={value ?? ""}
       onValueChange={(next) => {

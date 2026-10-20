@@ -82,13 +82,13 @@ export function VersionList({
           <div
             key={version.id}
             className={cn(
-              "flex items-center justify-between rounded-xl border p-3",
+              "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border p-3",
               version.id === selectedVersionId
                 ? "border-lime-500/40 bg-lime-500/5"
                 : "border-cream-100/10 bg-charcoal-800"
             )}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-cream-50 font-medium">
                 v{version.version_number}
               </span>
@@ -106,11 +106,11 @@ export function VersionList({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-text-secondary text-sm">
                 {version.credit_cost} credits
               </span>
-              <span className="text-text-muted text-xs">
+              <span className="text-text-muted max-w-56 truncate text-xs">
                 {version.provider_strategy.primary_provider}/
                 {version.provider_strategy.primary_model}
               </span>
