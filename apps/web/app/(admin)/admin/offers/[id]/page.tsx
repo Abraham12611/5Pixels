@@ -62,7 +62,7 @@ export default async function CampaignDetailPage({
             {campaign.slug}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span
             className={cn(
               "rounded-full px-3 py-1 text-xs",
@@ -234,8 +234,10 @@ export default async function CampaignDetailPage({
         </p>
         {[...byVariant.entries()].map(([variant, variantSteps]) => (
           <div key={variant} className="mt-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-cream-100 font-mono text-sm">{variant}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <h3 className="text-cream-100 break-all font-mono text-sm">
+                {variant}
+              </h3>
               <AddStepForm
                 campaignId={campaign.id}
                 variant={variant}
@@ -248,7 +250,7 @@ export default async function CampaignDetailPage({
                   key={step.id}
                   className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-4"
                 >
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <span className="bg-charcoal-700 text-cream-100 flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold">
                         {step.position}

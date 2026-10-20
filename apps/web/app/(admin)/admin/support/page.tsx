@@ -31,7 +31,7 @@ export default async function AdminSupportSearchPage({
           defaultValue={q}
           type="search"
           placeholder="email or user ID"
-          className="border-cream-100/10 bg-charcoal-850 text-cream-50 placeholder:text-text-muted flex-1 rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+          className="border-cream-100/10 bg-charcoal-850 text-cream-50 placeholder:text-text-muted min-w-0 flex-1 rounded-xl border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
         />
         <Button type="submit" variant="brand" size="sm">
           Search
@@ -47,18 +47,20 @@ export default async function AdminSupportSearchPage({
               {users.map((user) => (
                 <li
                   key={user.id}
-                  className="flex items-center justify-between p-4"
+                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-4"
                 >
-                  <div>
-                    <p className="text-cream-50 font-semibold">
+                  <div className="min-w-0">
+                    <p className="text-cream-50 wrap-anywhere font-semibold">
                       {user.displayName ?? user.email}
                     </p>
-                    <p className="text-text-muted text-sm">{user.email}</p>
-                    <p className="text-text-muted text-xs font-mono mt-1">
+                    <p className="text-text-muted wrap-anywhere text-sm">
+                      {user.email}
+                    </p>
+                    <p className="text-text-muted mt-1 break-all font-mono text-xs">
                       {user.id}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {user.isOwner && (
                       <span className="bg-lime-400/10 text-lime-400 rounded-full px-2 py-0.5 text-xs font-medium">
                         owner

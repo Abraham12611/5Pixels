@@ -5,8 +5,7 @@ import {
   transitionProductStatus,
 } from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
-import { DuplicateButton } from "@/components/admin/duplicate-button";
-import { ProductActions } from "@/components/admin/product-actions";
+import { PresetListRow } from "@/components/admin/preset-list-row";
 import Link from "next/link";
 
 export default async function PostersPage() {
@@ -15,7 +14,7 @@ export default async function PostersPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h1 className="text-cream-50 text-3xl font-bold">Posters</h1>
         <Button asChild>
           <Link href="/admin/posters/new">New poster</Link>
@@ -39,33 +38,17 @@ export default async function PostersPage() {
         ) : (
           <ul className="divide-cream-100/10 divide-y">
             {posters.map((poster) => (
-              <li
+              <PresetListRow
                 key={poster.id}
-                className="flex items-center justify-between p-4"
-              >
-                <div>
-                  <p className="text-cream-50 font-semibold">{poster.name}</p>
-                  <p className="text-text-muted text-sm">{poster.slug}</p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="bg-charcoal-700 text-cream-100 rounded-full px-3 py-1 text-xs">
-                    {poster.public_status}
-                  </span>
-                  <ProductActions
-                    productId={poster.id}
-                    status={poster.public_status}
-                    action={transitionProductStatus}
-                  />
-                  <DuplicateButton
-                    productId={poster.id}
-                    action={duplicateProduct}
-                    listHref="/admin/posters"
-                  />
-                  <Button asChild variant="secondary">
-                    <Link href={`/admin/posters/${poster.id}`}>Edit</Link>
-                  </Button>
-                </div>
-              </li>
+                name={poster.name}
+                slug={poster.slug}
+                status={poster.public_status}
+                productId={poster.id}
+                editHref={`/admin/posters/${poster.id}`}
+                listHref="/admin/posters"
+                statusAction={transitionProductStatus}
+                duplicateAction={duplicateProduct}
+              />
             ))}
           </ul>
         )}

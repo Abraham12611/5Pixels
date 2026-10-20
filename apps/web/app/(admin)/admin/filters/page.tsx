@@ -5,8 +5,7 @@ import {
   transitionProductStatus,
 } from "@/lib/db/products";
 import { Button } from "@/components/ui/button";
-import { DuplicateButton } from "@/components/admin/duplicate-button";
-import { ProductActions } from "@/components/admin/product-actions";
+import { PresetListRow } from "@/components/admin/preset-list-row";
 import Link from "next/link";
 
 export default async function FiltersPage() {
@@ -15,7 +14,7 @@ export default async function FiltersPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h1 className="text-cream-50 text-3xl font-bold">Filters</h1>
         <Button asChild>
           <Link href="/admin/filters/new">New filter</Link>
@@ -39,33 +38,17 @@ export default async function FiltersPage() {
         ) : (
           <ul className="divide-cream-100/10 divide-y">
             {filters.map((filter) => (
-              <li
+              <PresetListRow
                 key={filter.id}
-                className="flex items-center justify-between p-4"
-              >
-                <div>
-                  <p className="text-cream-50 font-semibold">{filter.name}</p>
-                  <p className="text-text-muted text-sm">{filter.slug}</p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="bg-charcoal-700 text-cream-100 rounded-full px-3 py-1 text-xs">
-                    {filter.public_status}
-                  </span>
-                  <ProductActions
-                    productId={filter.id}
-                    status={filter.public_status}
-                    action={transitionProductStatus}
-                  />
-                  <DuplicateButton
-                    productId={filter.id}
-                    action={duplicateProduct}
-                    listHref="/admin/filters"
-                  />
-                  <Button asChild variant="secondary">
-                    <Link href={`/admin/filters/${filter.id}`}>Edit</Link>
-                  </Button>
-                </div>
-              </li>
+                name={filter.name}
+                slug={filter.slug}
+                status={filter.public_status}
+                productId={filter.id}
+                editHref={`/admin/filters/${filter.id}`}
+                listHref="/admin/filters"
+                statusAction={transitionProductStatus}
+                duplicateAction={duplicateProduct}
+              />
             ))}
           </ul>
         )}

@@ -162,8 +162,8 @@ export function CategoryManager({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
           <h1 className="text-cream-50 text-3xl font-bold">Categories</h1>
           <p className="text-text-secondary mt-2">
             Manage preset categories. Deactivating hides a category from product
@@ -199,18 +199,22 @@ export function CategoryManager({
             {categories.map((category) => (
               <li
                 key={category.id}
-                className="flex items-center justify-between p-4"
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 p-4"
               >
-                <div>
-                  <p className="text-cream-50 font-semibold">{category.name}</p>
-                  <p className="text-text-muted text-sm">{category.slug}</p>
+                <div className="min-w-0">
+                  <p className="text-cream-50 wrap-anywhere font-semibold">
+                    {category.name}
+                  </p>
+                  <p className="text-text-muted wrap-anywhere text-sm">
+                    {category.slug}
+                  </p>
                   {category.description && (
                     <p className="text-text-secondary mt-1 max-w-md text-sm">
                       {category.description}
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                   <span
                     className={`rounded-full px-3 py-1 text-xs ${
                       category.is_active
