@@ -147,7 +147,7 @@ export function FamilyPanel({
         <p role="alert" className="text-error mt-3 text-sm">
           {error}
         </p>
-      )
+      )}
 
       <ul className="mt-4 space-y-2">
         {children.length === 0 && (
