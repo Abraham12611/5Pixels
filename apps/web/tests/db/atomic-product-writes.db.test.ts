@@ -441,6 +441,30 @@ describe("admin_duplicate_product — complete atomic copy", () => {
     });
   });
 
+  it("rejects a product whose only versions are retired", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { userId: ownerId } = await makeUser(client);
+      // The source's only version is retired — nothing editable remains.
+      const { productId } = await makeRichSource(client, ownerId, {
+        state: "retired",
+      });
+
+      const { rows: before } = await asService(client, () =>
+        client.query(`SELECT COUNT(*) AS c FROM public.products`)
+      );
+
+      await expect(
+        duplicate(client, staffId, productId)
+      ).rejects.toThrow(/no editable source version/i);
+
+      const { rows: after } = await asService(client, () =>
+        client.query(`SELECT COUNT(*) AS c FROM public.products`)
+      );
+      expect(after[0].c).toBe(before[0].c);
+    });
+  });
+
   it("copies only product-level links and the selected version's links", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);

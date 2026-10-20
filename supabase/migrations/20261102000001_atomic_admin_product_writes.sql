@@ -64,13 +64,15 @@ BEGIN
   END IF;
 
   -- Deterministic editable source version: latest draft, else testing,
-  -- else active — mirrors selectEditableVersion() app-side.
+  -- else active — mirrors selectEditableVersion() app-side. Retired
+  -- versions are never an editable source: a product whose only versions
+  -- are retired has no duplicable recipe and fails the check below.
   SELECT * INTO v_source_version
   FROM public.product_versions
   WHERE product_id = p_source_product_id
+    AND state IN ('draft', 'testing', 'active')
   ORDER BY
-    CASE state WHEN 'draft' THEN 0 WHEN 'testing' THEN 1
-               WHEN 'active' THEN 2 ELSE 3 END,
+    CASE state WHEN 'draft' THEN 0 WHEN 'testing' THEN 1 ELSE 2 END,
     version_number DESC
   LIMIT 1;
 
