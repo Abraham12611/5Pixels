@@ -74,6 +74,12 @@ BEGIN
     version_number DESC
   LIMIT 1;
 
+  -- Fail closed: a source with no usable version must never produce
+  -- another incomplete product row.
+  IF v_source_version.id IS NULL THEN
+    RAISE EXCEPTION 'Cannot duplicate: product has no editable source version';
+  END IF;
+
   SELECT COUNT(*) INTO v_sibling_count
   FROM public.products
   WHERE parent_preset_id = p_parent_product_id;
@@ -101,26 +107,24 @@ BEGIN
   WHERE id = p_source_product_id
   RETURNING * INTO v_new;
 
-  IF v_source_version.id IS NOT NULL THEN
-    INSERT INTO public.product_versions (
-      product_id, version_number, state, private_instruction_template,
-      private_negative_instruction, provider_strategy, model_config,
-      output_sizes, input_validation_config, input_mode, input_min_images,
-      input_max_images, input_image_roles, prompt_override_enabled,
-      prompt_max_chars, post_process_config, safety_config, credit_cost,
-      created_by_admin_id
-    )
-    SELECT
-      v_new.id, 1, 'draft', private_instruction_template,
-      private_negative_instruction, provider_strategy, model_config,
-      output_sizes, input_validation_config, input_mode, input_min_images,
-      input_max_images, input_image_roles, prompt_override_enabled,
-      prompt_max_chars, post_process_config, safety_config, credit_cost,
-      v_user_id
-    FROM public.product_versions
-    WHERE id = v_source_version.id
-    RETURNING id INTO v_new_version_id;
-  END IF;
+  INSERT INTO public.product_versions (
+    product_id, version_number, state, private_instruction_template,
+    private_negative_instruction, provider_strategy, model_config,
+    output_sizes, input_validation_config, input_mode, input_min_images,
+    input_max_images, input_image_roles, prompt_override_enabled,
+    prompt_max_chars, post_process_config, safety_config, credit_cost,
+    created_by_admin_id
+  )
+  SELECT
+    v_new.id, 1, 'draft', private_instruction_template,
+    private_negative_instruction, provider_strategy, model_config,
+    output_sizes, input_validation_config, input_mode, input_min_images,
+    input_max_images, input_image_roles, prompt_override_enabled,
+    prompt_max_chars, post_process_config, safety_config, credit_cost,
+    v_user_id
+  FROM public.product_versions
+  WHERE id = v_source_version.id
+  RETURNING id INTO v_new_version_id;
 
   INSERT INTO public.product_fields (
     product_id, field_key, label, help_text, field_type, required,
@@ -132,8 +136,10 @@ BEGIN
   FROM public.product_fields
   WHERE product_id = p_source_product_id;
 
-  -- Asset links: the copy owns its links; version-bound links point at the
-  -- copy's new version so a later source edit never mutates this draft.
+  -- Asset links: only product-level links and links bound to the SELECTED
+  -- editable version are copied — references pinned to older versions must
+  -- not leak into the new draft. Version-bound links rebind to the copy's
+  -- new version so a later source edit never mutates this draft.
   INSERT INTO public.product_assets (
     product_id, product_version_id, asset_id, role, sort_order,
     internal_only, rights_metadata
@@ -144,7 +150,9 @@ BEGIN
          ELSE v_new_version_id END,
     asset_id, role, sort_order, internal_only, rights_metadata
   FROM public.product_assets
-  WHERE product_id = p_source_product_id;
+  WHERE product_id = p_source_product_id
+    AND (product_version_id IS NULL
+         OR product_version_id = v_source_version.id);
 
   INSERT INTO public.admin_audit_logs (
     admin_user_id, action, entity_type, entity_id, before, after
@@ -204,6 +212,12 @@ BEGIN
     RAISE EXCEPTION 'Product not found';
   END IF;
 
+  -- Fail closed: never report a successful save for a product with no
+  -- editable version — that is exactly the incomplete state #233 removes.
+  IF p_source_version_id IS NULL OR p_version IS NULL THEN
+    RAISE EXCEPTION 'Cannot save: product has no editable source version';
+  END IF;
+
   -- Merge onto the before-image: keys absent from p_product keep their
   -- current value instead of being nulled out.
   v_p := jsonb_populate_record(
@@ -226,7 +240,10 @@ BEGIN
     poster_asset_id = v_p.poster_asset_id,
     preview_video_asset_id = v_p.preview_video_asset_id,
     preview_gif_asset_id = v_p.preview_gif_asset_id,
-    metadata = v_p.metadata,
+    -- Partial metadata updates merge: keys absent from the patch (e.g.
+    -- prompt_ui when only filter_config is submitted) keep their value.
+    metadata = COALESCE(v_before.metadata, '{}'::JSONB)
+               || COALESCE(v_p.metadata, '{}'::JSONB),
     parent_preset_id = v_p.parent_preset_id,
     standalone_discoverable = COALESCE(v_p.standalone_discoverable, FALSE),
     variant_display_name = v_p.variant_display_name,
@@ -236,47 +253,45 @@ BEGIN
 
   -- Editable version: update in place unless the source is active — the
   -- recipe is immutable once published, so clone then edit the clone.
-  IF p_source_version_id IS NOT NULL AND p_version IS NOT NULL THEN
-    PERFORM 1 FROM public.product_versions
-    WHERE id = p_source_version_id AND product_id = p_product_id
-    FOR UPDATE;
-    IF NOT FOUND THEN
-      RAISE EXCEPTION 'Source version not found';
-    END IF;
-
-    IF (SELECT state FROM public.product_versions WHERE id = p_source_version_id)
-       = 'active' THEN
-      v_effective_version_id :=
-        (SELECT id FROM public.clone_version_as_draft(p_source_version_id));
-    END IF;
-
-    -- Merge the patch onto the effective row (the clone when the source was
-    -- active): keys absent from p_version keep their current value.
-    SELECT * INTO v_existing_version
-    FROM public.product_versions WHERE id = v_effective_version_id;
-    v_v := jsonb_populate_record(
-      NULL::public.product_versions,
-      to_jsonb(v_existing_version) || p_version
-    );
-
-    UPDATE public.product_versions SET
-      private_instruction_template = v_v.private_instruction_template,
-      private_negative_instruction = v_v.private_negative_instruction,
-      provider_strategy = v_v.provider_strategy,
-      model_config = v_v.model_config,
-      output_sizes = v_v.output_sizes,
-      input_validation_config = v_v.input_validation_config,
-      input_mode = v_v.input_mode,
-      input_min_images = v_v.input_min_images,
-      input_max_images = v_v.input_max_images,
-      input_image_roles = v_v.input_image_roles,
-      prompt_override_enabled = v_v.prompt_override_enabled,
-      prompt_max_chars = v_v.prompt_max_chars,
-      post_process_config = v_v.post_process_config,
-      safety_config = v_v.safety_config,
-      credit_cost = v_v.credit_cost
-    WHERE id = v_effective_version_id;
+  PERFORM 1 FROM public.product_versions
+  WHERE id = p_source_version_id AND product_id = p_product_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Source version not found';
   END IF;
+
+  IF (SELECT state FROM public.product_versions WHERE id = p_source_version_id)
+     = 'active' THEN
+    v_effective_version_id :=
+      (SELECT id FROM public.clone_version_as_draft(p_source_version_id));
+  END IF;
+
+  -- Merge the patch onto the effective row (the clone when the source was
+  -- active): keys absent from p_version keep their current value.
+  SELECT * INTO v_existing_version
+  FROM public.product_versions WHERE id = v_effective_version_id;
+  v_v := jsonb_populate_record(
+    NULL::public.product_versions,
+    to_jsonb(v_existing_version) || p_version
+  );
+
+  UPDATE public.product_versions SET
+    private_instruction_template = v_v.private_instruction_template,
+    private_negative_instruction = v_v.private_negative_instruction,
+    provider_strategy = v_v.provider_strategy,
+    model_config = v_v.model_config,
+    output_sizes = v_v.output_sizes,
+    input_validation_config = v_v.input_validation_config,
+    input_mode = v_v.input_mode,
+    input_min_images = v_v.input_min_images,
+    input_max_images = v_v.input_max_images,
+    input_image_roles = v_v.input_image_roles,
+    prompt_override_enabled = v_v.prompt_override_enabled,
+    prompt_max_chars = v_v.prompt_max_chars,
+    post_process_config = v_v.post_process_config,
+    safety_config = v_v.safety_config,
+    credit_cost = v_v.credit_cost
+  WHERE id = v_effective_version_id;
 
   -- NULL p_fields = fields untouched; [] = delete all; array = replace set.
   IF p_fields IS NOT NULL THEN

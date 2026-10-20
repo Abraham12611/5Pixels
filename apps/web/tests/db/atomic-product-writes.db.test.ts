@@ -416,6 +416,105 @@ describe("admin_duplicate_product — complete atomic copy", () => {
     });
   });
 
+  it("rejects a source product with no editable version — writes nothing", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const productId = randomUUID();
+      await client.query(
+        `INSERT INTO public.products (id, type, slug, name, public_status, visibility)
+         VALUES ($1, 'filter', $2, 'Versionless', 'draft', 'internal')`,
+        [productId, `dbtest-nov-${productId.slice(0, 8)}`]
+      );
+
+      const { rows: before } = await asService(client, () =>
+        client.query(`SELECT COUNT(*) AS c FROM public.products`)
+      );
+
+      await expect(
+        duplicate(client, staffId, productId)
+      ).rejects.toThrow(/no editable source version/i);
+
+      const { rows: after } = await asService(client, () =>
+        client.query(`SELECT COUNT(*) AS c FROM public.products`)
+      );
+      expect(after[0].c).toBe(before[0].c);
+    });
+  });
+
+  it("copies only product-level links and the selected version's links", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { userId: ownerId } = await makeUser(client);
+      const { productId, versionId, assetId } = await makeRichSource(
+        client,
+        ownerId
+      );
+
+      // A retired predecessor version carries its own link — it must NOT
+      // be inherited by the copy. A product-level link (version NULL) must.
+      const retiredVersionId = randomUUID();
+      const staleAssetId = randomUUID();
+      const productLevelAssetId = randomUUID();
+      await client.query(
+        `INSERT INTO public.product_versions (
+           id, product_id, version_number, state,
+           private_instruction_template, credit_cost
+         ) VALUES ($1, $2, 0, 'retired', 'old template', 0)`,
+        [retiredVersionId, productId]
+      );
+      for (const [asset, linkVersion, role] of [
+        [staleAssetId, retiredVersionId, "style_reference"],
+        [productLevelAssetId, null, "example_result"],
+      ] as const) {
+        await client.query(
+          `INSERT INTO public.assets (
+             id, owner_user_id, storage_provider, storage_key, bucket,
+             media_type, mime_type, moderation_status
+           ) VALUES ($1, $2, 'supabase', $3, 'admin-assets', 'image',
+             'image/png', 'approved')`,
+          [asset, ownerId, `dbtest/${asset}.png`]
+        );
+        await client.query(
+          `INSERT INTO public.product_assets (
+             product_id, product_version_id, asset_id, role, sort_order
+           ) VALUES ($1, $2, $3, $4, 5)`,
+          [productId, linkVersion, asset, role]
+        );
+      }
+
+      const copyId = await duplicate(client, staffId, productId);
+      const { rows: links } = await asService(client, () =>
+        client.query(
+          `SELECT asset_id, product_version_id, role
+           FROM public.product_assets WHERE product_id = $1
+           ORDER BY role`,
+          [copyId]
+        )
+      );
+      // Selected-version link + product-level link only — the retired
+      // version's stale reference stays behind.
+      expect(links.map((l: { asset_id: string }) => l.asset_id).sort()).toEqual(
+        [assetId, productLevelAssetId].sort()
+      );
+      const selectedBound = links.find(
+        (l: { role: string }) => l.role === "style_reference"
+      );
+      const productLevel = links.find(
+        (l: { role: string }) => l.role === "example_result"
+      );
+      const { rows: newVersion } = await asService(client, () =>
+        client.query(
+          `SELECT id FROM public.product_versions WHERE product_id = $1`,
+          [copyId]
+        )
+      );
+      expect(selectedBound.product_version_id).toBe(newVersion[0].id);
+      expect(productLevel.product_version_id).toBeNull();
+      expect(newVersion).toHaveLength(1);
+      void versionId;
+    });
+  });
+
   it("denies non-admin callers and writes nothing", async () => {
     await withDb(async (client) => {
       const { userId } = await makeUser(client);
@@ -609,25 +708,87 @@ describe("admin_update_product — atomic save", () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);
       const { userId: ownerId } = await makeUser(client);
-      const { productId } = await makeRichSource(client, ownerId);
+      const { productId, versionId } = await makeRichSource(client, ownerId);
 
       await expect(
-        callUpdate(client, staffId, productId, null, null, [
+        callUpdate(client, staffId, productId, versionId, { credit_cost: 5 }, [
           { field_key: null, label: "Broken", field_type: "short_text" },
         ])
       ).rejects.toThrow();
 
       const { rows } = await asService(client, () =>
         client.query(
-          `SELECT name,
+          `SELECT p.name,
                   (SELECT COUNT(*) FROM public.product_fields
-                    WHERE product_id = $1) AS field_count
-           FROM public.products WHERE id = $1`,
-          [productId]
+                    WHERE product_id = p.id) AS field_count,
+                  (SELECT credit_cost FROM public.product_versions
+                    WHERE id = $2) AS version_cost
+           FROM public.products p WHERE p.id = $1`,
+          [productId, versionId]
         )
       );
       expect(rows[0].name).not.toBe("Renamed");
       expect(Number(rows[0].field_count)).toBe(1);
+      expect(Number(rows[0].version_cost)).toBe(42);
+    });
+  });
+
+  it("rejects the save when no editable version is supplied", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { userId: ownerId } = await makeUser(client);
+      const { productId } = await makeRichSource(client, ownerId);
+
+      await expect(
+        callUpdate(client, staffId, productId, null, null, null)
+      ).rejects.toThrow(/no editable source version/i);
+
+      const { rows } = await asService(client, () =>
+        client.query(
+          `SELECT name FROM public.products WHERE id = $1`,
+          [productId]
+        )
+      );
+      expect(rows[0].name).not.toBe("Renamed");
+    });
+  });
+
+  it("preserves existing metadata keys on a partial metadata update", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const { userId: ownerId } = await makeUser(client);
+      const { productId, versionId } = await makeRichSource(client, ownerId);
+      // makeRichSource seeds metadata.filter_config + prompt_ui.
+
+      // A patch carrying only filter_config must not drop prompt_ui.
+      await asUser(client, staffId, () =>
+        client.query(
+          `SELECT public.admin_update_product($1, $2, $3, $4, NULL)`,
+          [
+            productId,
+            JSON.stringify({
+              metadata: { filter_config: { intensity: 0.9 } },
+            }),
+            versionId,
+            JSON.stringify({ credit_cost: 42 }),
+          ]
+        )
+      );
+
+      const { rows } = await asService(client, () =>
+        client.query(
+          `SELECT metadata FROM public.products WHERE id = $1`,
+          [productId]
+        )
+      );
+      expect(rows[0].metadata).toEqual({
+        filter_config: { intensity: 0.9 },
+        prompt_ui: {
+          placeholder: "Describe your tweak",
+          examples: ["warmer", "softer light"],
+          helper: "Short plain-English edits only",
+        },
+      });
     });
   });
 
