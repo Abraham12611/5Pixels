@@ -51,7 +51,7 @@ export const PUBLISH_GATES = {
   MULTI_IMAGE_NOT_EXECUTABLE:
     "Multi-image inputs are configured, but the multi-image release flag is OFF — publication is blocked until #193 ships the provider pipeline + DB migration and PRESET_MULTI_INPUT_ENABLED is enabled (the create_generation RPC rejects them regardless).",
   PROMPT_RELEASE_GATED:
-    "Custom prompt edits are configured, but the preset_user_prompt release gate is OFF — publication is blocked until merchant/legal approvals and the protected server/database gates are enabled (PRESET_USER_PROMPT_ENABLED + release_gates).",
+    "Custom prompting is configured, but it has not been released for this environment — publication requires the protected server/database switches (PRESET_USER_PROMPT_ENABLED + release_gates).",
 } as const;
 
 export type PublishGateFailure = {
@@ -59,6 +59,14 @@ export type PublishGateFailure = {
   message: string;
   field?: string;
 };
+
+/**
+ * Gate failures protecting unreleased capabilities. These cannot be waived
+ * by an owner-override reason — the server rejects publication until the
+ * protected environment/database switches are enabled.
+ */
+export const PROTECTED_GATE_CODES: ReadonlySet<PublishGateFailure["code"]> =
+  new Set(["MULTI_IMAGE_NOT_EXECUTABLE", "PROMPT_RELEASE_GATED"]);
 
 export type PublishGateResult =
   { ok: true; failures: [] } | { ok: false; failures: PublishGateFailure[] };
@@ -115,8 +123,8 @@ export interface PublishGateContext {
   /**
    * Whether the preset_user_prompt release flag is enabled server-side
    * (`isUserPromptReleased()`). Defaults to false — prompt-enabled versions
-   * stay unpublishable until merchant/legal approval + the protected DB
-   * gate are both on (#183).
+   * stay unpublishable until the protected env + DB switches are turned on
+   * (#183; merchant approval is already recorded in #173).
    */
   userPromptReleased?: boolean;
   /**
@@ -332,8 +340,8 @@ export function validatePublishGates(
   // cannot yet execute, but they must not publish. Multi-image stays
   // blocked while the server-side release flag is OFF (PRESET_MULTI_INPUT_
   // ENABLED — enabled only after #193 ships the provider pipeline + DB
-  // migration and release QA signs off); custom prompts additionally
-  // require the protected release gates enabled.
+  // migration and release QA signs off); custom prompting is likewise
+  // gated on the environment's protected release switches.
   if (
     (version.input_mode === "multi" ||
       (version.input_max_images ?? 1) > 1) &&

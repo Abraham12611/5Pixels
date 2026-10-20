@@ -70,8 +70,8 @@ export default async function CreatePage({
   // one-photo experience.
   const multiReleased = isMultiInputReleased();
   // Prompt release gate (#182): admin `prompt_override_enabled` is a
-  // precondition — while PRESET_USER_PROMPT_ENABLED is off (pending
-  // provider/legal approval) no preset exposes the composer.
+  // precondition — while PRESET_USER_PROMPT_ENABLED is off (protected
+  // release switches not yet enabled) no preset exposes the composer.
   const promptReleased = isUserPromptReleased();
 
   // Blocked-credit routing (06 §2): who the user is decides which recovery

@@ -433,8 +433,9 @@ export async function publishProductVersion(
   //   pipeline + DB migration and release QA enables it. The
   //   create_generation RPC keeps rejecting >1 inputs regardless.
   // - Custom prompts: require the release flag (and the protected
-  //   release_gates DB row, enforced inside the RPC) to be enabled —
-  //   approval-gated by merchant/legal signoff (#183).
+  //   release_gates DB row, enforced inside the RPC) — merchant
+  //   approval is recorded in #173; what remains is enabling the
+  //   protected switches for this environment.
   if (
     (capability.input_mode === "multi" || capability.input_max_images > 1) &&
     !isMultiInputReleased()
@@ -445,7 +446,7 @@ export async function publishProductVersion(
   }
   if (capability.prompt_override_enabled && !isUserPromptReleased()) {
     throw new Error(
-      "Cannot publish: custom prompts are gated off until merchant/legal approval enables the protected preset_user_prompt release gates."
+      "Cannot publish: custom prompting has not been released in this environment — publication requires the protected server/database switches (PRESET_USER_PROMPT_ENABLED + release_gates)."
     );
   }
 

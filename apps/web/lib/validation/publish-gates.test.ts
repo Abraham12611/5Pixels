@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MIN_OWNER_OVERRIDE_REASON_LENGTH,
   ownerOverrideReasonSchema,
+  PROTECTED_GATE_CODES,
   validatePublishGates,
 } from "./publish-gates";
 
@@ -519,6 +520,38 @@ describe("validatePublishGates — preset family + capability (#177)", () => {
       userPromptReleased: true,
     });
     expect(released.ok).toBe(true);
+  });
+
+  it("explains the real blocker — not a missing approval (#173)", () => {
+    // Merchant approval is already recorded; the gate must describe the
+    // protected release switches as the actual blocker.
+    const result = validatePublishGates(
+      validProduct(),
+      {
+        ...validVersion(),
+        prompt_override_enabled: true,
+        prompt_max_chars: 200,
+      },
+      [],
+      { routeCapability: verifiedRoute }
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failures");
+    const failure = result.failures.find(
+      (f) => f.code === "PROMPT_RELEASE_GATED"
+    );
+    expect(failure).toBeDefined();
+    expect(failure?.message).not.toMatch(/approv/i);
+    expect(failure?.message).toMatch(/not been released/i);
+    expect(failure?.message).toMatch(/PRESET_USER_PROMPT_ENABLED/);
+    expect(failure?.message).toMatch(/release_gates/);
+  });
+
+  it("marks release-gate failures as protected from owner override", () => {
+    expect(PROTECTED_GATE_CODES.has("PROMPT_RELEASE_GATED")).toBe(true);
+    expect(PROTECTED_GATE_CODES.has("MULTI_IMAGE_NOT_EXECUTABLE")).toBe(true);
+    // Genuine validation gaps remain overridable.
+    expect(PROTECTED_GATE_CODES.has("MISSING_POSTER_ASSET")).toBe(false);
   });
 
   it("keeps legacy single-image versions publishable without a context", () => {

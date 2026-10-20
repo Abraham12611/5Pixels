@@ -372,8 +372,8 @@ export function CreateGenerationForm({
   // global flag, and ineligible presets render no actionable control and
   // submit no custom text.
   // Release-gated (#189 flag): the admin capability alone never exposes the
-  // composer — until the provider/legal approval lands, prompt overrides
-  // stay server-rejected and the UI matches that state.
+  // composer — until the protected release switches are enabled, prompt
+  // overrides stay server-rejected and the UI matches that state.
   const promptAllowed =
     promptReleased && inputCapability?.prompt.enabled === true;
   const promptMaxChars = Math.max(1, inputCapability?.prompt.max_chars || 0);
