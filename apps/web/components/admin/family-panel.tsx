@@ -134,11 +134,20 @@ export function FamilyPanel({
         runtime.
       </p>
 
+      {currentProductId === root.id && (
+        <p className="text-text-muted mt-2 text-xs">
+          New variant copies the newest editable draft first (then a testing
+          version, then a published version), including custom-prompt settings
+          and visual configuration. It may differ from the currently published
+          recipe; review the copy before publishing.
+        </p>
+      )}
+
       {error && (
         <p role="alert" className="text-error mt-3 text-sm">
           {error}
         </p>
-      )}
+      )
 
       <ul className="mt-4 space-y-2">
         {children.length === 0 && (
