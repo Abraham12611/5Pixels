@@ -72,7 +72,7 @@ export function PublishingSection({
   const { isDirty } = useFormState({ control });
 
   return (
-    <section className="border-cream-100/10 bg-charcoal-850 space-y-6 rounded-2xl border p-6">
+    <section className="border-cream-100/10 bg-charcoal-850 space-y-6 rounded-2xl border p-4 sm:p-6">
       <div>
         <h2 className="text-cream-50 text-lg font-semibold">
           Publishing &amp; history

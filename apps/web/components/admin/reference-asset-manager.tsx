@@ -306,7 +306,7 @@ export function ReferenceAssetManager({
         {groups.map((group) => (
           <div
             key={group.assetId}
-            className="border-cream-100/10 bg-charcoal-800 flex items-center justify-between gap-3 rounded-xl border p-3"
+            className="border-cream-100/10 bg-charcoal-800 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
           >
             <div className="flex min-w-0 items-center gap-3">
               {group.publicUrl && group.mimeType?.startsWith("image/") && (

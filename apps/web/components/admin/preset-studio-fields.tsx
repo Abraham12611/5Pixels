@@ -394,7 +394,7 @@ export function UserImageInputFields({
 
         {inputCapability.input_mode === "multi" && (
           <div className="mt-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Declared input roles</Label>
               <button
                 type="button"
@@ -413,7 +413,10 @@ export function UserImageInputFields({
             </p>
             <div className="mt-3 space-y-2">
               {roles.fields.map((field, index) => (
-                <div key={field.id} className="flex items-center gap-3">
+                <div
+                  key={field.id}
+                  className="flex flex-wrap items-center gap-2"
+                >
                   <span className="text-text-muted w-6 text-xs">
                     {index + 1}
                   </span>
@@ -422,7 +425,7 @@ export function UserImageInputFields({
                       `version.input_capability.input_image_roles.${index}.name`
                     )}
                     placeholder="role_name"
-                    className="max-w-xs"
+                    className="min-w-0 max-w-xs flex-1"
                   />
                   <label className="text-cream-50 flex items-center gap-2 text-sm">
                     <input
@@ -585,7 +588,7 @@ export function PromptEditFields({
               />
             </div>
             <div className="md:col-span-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Example prompts</Label>
                 <button
                   type="button"
@@ -598,11 +601,15 @@ export function PromptEditFields({
               </div>
               <div className="mt-3 space-y-2">
                 {examples.fields.map((field, index) => (
-                  <div key={field.id} className="flex items-center gap-3">
+                  <div
+                    key={field.id}
+                    className="flex flex-wrap items-center gap-2"
+                  >
                     <Input
                       {...register(`prompt_ui.examples.${index}`)}
                       maxLength={200}
                       placeholder={`Example ${index + 1}`}
+                      className="min-w-0 flex-1"
                     />
                     <button
                       type="button"

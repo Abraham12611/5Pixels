@@ -378,7 +378,7 @@ export function PosterCompositionEditor() {
       </fieldset>
 
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Label>Text fields</Label>
           <Button
             type="button"
@@ -425,11 +425,11 @@ export function PosterCompositionEditor() {
                 key={field.id}
                 className="border-cream-100/10 bg-charcoal-800 rounded-xl border p-4"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-cream-50 text-sm font-medium">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-cream-50 wrap-anywhere min-w-0 flex-1 text-sm font-medium">
                     {watched?.key || `Text field ${index + 1}`}
                   </p>
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <Button
                       type="button"
                       variant="ghost"

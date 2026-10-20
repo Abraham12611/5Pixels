@@ -358,11 +358,11 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           <CaretLeft size={14} />
           {type === "filter" ? "Filters" : "Posters"}
         </Link>
-        <h1 className="text-cream-50 mt-2 text-3xl font-bold">
+        <h1 className="text-cream-50 wrap-anywhere mt-2 text-3xl font-bold">
           {product.name}
         </h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
-          <span className="text-text-muted">{product.slug}</span>
+          <span className="text-text-muted wrap-anywhere">{product.slug}</span>
           <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
             {typeLabel}
           </span>
@@ -439,7 +439,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         }}
       >
         <EditorSectionGroup id="references" className="mt-8">
-          <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6">
+          <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-4 sm:p-6">
             <h2 className="text-cream-50 mb-4 text-lg font-semibold">
               Reference assets
             </h2>
