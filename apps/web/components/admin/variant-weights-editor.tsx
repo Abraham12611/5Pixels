@@ -60,9 +60,12 @@ export function VariantWeightsEditor({ campaignId, weights, action }: Props) {
   return (
     <div className="space-y-3">
       {[...variants, ""].map((variant, i) => (
-        <div key={variant || "__new"} className="flex items-center gap-3">
+        <div
+          key={variant || "__new"}
+          className="flex flex-wrap items-center gap-3"
+        >
           {variant ? (
-            <Label className="text-cream-100 w-40 shrink-0 font-mono text-xs">
+            <Label className="text-cream-100 w-40 max-w-full shrink-0 break-all font-mono text-xs">
               {variant}
             </Label>
           ) : (

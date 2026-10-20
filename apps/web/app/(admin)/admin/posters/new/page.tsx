@@ -2,7 +2,11 @@ import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { requireAdmin } from "@/lib/db/admin";
 import { getCategories } from "@/lib/db/categories";
-import { createProduct, getEligibleParentPresets } from "@/lib/db/products";
+import {
+  createProduct,
+  getEligibleParentPresets,
+  updateProduct,
+} from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { ProductForm } from "@/components/admin/product-form";
 
@@ -36,7 +40,17 @@ export default async function NewPosterPage() {
         modelCatalog={modelCatalog}
         eligibleParents={eligibleResult.parents}
         familySchemaAvailable={eligibleResult.familySchemaAvailable}
-        onSubmit={createProduct}
+        onSubmit={async (data) => {
+          "use server";
+          // data.id is set when a previous create stayed mounted because
+          // edits were made mid-request (#222) — update that product
+          // instead of inserting a duplicate.
+          if (data.id) {
+            await updateProduct(data.id, data);
+            return { id: data.id };
+          }
+          return createProduct(data);
+        }}
       />
     </>
   );

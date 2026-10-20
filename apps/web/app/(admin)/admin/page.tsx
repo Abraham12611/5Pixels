@@ -42,13 +42,13 @@ export default async function AdminDashboardPage() {
 
       {activeAlerts.length > 0 && (
         <section className="bg-error/10 border-error/30 mb-8 rounded-2xl border p-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0">
               <h2 className="text-error text-lg font-semibold">
                 {activeAlerts.length} active alert
                 {activeAlerts.length === 1 ? "" : "s"}
               </h2>
-              <p className="text-error/80 mt-1 text-sm">
+              <p className="text-error/80 wrap-anywhere mt-1 text-sm">
                 {activeAlerts[0]?.message}
                 {activeAlerts.length > 1 &&
                   ` and ${activeAlerts.length - 1} more`}
@@ -56,7 +56,7 @@ export default async function AdminDashboardPage() {
             </div>
             <Link
               href="/admin/alerts"
-              className="text-error hover:text-error/80 text-sm font-medium transition"
+              className="text-error hover:text-error/80 shrink-0 text-sm font-medium transition"
             >
               View alerts →
             </Link>
@@ -150,15 +150,15 @@ export default async function AdminDashboardPage() {
               {stats.topPresets.map((preset) => (
                 <li
                   key={preset.productId}
-                  className="flex items-center justify-between py-3"
+                  className="flex items-center justify-between gap-4 py-3"
                 >
                   <Link
                     href={`/admin/filters/${preset.productId}`}
-                    className="text-cream-100 hover:text-lime-400 font-medium transition"
+                    className="text-cream-100 hover:text-lime-400 block min-w-0 truncate font-medium transition"
                   >
                     {preset.name}
                   </Link>
-                  <span className="text-text-muted text-sm">
+                  <span className="text-text-muted shrink-0 text-sm">
                     {preset.count} generation{preset.count === 1 ? "" : "s"}
                   </span>
                 </li>
@@ -178,21 +178,21 @@ export default async function AdminDashboardPage() {
               {stats.recentPublishes.map((version) => (
                 <li
                   key={version.versionId}
-                  className="flex items-center justify-between py-3"
+                  className="flex items-center justify-between gap-4 py-3"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <Link
                       href={`/admin/filters/${version.productId}`}
-                      className="text-cream-100 hover:text-lime-400 font-medium transition"
+                      className="text-cream-100 hover:text-lime-400 block truncate font-medium transition"
                     >
                       {version.name}
                     </Link>
-                    <p className="text-text-muted text-sm">
+                    <p className="text-text-muted truncate text-sm">
                       v{version.versionNumber} ·{" "}
                       <span className="font-mono">{version.slug}</span>
                     </p>
                   </div>
-                  <span className="text-text-muted text-sm">
+                  <span className="text-text-muted shrink-0 text-sm">
                     {formatDate(version.publishedAt)}
                   </span>
                 </li>

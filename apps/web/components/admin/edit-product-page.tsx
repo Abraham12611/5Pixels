@@ -19,12 +19,15 @@ import {
 } from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { ProductForm } from "./product-form";
-import { PublishButton } from "./publish-button";
-import { ProductActions } from "./product-actions";
-import { VersionRollback } from "./version-rollback";
-import { VersionList, type VersionSummary } from "./version-list";
+import { type VersionSummary } from "./version-list";
 import { ReferenceAssetManager } from "./reference-asset-manager";
 import { FamilyPanel } from "./family-panel";
+import { PublishingSection } from "./publishing-section";
+import {
+  EditorSectionGroup,
+  REFERENCES_SECTION,
+  PUBLISHING_SECTION,
+} from "./editor-shell";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
@@ -343,6 +346,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   );
 
   const listHref = type === "filter" ? "/admin/filters" : "/admin/posters";
+  const typeLabel = type === "filter" ? "Filter" : "Poster";
 
   return (
     <>
@@ -354,44 +358,23 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           <CaretLeft size={14} />
           {type === "filter" ? "Filters" : "Posters"}
         </Link>
-        <h1 className="text-cream-50 mt-2 text-3xl font-bold">
+        <h1 className="text-cream-50 wrap-anywhere mt-2 text-3xl font-bold">
           {product.name}
         </h1>
-        <p className="text-text-muted mt-1 text-sm">{product.slug}</p>
-      </div>
-      <div className="border-cream-100/10 bg-charcoal-850 mb-6 flex items-center justify-between rounded-2xl border p-4">
-        <div className="space-y-1">
-          <p className="text-text-secondary text-sm">
-            Current status:
-            <span className="bg-charcoal-700 text-cream-100 ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
-              {product.public_status}
-            </span>
-          </p>
-          <p className="text-text-secondary text-sm">
-            Editing version:
-            <span className="text-cream-50 ml-1 font-medium">
-              v{initialData.version.version_number}
-            </span>
-            <span className="bg-charcoal-700 text-cream-100 ml-2 rounded-full px-2 py-0.5 text-xs font-medium">
-              {initialData.version.state}
-            </span>
-          </p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+          <span className="text-text-muted wrap-anywhere">{product.slug}</span>
+          <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
+            {typeLabel}
+          </span>
+          <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
+            Status: {product.public_status}
+          </span>
+          <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
+            Editing v{initialData.version.version_number} ·{" "}
+            {initialData.version.state}
+          </span>
         </div>
-        <ProductActions
-          productId={id}
-          status={product.public_status}
-          action={transitionProductStatus}
-        />
       </div>
-
-      {versionSummaries.length > 0 && (
-        <div className="border-cream-100/10 bg-charcoal-850 mb-6 rounded-2xl border p-6">
-          <VersionList
-            versions={versionSummaries}
-            selectedVersionId={initialData.version.id}
-          />
-        </div>
-      )}
 
       {family && (family.children.length > 0 || product.parent_preset_id || product.public_status !== "retired") && (
         <div className="mb-6">
@@ -434,6 +417,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
               }
             : null
         }
+        additionalSections={[REFERENCES_SECTION, PUBLISHING_SECTION]}
         assetPreviews={{
           hero: product.hero_asset_id
             ? assetPreviewById[product.hero_asset_id]
@@ -453,42 +437,52 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           await updateProduct(id, data);
           return { id };
         }}
-        headerAction={
-          <div className="flex items-center gap-3">
-            {activeVersion && (
-              <VersionRollback
-                productId={id}
-                activeVersionId={activeVersion.id as string}
-                versions={versions.map((v: Record<string, unknown>) => ({
-                  id: String(v.id),
-                  version_number: Number(v.version_number),
-                  state: String(v.state),
-                  published_at: v.published_at
-                    ? new Date(String(v.published_at)).toISOString()
-                    : null,
-                }))}
-                action={rollbackProductVersion}
-              />
-            )}
-            <PublishButton
+      >
+        <EditorSectionGroup id="references" className="mt-8">
+          <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-4 sm:p-6">
+            <h2 className="text-cream-50 mb-4 text-lg font-semibold">
+              Reference assets
+            </h2>
+            <p className="text-text-muted mb-4 text-xs">
+              Private images the AI recipe can draw on (style, composition,
+              layout). They count against the route&apos;s input-image budget
+              configured under Inputs &amp; controls.
+            </p>
+            <ReferenceAssetManager
               productId={id}
-              versionId={initialData.version.id}
-              isOwner={!!profile.is_owner}
-              gateFailures={gateResult.ok ? [] : gateResult.failures}
-              action={publishProductVersion}
+              initialAssets={referenceAssets}
+              onAttach={attachReferenceAsset}
+              onDetach={detachReferenceAsset}
             />
-          </div>
-        }
-      />
+          </section>
+        </EditorSectionGroup>
 
-      <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
-        <ReferenceAssetManager
-          productId={id}
-          initialAssets={referenceAssets}
-          onAttach={attachReferenceAsset}
-          onDetach={detachReferenceAsset}
-        />
-      </div>
+        <EditorSectionGroup id="publishing" className="mt-8">
+          <PublishingSection
+            productId={id}
+            status={product.public_status}
+            versionId={initialData.version.id}
+            isOwner={!!profile.is_owner}
+            gateFailures={gateResult.ok ? [] : gateResult.failures}
+            activeVersionId={activeVersion?.id as string | undefined}
+            rollbackVersions={versions.map(
+              (v: Record<string, unknown>) => ({
+                id: String(v.id),
+                version_number: Number(v.version_number),
+                state: String(v.state),
+                published_at: v.published_at
+                  ? new Date(String(v.published_at)).toISOString()
+                  : null,
+              })
+            )}
+            versionSummaries={versionSummaries}
+            selectedVersionId={initialData.version.id}
+            publish={publishProductVersion}
+            rollback={rollbackProductVersion}
+            transitionStatus={transitionProductStatus}
+          />
+        </EditorSectionGroup>
+      </ProductForm>
     </>
   );
 }
