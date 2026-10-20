@@ -6,8 +6,6 @@ import {
   useForm,
   useWatch,
   type FieldErrors,
-  type Path,
-  type PathValue,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
@@ -23,9 +21,7 @@ import { OutputSizesField } from "./output-sizes-field";
 import { ProviderStrategyFields } from "./provider-strategy-fields";
 import { FormRichSelect } from "./form-rich-select";
 import {
-  flattenDirtyLeaves,
-  formValueEquals,
-  getPathValue,
+  formSnapshotsEqual,
   optionalNumberInput,
 } from "./form-utils";
 import {
@@ -259,34 +255,37 @@ export function ProductForm({
     setErrorItems([]);
     try {
       const product = await saveWithTimeout(onSubmit(data));
-      // Edits made while the request was in flight aren't part of `data`.
-      // Rebase the clean snapshot onto the server-acknowledged values, then
-      // restore the in-flight edits and keep them dirty — they must be
-      // neither silently reverted nor wrongly marked as saved.
-      const inFlightEdits = flattenDirtyLeaves(methods.formState.dirtyFields)
-        .map(
-          (path) => [path, getValues(path as Path<ProductFormInput>)] as const
-        )
-        .filter(
-          ([path, value]) => !formValueEquals(value, getPathValue(data, path))
-        );
+      // Compare the complete live snapshot against the submitted snapshot.
+      // `dirtyFields` is measured against the *previous* baseline, so it
+      // misses edits made mid-flight that revert a field to its original
+      // value — and leaf-level restore can't represent array removal or
+      // reordering anyway.
+      const savedValues = {
+        ...data,
+        id: product.id,
+      } as unknown as ProductFormInput;
+      const liveValues = {
+        ...getValues(),
+        id: product.id,
+      } as unknown as ProductFormInput;
+      const hasInFlightEdits = !formSnapshotsEqual(savedValues, liveValues);
       // Baseline = server-acknowledged values plus the product id. On a
       // create page the id in the next submission makes the route-level
       // action update the just-created product instead of inserting a
       // duplicate while the form is still mounted.
-      reset({ ...data, id: product.id } as unknown as ProductFormInput);
-      for (const [path, value] of inFlightEdits) {
-        setValue(
-          path as Path<ProductFormInput>,
-          value as PathValue<ProductFormInput, Path<ProductFormInput>>,
-          { shouldDirty: true }
-        );
+      reset(savedValues);
+      if (hasInFlightEdits) {
+        // Restore the live snapshot while keeping the saved values as the
+        // form baseline — dirty state recomputes against them, so the
+        // pending edits stay unsaved and visible instead of being reverted
+        // or folded into the clean baseline.
+        reset(liveValues, { keepDefaultValues: true });
       }
       setSubmitSuccess(true);
       // A real navigation/refetch re-renders the server component and would
       // discard the edits restored above — only transition (create → edit)
       // or refresh when nothing unsaved remains.
-      if (inFlightEdits.length === 0) {
+      if (!hasInFlightEdits) {
         router.push(`/admin/${type}s/${product.id}`);
         router.refresh();
       }

@@ -16,33 +16,35 @@ export const optionalNumberInput = {
   },
 } satisfies Pick<RegisterOptions, "setValueAs">;
 
+const isPlainObjectOrArray = (value: unknown): value is object =>
+  value !== null &&
+  typeof value === "object" &&
+  (Array.isArray(value) ||
+    Object.getPrototypeOf(value) === Object.prototype ||
+    Object.getPrototypeOf(value) === null);
+
 /**
- * Flatten a react-hook-form `dirtyFields` tree into leaf dot paths.
- * Leaves are `true`; nested objects and field-array indices recurse, so
- * paths come out as `fields.0.label`.
+ * Flatten a form value tree into leaf dot paths → values. Plain objects and
+ * arrays recurse — array indices become path segments, so removal and
+ * reordering surface as diffs. `undefined` leaves are skipped so "absent"
+ * and "explicitly undefined" compare equal: the zod resolver output can
+ * differ structurally from the raw form values on optional branches.
+ * Non-plain objects (File, Date, …) are treated as leaves.
  */
-export function flattenDirtyLeaves(dirty: unknown, prefix = ""): string[] {
-  if (dirty === null || typeof dirty !== "object") return [];
-  const out: string[] = [];
-  for (const [key, value] of Object.entries(dirty)) {
-    const path = prefix ? `${prefix}.${key}` : key;
-    if (value === true) {
-      out.push(path);
-    } else if (value !== null && typeof value === "object") {
-      out.push(...flattenDirtyLeaves(value, path));
-    }
+export function flattenValueLeaves(
+  source: unknown,
+  prefix = "",
+  out = new Map<string, unknown>()
+): Map<string, unknown> {
+  if (source === undefined) return out;
+  if (!isPlainObjectOrArray(source)) {
+    out.set(prefix, source);
+    return out;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    flattenValueLeaves(value, prefix ? `${prefix}.${key}` : key, out);
   }
   return out;
-}
-
-/** Read a nested value by dot path — `getPathValue(v, "fields.0.label")`. */
-export function getPathValue(source: unknown, path: string): unknown {
-  let current = source;
-  for (const segment of path.split(".")) {
-    if (current === null || typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[segment];
-  }
-  return current;
 }
 
 /** Structural equality for form values (JSON-shaped: primitives, arrays, plain objects). */
@@ -66,4 +68,21 @@ export function formValueEquals(a: unknown, b: unknown): boolean {
       (b as Record<string, unknown>)[key]
     )
   );
+}
+
+/**
+ * Structural equality between two complete form snapshots — e.g. the values
+ * submitted to the server and the live values when it resolves. Compares
+ * leaf-by-leaf over the union of flattened paths, so edits that
+ * `dirtyFields` misses (reverting a field to its prior-baseline value,
+ * removing or reordering array items while a save is in flight) still
+ * register as differences.
+ */
+export function formSnapshotsEqual(a: unknown, b: unknown): boolean {
+  const aLeaves = flattenValueLeaves(a);
+  const bLeaves = flattenValueLeaves(b);
+  for (const path of new Set([...aLeaves.keys(), ...bLeaves.keys()])) {
+    if (!formValueEquals(aLeaves.get(path), bLeaves.get(path))) return false;
+  }
+  return true;
 }

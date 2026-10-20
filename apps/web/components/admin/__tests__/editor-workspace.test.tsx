@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeAll } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
+import { useFormContext, type UseFormReturn } from "react-hook-form";
 import { ProductForm } from "../product-form";
 import { PublishButton } from "../publish-button";
 import { UnsavedChangesGuard } from "../unsaved-changes-guard";
@@ -422,7 +424,156 @@ describe("ProductForm editor shell (#222)", () => {
       { timeout: 20000 }
     );
   }, 30_000);
+
+  it("keeps a mid-save revert-to-original dirty instead of discarding it", async () => {
+    pushMock.mockClear();
+    refreshMock.mockClear();
+    let resolveSave: (value: { id: string }) => void = () => {};
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{
+          ...BASE_DATA,
+          id: "00000000-0000-4000-8000-000000000001",
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const nameInput = screen.getByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "Saved name" } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled(), {
+      timeout: 20000,
+    });
+
+    // Revert to the original value while the request is in flight. Relative
+    // to the old baseline this field reads as clean — the acknowledgement
+    // must still treat it as a pending edit rather than resetting it to the
+    // submitted value and navigating away.
+    fireEvent.change(nameInput, { target: { value: BASE_DATA.name } });
+
+    await act(async () => {
+      resolveSave({ id: "00000000-0000-4000-8000-000000000001" });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument()
+    );
+    expect(nameInput).toHaveValue(BASE_DATA.name);
+    expect(
+      screen.queryByText(/all changes saved/i)
+    ).not.toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(refreshMock).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("preserves array removal and reordering made during an in-flight save", async () => {
+    const PRODUCT_ID = "00000000-0000-4000-8000-000000000004";
+    const SIZE_A = {
+      name: "Square",
+      width: 1024,
+      height: 1024,
+      is_default: true,
+      match_source: false,
+      match_reference: false,
+    };
+    const SIZE_B = {
+      name: "Portrait",
+      width: 832,
+      height: 1216,
+      is_default: false,
+      match_source: false,
+      match_reference: false,
+    };
+    const SIZE_C = {
+      name: "Landscape",
+      width: 1216,
+      height: 832,
+      is_default: false,
+      match_source: false,
+      match_reference: false,
+    };
+    pushMock.mockClear();
+    refreshMock.mockClear();
+    let resolveSave: (value: { id: string }) => void = () => {};
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    const probe: { current?: UseFormReturn } = {};
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{
+          ...BASE_DATA,
+          id: PRODUCT_ID,
+          version: {
+            ...BASE_DATA.version,
+            output_sizes: [SIZE_A, SIZE_B, SIZE_C],
+          },
+        }}
+        onSubmit={onSubmit}
+      >
+        <FormContextProbe targetRef={probe} />
+      </ProductForm>
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Saved name" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled(), {
+      timeout: 20000,
+    });
+
+    // Remove an entry and reorder the rest while the request is in flight —
+    // leaf-path dirty tracking can't represent either reliably.
+    act(() => {
+      probe.current?.setValue("version.output_sizes", [SIZE_C, SIZE_A]);
+    });
+
+    await act(async () => {
+      resolveSave({ id: PRODUCT_ID });
+    });
+
+    // The live array wins wholesale: [C, A], not the submitted [A, B, C]
+    // and not a corrupted index-wise merge of the two.
+    await waitFor(() =>
+      expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument()
+    );
+    expect(probe.current?.getValues("version.output_sizes")).toEqual([
+      SIZE_C,
+      SIZE_A,
+    ]);
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(refreshMock).not.toHaveBeenCalled();
+  }, 30_000);
 });
+
+function FormContextProbe({
+  targetRef,
+}: {
+  targetRef: { current?: UseFormReturn };
+}) {
+  const methods = useFormContext();
+  useEffect(() => {
+    targetRef.current = methods;
+  });
+  return null;
+}
 
 describe("PublishButton readiness (#222)", () => {
   const failures = [
