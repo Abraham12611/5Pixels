@@ -34,6 +34,8 @@ import {
   UserImageInputFields,
   type EligibleParentOption,
 } from "./preset-studio-fields";
+import { PresetCreativeSettings } from "./preset-creative-settings";
+import { PresetPreviewPanel } from "./preset-preview-panel";
 import {
   EditorSectionGroup,
   EditorSectionNav,
@@ -268,7 +270,11 @@ export function ProductForm({
         .filter(
           ([path, value]) => !formValueEquals(value, getPathValue(data, path))
         );
-      reset(data as unknown as ProductFormInput);
+      // Baseline = server-acknowledged values plus the product id. On a
+      // create page the id in the next submission makes the route-level
+      // action update the just-created product instead of inserting a
+      // duplicate while the form is still mounted.
+      reset({ ...data, id: product.id } as unknown as ProductFormInput);
       for (const [path, value] of inFlightEdits) {
         setValue(
           path as Path<ProductFormInput>,
@@ -277,8 +283,13 @@ export function ProductForm({
         );
       }
       setSubmitSuccess(true);
-      router.push(`/admin/${type}s/${product.id}`);
-      router.refresh();
+      // A real navigation/refetch re-renders the server component and would
+      // discard the edits restored above — only transition (create → edit)
+      // or refresh when nothing unsaved remains.
+      if (inFlightEdits.length === 0) {
+        router.push(`/admin/${type}s/${product.id}`);
+        router.refresh();
+      }
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -303,7 +314,10 @@ export function ProductForm({
   };
 
   const title = type === "filter" ? "Filter" : "Poster";
-  const isEdit = Boolean(initialData?.id);
+  // True once a product exists — loaded, or created by a save that stayed
+  // mounted because in-flight edits remained.
+  const productId = useWatch({ control, name: "id" });
+  const isEdit = Boolean(initialData?.id ?? productId);
   const navSections = useMemo(
     () =>
       additionalSections?.length
@@ -525,90 +539,20 @@ export function ProductForm({
                 />
               </div>
             </section>
+
+            {/* #223 (Engineer B) — stored sample media + poster composition
+                mock + Test in Lab handoff. Reads draft values from context. */}
+            <PresetPreviewPanel
+              type={type}
+              assetPreviews={assetPreviews}
+              slug={initialData?.slug}
+            />
           </EditorSectionGroup>
 
           <EditorSectionGroup id="creative">
-            <section className={sectionClass}>
-              <h2 className={sectionHeadingClass}>
-                {type === "filter" ? "Filter settings" : "Poster settings"}
-              </h2>
-
-              {type === "filter" ? (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <Label htmlFor="filter_config.style_archetype">
-                      Style archetype
-                    </Label>
-                    <Input
-                      id="filter_config.style_archetype"
-                      {...register("filter_config.style_archetype")}
-                      className="mt-2"
-                    />
-                    {errors.filter_config?.style_archetype && (
-                      <p className="text-error mt-1 text-sm">
-                        {errors.filter_config.style_archetype.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <Label htmlFor="filter_config.identity_preservation">
-                      Identity preservation
-                    </Label>
-                    <div className="mt-2">
-                      <FormRichSelect
-                        name="filter_config.identity_preservation"
-                        label="Identity preservation"
-                        options={[
-                          { value: "very_high", label: "Very high", description: "Face stays closest to source" },
-                          { value: "high", label: "High", description: "Strong likeness, light styling" },
-                          { value: "medium", label: "Medium", description: "Balanced look and likeness" },
-                          { value: "creative", label: "Creative", description: "Most stylized result" },
-                        ]}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <Label htmlFor="poster_config.layout_template">
-                      Layout
-                    </Label>
-                    <div className="mt-2">
-                      <FormRichSelect
-                        name="poster_config.layout_template"
-                        label="Layout"
-                        options={[
-                          { value: "portrait", label: "Portrait", description: "Tall 3:4-style layout" },
-                          { value: "square", label: "Square", description: "1:1 feed-friendly layout" },
-                          { value: "landscape", label: "Landscape", description: "Wide banner layout" },
-                        ]}
-                      />
-                    </div>
-                    {errors.poster_config?.layout_template && (
-                      <p className="text-error mt-1 text-sm">
-                        {errors.poster_config.layout_template.message}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <Label htmlFor="poster_config.background_handling">
-                      Background
-                    </Label>
-                    <div className="mt-2">
-                      <FormRichSelect
-                        name="poster_config.background_handling"
-                        label="Background"
-                        options={[
-                          { value: "replace", label: "Replace", description: "AI regenerates the backdrop" },
-                          { value: "preserve", label: "Preserve", description: "Keep the source background" },
-                        ]}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </section>
+            {/* #223 (Engineer B) — registers the filter_config and
+                poster_config fields; do not re-register them inline. */}
+            <PresetCreativeSettings type={type} />
           </EditorSectionGroup>
 
           <EditorSectionGroup id="ai-routing">

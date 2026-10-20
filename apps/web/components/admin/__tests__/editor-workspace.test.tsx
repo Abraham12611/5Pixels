@@ -273,6 +273,8 @@ describe("ProductForm editor shell (#222)", () => {
   });
 
   it("keeps edits made during an in-flight save dirty and intact", async () => {
+    pushMock.mockClear();
+    refreshMock.mockClear();
     let resolveSave: (value: { id: string }) => void = () => {};
     const onSubmit = vi.fn(
       () =>
@@ -312,7 +314,8 @@ describe("ProductForm editor shell (#222)", () => {
 
     // The in-flight edit survives the rebase and stays unsaved — it must be
     // neither reverted to the submitted value nor folded into the clean
-    // baseline as if it had been saved.
+    // baseline as if it had been saved. Navigating or refreshing here would
+    // discard it, so neither must fire.
     await waitFor(() =>
       expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument()
     );
@@ -320,6 +323,104 @@ describe("ProductForm editor shell (#222)", () => {
     expect(
       screen.queryByText(/all changes saved/i)
     ).not.toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(refreshMock).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("navigates to the saved product once the form is fully clean", async () => {
+    const PRODUCT_ID = "00000000-0000-4000-8000-000000000003";
+    pushMock.mockClear();
+    refreshMock.mockClear();
+    const onSubmit = vi.fn().mockResolvedValue({ id: PRODUCT_ID });
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{ ...BASE_DATA, id: PRODUCT_ID }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Saved name" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled(), {
+      timeout: 20000,
+    });
+
+    await waitFor(
+      () => expect(pushMock).toHaveBeenCalledWith(`/admin/filters/${PRODUCT_ID}`),
+      { timeout: 20000 }
+    );
+    expect(refreshMock).toHaveBeenCalled();
+    expect(screen.getByText(/all changes saved/i)).toBeInTheDocument();
+  }, 30_000);
+
+  it("stays mounted after a create save with in-flight edits, then updates instead of duplicating", async () => {
+    const CREATED_ID = "00000000-0000-4000-8000-000000000002";
+    pushMock.mockClear();
+    refreshMock.mockClear();
+    let resolveSave: (value: { id: string }) => void = () => {};
+    const onSubmit = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ id: string }>((resolve) => {
+            resolveSave = resolve;
+          })
+      )
+      .mockResolvedValue({ id: CREATED_ID });
+    // No id → create mode.
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={BASE_DATA}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const nameInput = screen.getByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "Saved name" } });
+    fireEvent.click(screen.getByRole("button", { name: /create filter/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled(), {
+      timeout: 20000,
+    });
+
+    // Edit while the create request is still in flight.
+    fireEvent.change(nameInput, {
+      target: { value: "Edited during create" },
+    });
+    await act(async () => {
+      resolveSave({ id: CREATED_ID });
+    });
+
+    // The form stays put — navigating to the new product now would drop
+    // the in-flight edit.
+    await waitFor(() =>
+      expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument()
+    );
+    expect(nameInput).toHaveValue("Edited during create");
+    expect(pushMock).not.toHaveBeenCalled();
+
+    // The next save must update the created product, not insert a second
+    // one — the form now carries the server-assigned id.
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(
+      () => expect(onSubmit).toHaveBeenCalledTimes(2),
+      { timeout: 20000 }
+    );
+    expect(onSubmit.mock.calls[1][0].id).toBe(CREATED_ID);
+
+    // Fully clean now — the deferred create → edit transition can happen.
+    await waitFor(
+      () =>
+        expect(pushMock).toHaveBeenCalledWith(`/admin/filters/${CREATED_ID}`),
+      { timeout: 20000 }
+    );
   }, 30_000);
 });
 
