@@ -5,7 +5,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { PublishGateFailure } from "@/lib/validation/publish-gates";
+import {
+  PROTECTED_GATE_CODES,
+  type PublishGateFailure,
+} from "@/lib/validation/publish-gates";
 import {
   editorSectionForField,
   sectionLabel,
@@ -50,7 +53,12 @@ export function PublishButton({
   if (!versionId) return null;
 
   const hasFailures = gateFailures.length > 0;
-  const canOverride = isOwner && hasFailures;
+  // Protected release gates are enforced unconditionally server-side — no
+  // override reason can waive them, so the override control is not offered.
+  const hasProtectedGate = gateFailures.some((f) =>
+    PROTECTED_GATE_CODES.has(f.code)
+  );
+  const canOverride = isOwner && hasFailures && !hasProtectedGate;
 
   const failuresBySection = new Map<string, PublishGateFailure[]>();
   for (const failure of gateFailures) {
@@ -136,10 +144,18 @@ export function PublishButton({
               )
             )}
           </div>
-          {!isOwner && (
+          {hasProtectedGate ? (
             <p className="text-text-secondary mt-3">
-              Only the owner can override these failures.
+              Release gates cannot be overridden — they lift only when the
+              protected server/database switches are enabled for this
+              environment.
             </p>
+          ) : (
+            !isOwner && (
+              <p className="text-text-secondary mt-3">
+                Only the owner can override these failures.
+              </p>
+            )
           )}
         </div>
       )}

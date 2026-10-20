@@ -7,8 +7,9 @@ import { MAX_PROMPT_CHARS } from "@5pixels/shared";
  * A custom prompt is a scoped, opt-in addition to an admin-authored recipe:
  * it is only accepted when the PINNED product_version carries
  * `prompt_override_enabled = true`, and only while the server-side release
- * flag is on (held OFF until written provider/merchant approval, the policy
- * update in #172, and owner signoff). An absent/false capability or an
+ * flag is on (held OFF until the protected release switches are enabled —
+ * merchant approval is recorded in #173, the policy update is #172, and
+ * owner signoff is still required). An absent/false capability or an
  * unset flag means disabled — a hand-crafted request cannot bypass it.
  *
  * Canonical form: `normalizeUserPrompt` output is the single representation
