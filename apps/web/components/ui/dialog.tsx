@@ -119,7 +119,7 @@ export function Dialog({
         aria-modal="true"
         tabIndex={-1}
         className={cn(
-          "border-cream-100/10 bg-charcoal-850 animate-dialog-in rounded-2xl border p-6 shadow-xl outline-none",
+          "border-cream-100/10 bg-charcoal-850 animate-dialog-in max-h-[calc(100dvh-2rem)] max-w-full overflow-y-auto rounded-2xl border p-6 shadow-xl outline-none",
           className
         )}
       >

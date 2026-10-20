@@ -85,7 +85,7 @@ function saveWithTimeout<T>(promise: Promise<T>) {
 }
 
 const sectionClass =
-  "border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6";
+  "border-cream-100/10 bg-charcoal-850 rounded-2xl border p-4 sm:p-6";
 const sectionHeadingClass = "text-cream-50 mb-4 text-lg font-semibold";
 
 interface ProductFormProps {
@@ -370,7 +370,7 @@ export function ProductForm({
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <Label htmlFor="category_id">Category</Label>
                     <Link
                       href="/admin/categories"

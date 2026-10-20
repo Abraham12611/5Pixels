@@ -64,7 +64,7 @@ export function VersionList({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-cream-50 text-lg font-semibold">Versions</h2>
         {selected && active && selected.id !== active.id && (
           <Button
@@ -259,7 +259,7 @@ function VersionDiff({
                 : "border-cream-100/10 bg-charcoal-800"
             )}
           >
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
               <span className="text-cream-50 text-sm font-medium">
                 {field.label}
               </span>

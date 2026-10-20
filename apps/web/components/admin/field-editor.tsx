@@ -136,7 +136,7 @@ export function FieldEditor() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-cream-50 text-lg font-semibold">User controls</h2>
         <Button type="button" variant="secondary" onClick={addField}>
           Add field
@@ -146,12 +146,12 @@ export function FieldEditor() {
       {undo && (
         <div
           role="status"
-          className="border-warning/40 bg-warning/10 text-warning flex items-center justify-between gap-3 rounded-xl border px-4 py-2 text-sm"
+          className="border-warning/40 bg-warning/10 text-warning flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-2 text-sm"
         >
-          <span>
+          <span className="min-w-0 break-words">
             Removed &ldquo;{undo.field.label || undo.field.field_key}&rdquo;.
           </span>
-          <span className="flex items-center gap-3">
+          <span className="flex shrink-0 items-center gap-3">
             <button
               type="button"
               onClick={undoRemove}
@@ -236,11 +236,11 @@ function FieldRow({
 
   return (
     <div className="border-cream-100/10 bg-charcoal-800 rounded-xl border p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-text-muted text-xs">
           Control {index + 1} of {total}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             type="button"
             variant="ghost"
@@ -427,7 +427,7 @@ function ChoiceOptionsEditor({
 
   return (
     <div className="mt-4 space-y-3 border-cream-100/10 rounded-lg border p-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-cream-50 text-sm font-medium">Options</p>
         <Button
           type="button"

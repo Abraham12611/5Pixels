@@ -106,9 +106,9 @@ export function FamilyPanel({
   return (
     <section
       aria-label="Preset family"
-      className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-6"
+      className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-4 sm:p-6"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-cream-50 text-lg font-semibold">Preset family</h2>
         {currentProductId === root.id && (
           <button
@@ -149,7 +149,7 @@ export function FamilyPanel({
         {children.map((member, index) => (
           <li
             key={member.id}
-            className="border-cream-100/10 bg-charcoal-800 flex items-center gap-3 rounded-xl border p-3"
+            className="border-cream-100/10 bg-charcoal-800 flex flex-wrap items-center gap-3 rounded-xl border p-3"
           >
             <span className="text-text-muted w-5 text-center text-xs">
               {index + 1}
