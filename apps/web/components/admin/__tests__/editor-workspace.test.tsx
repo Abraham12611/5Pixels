@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { useFormContext, type UseFormReturn } from "react-hook-form";
 import { ProductForm } from "../product-form";
 import { PublishButton } from "../publish-button";
+import { PublishingSection } from "../publishing-section";
+import { FamilyPanel } from "../family-panel";
 import { UnsavedChangesGuard } from "../unsaved-changes-guard";
 import {
   editorSectionForField,
@@ -136,6 +138,62 @@ describe("flattenFormErrors", () => {
       },
       { path: "fields.1.label", message: "Label required" },
     ]);
+  });
+});
+
+describe("admin publishing and family copy explanations (#238)", () => {
+  it("explains an active catalog product with no published recipe version", () => {
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{ ...BASE_DATA, id: "prod-1" }}
+        onSubmit={vi.fn()}
+      >
+        <PublishingSection
+          productId="prod-1"
+          status="active"
+          versionId="draft-version-1"
+          isOwner
+          gateFailures={[]}
+          rollbackVersions={[]}
+          versionSummaries={[]}
+          publish={vi.fn()}
+          rollback={vi.fn()}
+          transitionStatus={vi.fn()}
+        />
+      </ProductForm>
+    );
+    expect(
+      screen.getByText(/marked Active in the catalog, but it has no published recipe version/)
+    ).toBeInTheDocument();
+  });
+
+  it("explains which source version New variant copies", () => {
+    render(
+      <FamilyPanel
+        currentProductId="root-1"
+        type="filter"
+        root={{
+          id: "root-1",
+          name: "Retro Slam Manga",
+          slug: "retro-slam-manga",
+          public_status: "active",
+          parent_preset_id: null,
+          standalone_discoverable: true,
+          variant_display_name: null,
+          variant_sort_order: 0,
+          hero_asset_id: null,
+        }}
+        children_={[]}
+        reorder={vi.fn()}
+        createVariant={vi.fn()}
+        updateVariant={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/newest editable draft first/i)).toBeInTheDocument();
+    expect(screen.getByText(/may differ from the currently published recipe/i)).toBeInTheDocument();
   });
 });
 
