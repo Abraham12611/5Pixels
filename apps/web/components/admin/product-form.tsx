@@ -92,7 +92,14 @@ interface ProductFormProps {
   type: "filter" | "poster";
   initialData?: ProductCreateInput & { id?: string };
   categories: { id: string; slug: string; name: string }[];
-  onSubmit: (data: ProductCreateInput) => Promise<{ id: string }>;
+  /**
+   * `{ id }` on success. Expected server-side rejections return `{ error }`
+   * with a user-safe message — a thrown error crossing the action boundary
+   * arrives minified (React #441), so known failures must come back as data.
+   */
+  onSubmit: (
+    data: ProductCreateInput
+  ) => Promise<{ id: string } | { error: string }>;
   assetPreviews?: Partial<
     Record<
       "hero" | "poster" | "preview-video" | "preview-gif",
@@ -109,6 +116,11 @@ interface ProductFormProps {
   adminReferenceCount?: number;
   /** Resolved current parent for family validation feedback. */
   currentParent?: ParentCandidate | null;
+  /**
+   * When set, saving is disabled entirely and the reason is shown in the
+   * save dock — e.g. a legacy preset with no editable version (#233).
+   */
+  saveDisabledReason?: string;
   /**
    * Extra nav entries for page-level sections rendered via `children`
    * (edit pages: References, Publishing & history).
@@ -132,6 +144,7 @@ export function ProductForm({
   familySchemaAvailable = true,
   hasChildren = false,
   adminReferenceCount = 0,
+  saveDisabledReason,
   currentParent = null,
   additionalSections,
   children,
@@ -253,8 +266,20 @@ export function ProductForm({
     setSubmitError(undefined);
     setSubmitSuccess(false);
     setErrorItems([]);
+    if (saveDisabledReason) {
+      // Defensive — the dock button is disabled, but Enter inside an input
+      // can still requestSubmit the form.
+      setSubmitError(saveDisabledReason);
+      return;
+    }
     try {
-      const product = await saveWithTimeout(onSubmit(data));
+      const result = await saveWithTimeout(onSubmit(data));
+      if ("error" in result && result.error) {
+        // Expected rejection reported as data — preserve all edits.
+        setSubmitError(result.error);
+        return;
+      }
+      const product = result as { id: string };
       // Compare the complete live snapshot against the submitted snapshot.
       // `dirtyFields` is measured against the *previous* baseline, so it
       // misses edits made mid-flight that revert a field to its original
@@ -843,6 +868,7 @@ export function ProductForm({
           title={title}
           submitError={submitError}
           submitSuccess={submitSuccess}
+          saveDisabledReason={saveDisabledReason}
         />
       </div>
     </FormProvider>

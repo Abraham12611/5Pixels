@@ -8,6 +8,7 @@ import {
   updateProduct,
 } from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
+import { describeAdminSaveError } from "@/lib/admin/save-errors";
 import { ProductForm } from "@/components/admin/product-form";
 
 export default async function NewPosterPage() {
@@ -46,10 +47,20 @@ export default async function NewPosterPage() {
           // edits were made mid-request (#222) — update that product
           // instead of inserting a duplicate.
           if (data.id) {
-            await updateProduct(data.id, data);
-            return { id: data.id };
+            try {
+              await updateProduct(data.id, data);
+              return { id: data.id };
+            } catch (error) {
+              console.error("[admin] poster update failed", error);
+              return { error: describeAdminSaveError(error) };
+            }
           }
-          return createProduct(data);
+          try {
+            return await createProduct(data);
+          } catch (error) {
+            console.error("[admin] poster create failed", error);
+            return { error: describeAdminSaveError(error) };
+          }
         }}
       />
     </>

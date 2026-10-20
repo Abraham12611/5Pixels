@@ -20,6 +20,8 @@ interface SaveDockProps {
   title: string;
   submitError?: string;
   submitSuccess: boolean;
+  /** Saving impossible for this record — e.g. no editable version (#233). */
+  saveDisabledReason?: string;
 }
 
 export function SaveDock({
@@ -28,6 +30,7 @@ export function SaveDock({
   title,
   submitError,
   submitSuccess,
+  saveDisabledReason,
 }: SaveDockProps) {
   const { control } = useFormContext();
   const { isDirty, isSubmitting } = useFormState({ control });
@@ -42,6 +45,9 @@ export function SaveDock({
   if (isSubmitting) {
     statusText = "Saving…";
     statusTone = "text-text-secondary";
+  } else if (saveDisabledReason) {
+    statusText = "Cannot save";
+    statusTone = "text-error";
   } else if (submitError) {
     statusText = "Save failed";
     statusTone = "text-error";
@@ -67,9 +73,9 @@ export function SaveDock({
         >
           {statusText}
         </p>
-        {submitError && (
+        {(submitError ?? saveDisabledReason) && (
           <p className="text-error min-w-0 flex-1 truncate text-xs">
-            {submitError}
+            {submitError ?? saveDisabledReason}
           </p>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -79,7 +85,9 @@ export function SaveDock({
             className="min-h-11"
             onClick={requestSave}
             disabled={
-              isSubmitting || (isEdit && !isDirty && !submitError)
+              isSubmitting ||
+              Boolean(saveDisabledReason) ||
+              (isEdit && !isDirty && !submitError)
             }
           >
             {isSubmitting

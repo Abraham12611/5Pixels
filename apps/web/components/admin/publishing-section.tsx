@@ -95,14 +95,21 @@ export function PublishingSection({
         </p>
       )}
 
-      <PublishButton
-        productId={productId}
-        versionId={versionId}
-        isOwner={isOwner}
-        gateFailures={gateFailures}
-        hasUnsavedChanges={isDirty}
-        action={publish}
-      />
+      {versionId ? (
+        <PublishButton
+          productId={productId}
+          versionId={versionId}
+          isOwner={isOwner}
+          gateFailures={gateFailures}
+          hasUnsavedChanges={isDirty}
+          action={publish}
+        />
+      ) : (
+        <p className="border-warning/40 bg-warning/10 text-warning rounded-xl border px-4 py-3 text-sm">
+          No saved version exists for this preset — there is nothing to
+          publish or roll back.
+        </p>
+      )}
 
       {activeVersionId && (
         <div>
