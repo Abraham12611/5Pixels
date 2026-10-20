@@ -205,3 +205,101 @@ describe("ProductForm — Preset Studio 2.0 defaults (#177)", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("ProductForm — incomplete-preset save handling (#233)", () => {
+  it("shows a structured { error } result and preserves unsaved edits", async () => {
+    const onSubmit = vi
+      .fn()
+      .mockResolvedValue({
+        error:
+          "This preset has no saved version — it can't be saved until the " +
+          "underlying record is repaired or the preset is replaced. Your " +
+          "edits are preserved below.",
+      });
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{ ...BASE_DATA, id: "8d5cca85-0120-4e80-9487-e3ed8c66faac" }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const nameInput = screen.getByLabelText(/^name/i);
+    fireEvent.change(nameInput, { target: { value: "Edited name" } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1), {
+      timeout: 20000,
+    });
+    // Rendered in the inline alert and the save-dock detail line.
+    expect(
+      (await screen.findAllByText(/no saved version/i)).length
+    ).toBeGreaterThan(0);
+    // Unsaved values survive — the form is never reset on failure.
+    expect(screen.getByLabelText(/^name/i)).toHaveValue("Edited name");
+  }, 30_000);
+
+  it("disables save entirely when saveDisabledReason is set", async () => {
+    const onSubmit = vi.fn().mockResolvedValue({ id: "prod-1" });
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{ ...BASE_DATA, id: "8d5cca85-0120-4e80-9487-e3ed8c66faac" }}
+        saveDisabledReason="This preset has no saved version — it must be repaired or replaced."
+        onSubmit={onSubmit}
+      />
+    );
+
+    expect(screen.getByText(/cannot save/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/no saved version — it must be repaired or replaced/i)
+        .length
+    ).toBeGreaterThan(0);
+
+    // Even dirty, the submit control stays disabled.
+    fireEvent.change(screen.getByLabelText(/^name/i), {
+      target: { value: "Still cannot save" },
+    });
+    const button = screen.getByRole("button", { name: /save changes/i });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a thrown failure as a safe message without resetting the form", async () => {
+    const onSubmit = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("An error occurred in the Server Components render.")
+      );
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{ ...BASE_DATA, id: "8d5cca85-0120-4e80-9487-e3ed8c66faac" }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/^name/i), {
+      target: { value: "Kept despite failure" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1), {
+      timeout: 20000,
+    });
+    expect(
+      (await screen.findAllByText(/server components render/i)).length
+    ).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/^name/i)).toHaveValue(
+      "Kept despite failure"
+    );
+  }, 30_000);
+});

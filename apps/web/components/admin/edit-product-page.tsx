@@ -37,6 +37,7 @@ import { getRouteCapability } from "@/lib/ai/route-capabilities";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
 import { coerceCreditCost } from "@/lib/admin/coerce";
+import { describeAdminSaveError } from "@/lib/admin/save-errors";
 
 interface EditProductPageProps {
   id: string;
@@ -319,6 +320,12 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     (v: Record<string, unknown>) => v.state === "active"
   );
 
+  // Legacy incomplete presets (#233): a product row with no version at all
+  // cannot be saved — the atomic write RPC fails closed on a missing
+  // editable source. Explain the state and block pointless submissions
+  // instead of letting the form round-trip into a generic error.
+  const hasEditableVersion = Boolean(version?.id);
+
   const versionSummaries: VersionSummary[] = versions.map(
     (v: Record<string, unknown>) => ({
       id: String(v.id),
@@ -376,6 +383,22 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         </div>
       </div>
 
+      {!hasEditableVersion && (
+        <div
+          role="alert"
+          className="border-warning/40 bg-warning/10 text-warning mb-6 rounded-xl border px-4 py-3 text-sm"
+        >
+          <p className="font-semibold">This preset is incomplete</p>
+          <p className="mt-1">
+            {product.name} has no saved version — there is no recipe to edit,
+            so saving and publishing are unavailable. The record must be
+            repaired or replaced (for example with a new variant) before it
+            can change. Any values you edit below are kept, but cannot be
+            saved in this state.
+          </p>
+        </div>
+      )}
+
       {family && (family.children.length > 0 || product.parent_preset_id || product.public_status !== "retired") && (
         <div className="mb-6">
           <FamilyPanel
@@ -432,10 +455,23 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
             ? assetPreviewById[product.preview_gif_asset_id]
             : undefined,
         }}
+        saveDisabledReason={
+          hasEditableVersion
+            ? undefined
+            : "This preset has no saved version — it must be repaired or replaced."
+        }
         onSubmit={async (data) => {
           "use server";
-          await updateProduct(id, data);
-          return { id };
+          try {
+            await updateProduct(id, data);
+            return { id };
+          } catch (error) {
+            // Expected rejections (no editable source, permissions, missing
+            // rows) return as data — a thrown error would reach the client
+            // as a minified React digest instead of an explanation.
+            console.error("[admin] product save failed", error);
+            return { error: describeAdminSaveError(error) };
+          }
         }}
       >
         <EditorSectionGroup id="references" className="mt-8">
