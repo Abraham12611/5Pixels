@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,11 @@ const headingClass = "text-cream-50 mb-4 text-lg font-semibold";
 const hintClass = "text-text-muted mt-1.5 text-xs";
 const flagClass =
   "border-warning/40 bg-warning/10 text-warning mt-4 rounded-xl border px-4 py-3 text-sm";
+
+/** Sentinel for "variant mode chosen, parent not yet picked" (#223). It is
+ *  never a valid UUID, so a submit attempt fails `parent_preset_id`
+ *  validation instead of silently persisting a standalone preset. */
+const PENDING_PARENT = "__pending_parent__";
 
 /**
  * Preset Studio 2.0 admin configuration (#177): family assignment, user
@@ -58,7 +64,25 @@ export function PresetFamilyFields({
     | string
     | null
     | undefined;
-  const isVariant = Boolean(parentPresetId);
+  const productType = useWatch({ control, name: "type" }) as
+    | "filter"
+    | "poster"
+    | undefined;
+
+  // "Variant" is an explicit mode (#223): choosing it no longer auto-assigns
+  // the first eligible parent — the preset only becomes a variant once the
+  // admin deliberately picks a root. While the choice is pending the field
+  // carries a sentinel that fails schema validation, so a variant selection
+  // can never silently commit as a standalone preset.
+  const [mode, setMode] = useState<"standalone" | "variant">(() =>
+    parentPresetId ? "variant" : "standalone"
+  );
+  const isVariant = mode === "variant";
+  const hasRealParent = Boolean(
+    parentPresetId && parentPresetId !== PENDING_PARENT
+  );
+  const variantBlocked =
+    hasChildren || (!hasRealParent && eligibleParents.length === 0);
 
   if (!schemaAvailable) {
     return (
@@ -90,6 +114,7 @@ export function PresetFamilyFields({
               name="__family_mode"
               checked={!isVariant}
               onChange={() => {
+                setMode("standalone");
                 setValue("parent_preset_id", null, { shouldDirty: true });
                 setValue("standalone_discoverable", false, {
                   shouldDirty: true,
@@ -104,10 +129,11 @@ export function PresetFamilyFields({
               type="radio"
               name="__family_mode"
               checked={isVariant}
-              disabled={hasChildren}
+              disabled={variantBlocked}
               onChange={() => {
-                if (!parentPresetId && eligibleParents[0]) {
-                  setValue("parent_preset_id", eligibleParents[0].id, {
+                setMode("variant");
+                if (!hasRealParent) {
+                  setValue("parent_preset_id", PENDING_PARENT, {
                     shouldDirty: true,
                   });
                 }
@@ -121,6 +147,19 @@ export function PresetFamilyFields({
           <p className={hintClass}>
             This preset already has variants of its own, so it cannot become
             a variant itself — families are single-level.
+          </p>
+        )}
+        {!hasRealParent && eligibleParents.length === 0 && (
+          <p className={hintClass}>
+            No eligible root{" "}
+            {productType === "poster" ? "posters" : "filters"} exist yet —{" "}
+            <Link
+              href={`/admin/${productType === "poster" ? "posters" : "filters"}/new`}
+              className="text-lime-400 hover:text-lime-300 underline"
+            >
+              create a root preset
+            </Link>{" "}
+            first.
           </p>
         )}
 
@@ -142,11 +181,25 @@ export function PresetFamilyFields({
                   }))}
                 />
               </div>
+              {!hasRealParent && (
+                <p className="text-warning mt-1 text-sm">
+                  No parent selected — a variant can&apos;t be saved until you
+                  choose a root preset or switch back to standalone.
+                </p>
+              )}
               {productId === parentPresetId && (
                 <p className="text-error mt-1 text-sm">
                   A preset cannot be its own parent.
                 </p>
               )}
+              {currentParent &&
+                parentPresetId &&
+                currentParent.id !== parentPresetId && (
+                  <p className={hintClass}>
+                    Changing the parent moves this variant into a different
+                    family and out of its current sibling order.
+                  </p>
+                )}
               {currentParent?.public_status === "retired" && (
                 <p className="text-error mt-1 text-sm">
                   The current parent is retired — pick a different root

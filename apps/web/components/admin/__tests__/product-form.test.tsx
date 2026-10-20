@@ -173,8 +173,11 @@ describe("ProductForm — Preset Studio 2.0 defaults (#177)", () => {
         name: /also show this variant independently in explore/i,
       })
     ).toBeInTheDocument();
-    // The first eligible parent is auto-selected.
-    expect(screen.getByText(/Chrome Portrait/)).toBeInTheDocument();
+    // #223: no parent is auto-assigned — the select stays on its placeholder
+    // and the form warns that an unchosen parent saves as standalone.
+    // (Explicit parent selection is exercised in preset-family-fields.test.)
+    expect(screen.queryByText(/Chrome Portrait/)).not.toBeInTheDocument();
+    expect(screen.getByText(/No parent selected/)).toBeInTheDocument();
   });
 
   it("reveals prompt configuration when the enable switch turns on", async () => {
