@@ -291,7 +291,6 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  const before = await getProductById(id);
   const {
     version,
     fields,
@@ -304,97 +303,57 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
 
   await assertProductConfigAllowed(supabase, input, { productId: id });
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
-    .update({
+  // Atomic save (#233): one RPC commits the products row, the editable
+  // version (cloning a draft first if the source is active), and the field
+  // replacement set. Any failure rolls back all three — a partial save can
+  // no longer persist.
+  const { error } = await supabase.rpc("admin_update_product", {
+    p_product_id: id,
+    p_product: {
       ...productData,
       metadata: {
         filter_config,
         poster_config,
         prompt_ui,
       },
-    })
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (productError) throw productError;
-
-  if (version.id) {
-    // Active versions are immutable. Cloning creates a new draft so edits never
-    // mutate a published recipe.
-    let effectiveVersionId = version.id;
-    const existingVersion = Array.isArray(before.product_versions)
-      ? before.product_versions.find((v: { id: string }) => v.id === version.id)
-      : null;
-
-    if (existingVersion?.state === "active") {
-      const { data: cloned, error: cloneError } = await supabase
-        .rpc("clone_version_as_draft", {
-          p_source_version_id: version.id,
-        })
-        .single();
-
-      if (cloneError) throw cloneError;
-      effectiveVersionId =
-        (cloned as { id: string } | null)?.id ?? effectiveVersionId;
-    }
-
-    const { error: versionError } = await supabase
-      .from("product_versions")
-      .update({
-        private_instruction_template: version.private_instruction_template,
-        private_negative_instruction: version.private_negative_instruction,
-        provider_strategy: version.provider_strategy,
-        model_config: version.model_config,
-        output_sizes: version.output_sizes,
-        input_validation_config: version.input_validation_config,
-        input_mode: version.input_capability.input_mode,
-        input_min_images: version.input_capability.input_min_images,
-        input_max_images: version.input_capability.input_max_images,
-        input_image_roles: version.input_capability.input_image_roles,
-        prompt_override_enabled:
-          version.input_capability.prompt_override_enabled,
-        prompt_max_chars: version.input_capability.prompt_max_chars,
-        post_process_config: version.post_process_config,
-        safety_config: version.safety_config,
-        credit_cost,
-      })
-      .eq("id", effectiveVersionId);
-
-    if (versionError) throw versionError;
-  }
-
-  // Upsert fields is simplified: delete existing and re-insert.
-  await supabase.from("product_fields").delete().eq("product_id", id);
-
-  if (fields.length > 0) {
-    const { error: fieldsError } = await supabase.from("product_fields").insert(
-      fields.map((field) => ({
-        product_id: id,
-        field_key: field.field_key,
-        label: field.label,
-        help_text: field.help_text,
-        field_type: field.field_type,
-        required: field.required,
-        sort_order: field.sort_order,
-        config: field.config,
-        validation: field.validation,
-        active: field.active,
-      }))
-    );
-    if (fieldsError) throw fieldsError;
-  }
-
-  await logAdminAction({
-    action: "product.update",
-    entityType: "product",
-    entityId: id,
-    before,
-    after: product,
+    },
+    p_source_version_id: version.id ?? null,
+    p_version: version.id
+      ? {
+          private_instruction_template: version.private_instruction_template,
+          private_negative_instruction: version.private_negative_instruction,
+          provider_strategy: version.provider_strategy,
+          model_config: version.model_config,
+          output_sizes: version.output_sizes,
+          input_validation_config: version.input_validation_config,
+          input_mode: version.input_capability.input_mode,
+          input_min_images: version.input_capability.input_min_images,
+          input_max_images: version.input_capability.input_max_images,
+          input_image_roles: version.input_capability.input_image_roles,
+          prompt_override_enabled:
+            version.input_capability.prompt_override_enabled,
+          prompt_max_chars: version.input_capability.prompt_max_chars,
+          post_process_config: version.post_process_config,
+          safety_config: version.safety_config,
+          credit_cost,
+        }
+      : null,
+    p_fields: fields.map((field) => ({
+      field_key: field.field_key,
+      label: field.label,
+      help_text: field.help_text,
+      field_type: field.field_type,
+      required: field.required,
+      sort_order: field.sort_order,
+      config: field.config,
+      validation: field.validation,
+      active: field.active,
+    })),
   });
 
-  return product;
+  if (error) throw error;
+
+  return { id };
 }
 
 export async function publishProductVersion(
@@ -561,105 +520,21 @@ export async function duplicateProduct(id: string) {
   const original = await getProductById(id);
   if (!original) throw new Error("Product not found");
 
-  const newSlug = `${original.slug}-copy-${Date.now()}`;
-  const newName = `${original.name} (Copy)`;
-
-  const { data: product, error: productError } = await supabase
-    .from("products")
-    .insert({
-      type: original.type,
-      slug: newSlug,
-      name: newName,
-      short_description: original.short_description,
-      long_description: original.long_description,
-      public_prompt_recipe: original.public_prompt_recipe,
-      category_id: original.category_id,
-      public_status: "draft",
-      visibility: original.visibility,
-      likeness_level: original.likeness_level,
-      featured_rank: original.featured_rank,
-      hero_asset_id: original.hero_asset_id,
-      poster_asset_id: original.poster_asset_id,
-      preview_video_asset_id: original.preview_video_asset_id,
-      preview_gif_asset_id: original.preview_gif_asset_id,
-      metadata: original.metadata,
+  // Atomic server-side copy (#233): the RPC selects the editable version
+  // deterministically and inserts product + version + fields + asset links
+  // in one transaction — any failure rolls back every write.
+  const { data: product, error } = await supabase
+    .rpc("admin_duplicate_product", {
+      p_source_product_id: id,
+      p_slug: `${original.slug}-copy-${Date.now()}`,
+      p_name: `${original.name} (Copy)`,
+      p_parent_product_id: null,
+      p_variant_display_name: null,
     })
-    .select()
     .single();
 
-  if (productError) throw productError;
-
-  const originalVersion = Array.isArray(original.product_versions)
-    ? original.product_versions[0]
-    : null;
-
-  if (originalVersion) {
-    await supabase.from("product_versions").insert({
-      product_id: product.id,
-      version_number: 1,
-      state: "draft",
-      private_instruction_template:
-        originalVersion.private_instruction_template,
-      private_negative_instruction:
-        originalVersion.private_negative_instruction,
-      provider_strategy: originalVersion.provider_strategy,
-      model_config: originalVersion.model_config,
-      output_sizes: originalVersion.output_sizes,
-      input_validation_config: originalVersion.input_validation_config,
-      input_mode: originalVersion.input_mode,
-      input_min_images: originalVersion.input_min_images,
-      input_max_images: originalVersion.input_max_images,
-      input_image_roles: originalVersion.input_image_roles,
-      prompt_override_enabled: originalVersion.prompt_override_enabled,
-      prompt_max_chars: originalVersion.prompt_max_chars,
-      post_process_config: originalVersion.post_process_config,
-      safety_config: originalVersion.safety_config,
-      credit_cost: originalVersion.credit_cost,
-      created_by_admin_id: user.id,
-    });
-  }
-
-  const originalFields = Array.isArray(original.product_fields)
-    ? original.product_fields
-    : [];
-
-  if (originalFields.length > 0) {
-    await supabase.from("product_fields").insert(
-      originalFields.map(
-        (field: {
-          field_key: string;
-          label: string;
-          help_text: string | null;
-          field_type: string;
-          required: boolean;
-          sort_order: number;
-          config: unknown;
-          validation: unknown;
-          active: boolean;
-        }) => ({
-          product_id: product.id,
-          field_key: field.field_key,
-          label: field.label,
-          help_text: field.help_text,
-          field_type: field.field_type,
-          required: field.required,
-          sort_order: field.sort_order,
-          config: field.config,
-          validation: field.validation,
-          active: field.active,
-        })
-      )
-    );
-  }
-
-  await logAdminAction({
-    action: "product.duplicate",
-    entityType: "product",
-    entityId: id,
-    after: { new_product_id: product.id },
-  });
-
-  return product;
+  if (error) throw error;
+  return product as { id: string };
 }
 
 /**
@@ -1160,139 +1035,21 @@ export async function duplicateProductAsVariant(
     opts.slug ?? `${parent.slug}-variant-${siblingCount + 1}-${Date.now()}`;
   const displayName = opts.variantDisplayName ?? null;
 
-  const { data: product, error: productError } = await supabase
-    .from("products")
-    .insert({
-      type: parent.type,
-      slug,
-      name: displayName ?? `${parent.name} — Variant`,
-      short_description: parent.short_description,
-      long_description: parent.long_description,
-      public_prompt_recipe: parent.public_prompt_recipe,
-      category_id: parent.category_id,
-      public_status: "draft",
-      visibility: parent.visibility,
-      likeness_level: parent.likeness_level,
-      featured_rank: parent.featured_rank,
-      hero_asset_id: parent.hero_asset_id,
-      poster_asset_id: parent.poster_asset_id,
-      preview_video_asset_id: parent.preview_video_asset_id,
-      preview_gif_asset_id: parent.preview_gif_asset_id,
-      metadata: parent.metadata,
-      parent_preset_id: parentId,
-      standalone_discoverable: false,
-      variant_display_name: displayName,
-      variant_sort_order: siblingCount,
+  // Atomic server-side copy (#233): one transaction creates the variant
+  // product, a draft of the parent's editable version, field rows, and
+  // reference-asset links — a failure leaves no partial product behind.
+  const { data: product, error } = await supabase
+    .rpc("admin_duplicate_product", {
+      p_source_product_id: parentId,
+      p_slug: slug,
+      p_name: displayName ?? `${parent.name} — Variant`,
+      p_parent_product_id: parentId,
+      p_variant_display_name: displayName,
     })
-    .select()
     .single();
-  if (productError) throw productError;
 
-  const editable = Array.isArray(parent.product_versions)
-    ? await selectEditableVersion(parent.product_versions)
-    : null;
-  const sourceVersion = editable
-    ? parent.product_versions.find(
-        (v: { id: string }) => v.id === editable.id
-      )
-    : null;
-
-  if (sourceVersion) {
-    const { error: versionError } = await supabase
-      .from("product_versions")
-      .insert({
-        product_id: product.id,
-        version_number: 1,
-        state: "draft",
-        private_instruction_template:
-          sourceVersion.private_instruction_template,
-        private_negative_instruction:
-          sourceVersion.private_negative_instruction,
-        provider_strategy: sourceVersion.provider_strategy,
-        model_config: sourceVersion.model_config,
-        output_sizes: sourceVersion.output_sizes,
-        input_validation_config: sourceVersion.input_validation_config,
-        input_mode: sourceVersion.input_mode,
-        input_min_images: sourceVersion.input_min_images,
-        input_max_images: sourceVersion.input_max_images,
-        input_image_roles: sourceVersion.input_image_roles,
-        prompt_override_enabled: sourceVersion.prompt_override_enabled,
-        prompt_max_chars: sourceVersion.prompt_max_chars,
-        post_process_config: sourceVersion.post_process_config,
-        safety_config: sourceVersion.safety_config,
-        credit_cost: sourceVersion.credit_cost,
-        created_by_admin_id: user.id,
-      });
-    if (versionError) throw versionError;
-  }
-
-  const parentFields = Array.isArray(parent.product_fields)
-    ? parent.product_fields
-    : [];
-  if (parentFields.length > 0) {
-    const { error: fieldsError } = await supabase
-      .from("product_fields")
-      .insert(
-        parentFields.map(
-          (field: {
-            field_key: string;
-            label: string;
-            help_text: string | null;
-            field_type: string;
-            required: boolean;
-            sort_order: number;
-            config: unknown;
-            validation: unknown;
-            active: boolean;
-          }) => ({
-            product_id: product.id,
-            field_key: field.field_key,
-            label: field.label,
-            help_text: field.help_text,
-            field_type: field.field_type,
-            required: field.required,
-            sort_order: field.sort_order,
-            config: field.config,
-            validation: field.validation,
-            active: field.active,
-          })
-        )
-      );
-    if (fieldsError) throw fieldsError;
-  }
-
-  // Reference assets are copied as new product_assets rows — the asset files
-  // are immutable, but the variant owns its links so later parent edits
-  // never mutate the variant's inputs.
-  const { data: parentAssets, error: assetsReadError } = await supabase
-    .from("product_assets")
-    .select("asset_id, role, sort_order, internal_only")
-    .eq("product_id", parentId);
-  if (assetsReadError) throw assetsReadError;
-  if (parentAssets && parentAssets.length > 0) {
-    const { error: assetsError } = await supabase.from("product_assets").insert(
-      parentAssets.map((row: Record<string, unknown>) => ({
-        product_id: product.id,
-        asset_id: row.asset_id,
-        role: row.role,
-        sort_order: row.sort_order,
-        internal_only: row.internal_only,
-      }))
-    );
-    if (assetsError) throw assetsError;
-  }
-
-  await logAdminAction({
-    action: "product.duplicate",
-    entityType: "product",
-    entityId: parentId,
-    after: {
-      new_product_id: product.id,
-      family: { parent_id: parentId, variant_sort_order: siblingCount },
-    },
-  });
-
-  return product;
+  if (error) throw error;
+  return product as { id: string };
 }
 
 /**
