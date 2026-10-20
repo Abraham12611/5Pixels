@@ -206,6 +206,98 @@ describe("ProductForm — Preset Studio 2.0 defaults (#177)", () => {
   });
 });
 
+describe("ProductForm — dirty state after a successful save", () => {
+  it("shows 'All changes saved' when zod-normalized output differs from raw values", async () => {
+    // DB JSONB can carry keys the zod schema strips (model_config extras)
+    // and omit keys the schema defaults (role.optional, prompt_ui.examples).
+    // The save succeeds — but those raw↔normalized structural gaps are not
+    // user edits, and must not masquerade as in-flight changes.
+    const onSubmit = vi
+      .fn()
+      .mockResolvedValue({ id: "8d5cca85-0120-4e80-9487-e3ed8c66faac" });
+    const dataWithRawJsonb = {
+      ...BASE_DATA,
+      id: "8d5cca85-0120-4e80-9487-e3ed8c66faac",
+      prompt_ui: { placeholder: "Tweak the look" }, // no `examples` — schema defaults it
+      version: {
+        ...BASE_DATA.version,
+        model_config: { width: 512, provider_specific_param: "euler" },
+        input_validation_config: { min_width: 64, exotic_check: true },
+        input_capability: {
+          ...BASE_DATA.version.input_capability,
+          input_image_roles: [{ name: "person" }], // missing `optional`
+        },
+      },
+    } as unknown as typeof BASE_DATA & { id: string };
+
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={dataWithRawJsonb}
+        onSubmit={onSubmit}
+      />
+    );
+
+    // A genuine edit enables the dock button; the save must acknowledge it.
+    fireEvent.change(screen.getByLabelText(/^name/i), {
+      target: { value: "Renamed preset" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1), {
+      timeout: 20000,
+    });
+    expect(await screen.findByText("All changes saved")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  }, 30_000);
+
+  it("keeps genuine in-flight edits unsaved and visible after the save lands", async () => {
+    let resolveSave: ((v: { id: string }) => void) | undefined;
+    const onSubmit = vi.fn().mockImplementation(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={{
+          ...BASE_DATA,
+          id: "8d5cca85-0120-4e80-9487-e3ed8c66faac",
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/^name/i), {
+      target: { value: "Saved name" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1), {
+      timeout: 20000,
+    });
+
+    // Edit a different field while the save is still in flight.
+    fireEvent.change(screen.getByLabelText(/short description/i), {
+      target: { value: "Edited mid-flight" },
+    });
+    resolveSave?.({ id: "8d5cca85-0120-4e80-9487-e3ed8c66faac" });
+
+    expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
+    // The mid-flight edit is preserved, not reverted by the reset.
+    expect(screen.getByLabelText(/short description/i)).toHaveValue(
+      "Edited mid-flight"
+    );
+    // The submitted edit is part of the new clean baseline.
+    expect(screen.getByLabelText(/^name/i)).toHaveValue("Saved name");
+  }, 30_000);
+});
+
 describe("ProductForm — incomplete-preset save handling (#233)", () => {
   it("shows a structured { error } result and preserves unsaved edits", async () => {
     const onSubmit = vi

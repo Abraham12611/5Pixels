@@ -272,6 +272,17 @@ export function ProductForm({
       setSubmitError(saveDisabledReason);
       return;
     }
+    // Capture the raw form snapshot *before* the save resolves. `data` is
+    // zod-normalized output — the schema strips unknown JSONB keys and fills
+    // schema defaults, so it can differ structurally from what the form
+    // actually holds. Comparing or baselining against it misreads those
+    // normalization gaps as in-flight edits and leaves the form dirty after
+    // a clean save; the raw snapshot is the only truthful reference. Deep
+    // clone — RHF mutates the values tree in place via setValue, so a
+    // shallow copy would absorb mid-flight edits and compare equal.
+    const submittedValues = structuredClone(
+      getValues()
+    ) as ProductFormInput;
     try {
       const result = await saveWithTimeout(onSubmit(data));
       if ("error" in result && result.error) {
@@ -286,7 +297,7 @@ export function ProductForm({
       // value — and leaf-level restore can't represent array removal or
       // reordering anyway.
       const savedValues = {
-        ...data,
+        ...submittedValues,
         id: product.id,
       } as unknown as ProductFormInput;
       const liveValues = {
