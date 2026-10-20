@@ -135,6 +135,14 @@ export function PublishingSection({
             {status}
           </span>
         </p>
+        {status === "active" && !activeVersionId && (
+          <p role="status" className="border-warning/40 bg-warning/10 text-warning mb-3 rounded-lg border px-3 py-2 text-sm">
+            This preset is marked Active in the catalog, but it has no
+            published recipe version. Changing catalog status does not publish
+            the draft. Save your edits and satisfy the publishing requirements
+            before publishing a version.
+          </p>
+        )
         <ProductActions
           productId={productId}
           status={status}
