@@ -78,8 +78,8 @@ export function FrequencyEditor({ campaignId, frequency, action }: Props) {
   return (
     <div className="space-y-4">
       {FIELDS.map((f) => (
-        <div key={f.key} className="flex items-start gap-3">
-          <div className="w-56 shrink-0">
+        <div key={f.key} className="flex flex-wrap items-start gap-3">
+          <div className="w-56 max-w-full shrink-0">
             <Label className="text-cream-100 text-xs">{f.label}</Label>
             <p className="text-text-muted mt-0.5 text-[11px] leading-snug">
               {f.hint}

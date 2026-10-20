@@ -48,15 +48,17 @@ export default async function AdminSupportUserPage({
             support
           </Link>
 
-      <div className="mt-4 mb-8 flex items-start justify-between">
-        <div>
-          <h1 className="text-cream-50 text-3xl font-bold">
+      <div className="mt-4 mb-8 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-cream-50 wrap-anywhere text-3xl font-bold">
             {user.displayName ?? user.email}
           </h1>
-          <p className="text-text-secondary mt-1">{user.email}</p>
-          <p className="text-text-muted text-xs font-mono mt-1">{user.id}</p>
+          <p className="text-text-secondary wrap-anywhere mt-1">{user.email}</p>
+          <p className="text-text-muted mt-1 break-all font-mono text-xs">
+            {user.id}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {user.isOwner && (
             <span className="bg-lime-400/10 text-lime-400 rounded-full px-3 py-1 text-xs font-medium">
               Owner
@@ -129,12 +131,12 @@ export default async function AdminSupportUserPage({
             {user.recentGenerations.map((gen) => (
               <li
                 key={gen.id}
-                className="flex items-center justify-between py-3"
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3"
               >
-                <div>
+                <div className="min-w-0">
                   <Link
                     href={`/admin/generations/${gen.id}`}
-                    className="text-cream-100 hover:text-lime-400 font-medium transition"
+                    className="text-cream-100 hover:text-lime-400 wrap-anywhere font-medium transition"
                   >
                     {gen.productName}
                   </Link>
@@ -142,7 +144,7 @@ export default async function AdminSupportUserPage({
                     {gen.id.slice(0, 8)}
                   </p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                   <span className="text-text-muted text-sm">
                     {gen.creditCost} credits
                   </span>
@@ -168,12 +170,12 @@ export default async function AdminSupportUserPage({
             {failedGenerations.map((gen) => (
               <li
                 key={gen.id}
-                className="flex items-center justify-between py-3"
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3"
               >
-                <div>
+                <div className="min-w-0">
                   <Link
                     href={`/admin/generations/${gen.id}`}
-                    className="text-cream-100 hover:text-lime-400 font-medium transition"
+                    className="text-cream-100 hover:text-lime-400 wrap-anywhere font-medium transition"
                   >
                     {gen.productName}
                   </Link>
@@ -181,7 +183,7 @@ export default async function AdminSupportUserPage({
                     {gen.id.slice(0, 8)}
                   </p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                   <span className="text-text-muted text-sm">
                     {gen.creditCost} credits
                   </span>
@@ -207,9 +209,9 @@ export default async function AdminSupportUserPage({
             {user.recentLedger.map((entry) => (
               <li
                 key={entry.id}
-                className="flex items-center justify-between py-2"
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
               >
-                <span className="text-cream-100 text-sm capitalize">
+                <span className="text-cream-100 wrap-anywhere text-sm capitalize">
                   {entry.entryType.replace(/_/g, " ")}
                 </span>
                 <span
@@ -240,9 +242,9 @@ export default async function AdminSupportUserPage({
             {user.recentInvoices.map((invoice) => (
               <li
                 key={invoice.id}
-                className="flex items-center justify-between py-2"
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
               >
-                <span className="text-cream-100 text-sm">
+                <span className="text-cream-100 wrap-anywhere text-sm">
                   {invoice.planName ?? "One-time"}
                 </span>
                 <span className="text-cream-100 text-sm font-medium">
