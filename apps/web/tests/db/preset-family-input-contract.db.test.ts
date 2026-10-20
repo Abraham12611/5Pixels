@@ -397,6 +397,85 @@ describe("product_versions input capability", () => {
   });
 });
 
+// #232: CHECK expressions execute under the invoker's role. Admin saves and
+// variant cloning must be able to validate role JSON without bypassing RLS.
+describe("admin input-role CHECK function permissions", () => {
+  it("allows authenticated admins to insert and update valid versions", async () => {
+    await withDb(async (client) => {
+      const productId = await makeProductRow(client);
+      const staffId = await makeStaff(client);
+      const versionId = randomUUID();
+      const grants = await client.query(
+        `SELECT
+           has_function_privilege('authenticated',
+             'public.is_valid_input_image_roles(jsonb)', 'EXECUTE') AS staff,
+           has_function_privilege('anon',
+             'public.is_valid_input_image_roles(jsonb)', 'EXECUTE') AS anonymous`
+      );
+      expect(grants.rows[0]).toMatchObject({ staff: true, anonymous: false });
+
+      await asUser(client, staffId, async () => {
+        const inserted = await client.query(
+          `INSERT INTO public.product_versions (
+             id, product_id, version_number, state,
+             private_instruction_template, credit_cost,
+             input_mode, input_min_images, input_max_images, input_image_roles
+           ) VALUES ($1, $2, 1, 'draft', 'test', 1,
+                     'single', 1, 1, '[]'::jsonb) RETURNING id`,
+          [versionId, productId]
+        );
+        expect(inserted.rows[0].id).toBe(versionId);
+        const updated = await client.query(
+          `UPDATE public.product_versions
+             SET input_mode = 'multi', input_min_images = 1,
+                 input_max_images = 2,
+                 input_image_roles = '[{"name":"subject"}]'::jsonb
+           WHERE id = $1 RETURNING id`,
+          [versionId]
+        );
+        expect(updated.rows[0].id).toBe(versionId);
+      });
+      await expect(
+        asUser(client, staffId, () =>
+          client.query(
+            `UPDATE public.product_versions
+               SET input_image_roles = '[{"name":"NOT_ALLOWED"}]'::jsonb
+             WHERE id = $1`,
+            [versionId]
+          )
+        )
+      ).rejects.toThrow(/product_versions_input_contract|check/i);
+    });
+  });
+
+  it("does not open write access for non-admin users or anonymous callers", async () => {
+    await withDb(async (client) => {
+      const productId = await makeProductRow(client);
+      const { userId } = await makeUser(client);
+      await expect(
+        asUser(client, userId, () =>
+          client.query(
+            `INSERT INTO public.product_versions (
+               product_id, version_number, state, private_instruction_template,
+               credit_cost, input_mode, input_min_images, input_max_images,
+               input_image_roles
+             ) VALUES ($1, 1, 'draft', 'not admin', 1,
+                       'single', 1, 1, '[]'::jsonb)`,
+            [productId]
+          )
+        )
+      ).rejects.toThrow(/row-level security|permission denied/i);
+      await expect(
+        asAnon(client, () =>
+          client.query(
+            `SELECT public.is_valid_input_image_roles('[]'::jsonb)`
+          )
+        )
+      ).rejects.toThrow(/permission denied/i);
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // create_generation — multi-input path + quote binding
 // ---------------------------------------------------------------------------
