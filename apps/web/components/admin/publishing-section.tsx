@@ -142,7 +142,7 @@ export function PublishingSection({
             the draft. Save your edits and satisfy the publishing requirements
             before publishing a version.
           </p>
-        )
+        )}
         <ProductActions
           productId={productId}
           status={status}
