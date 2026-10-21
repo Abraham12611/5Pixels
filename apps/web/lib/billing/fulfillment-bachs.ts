@@ -326,7 +326,7 @@ async function findInvoiceByPeriod(
  * already holds one is a billing anomaly: alert ops, grant nothing, and
  * return 200 so Bachs does not retry-storm the event.
  */
-export class DuplicateRecurringSubscriptionError extends Error {
+class DuplicateRecurringSubscriptionError extends Error {
   constructor(
     readonly userId: string,
     readonly incomingSubscriptionId: string,
