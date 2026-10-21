@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { describeAdminSaveError } from "../save-errors";
 
 describe("describeAdminSaveError (#233)", () => {
+  it("explains an activation guard rejection without exposing SQL details", () => {
+    const message = describeAdminSaveError({
+      code: "P0001",
+      message: "A product requires an active version before it can be activated",
+    });
+    expect(message).toMatch(/no published recipe version/i);
+    expect(message).toMatch(/Status to Draft/i);
+    expect(message).toMatch(/Publish version/i);
+    expect(message).not.toMatch(/P0001|active version before it can/i);
+  });
+
   it("explains the no-editable-version rejection in plain language", () => {
     const pgError = {
       code: "P0001",
