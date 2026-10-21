@@ -100,6 +100,13 @@ export function VersionList({
               >
                 {version.state}
               </span>
+              {active &&
+                (version.state === "draft" || version.state === "testing") &&
+                version.version_number < active.version_number && (
+                  <span className="bg-warning/20 text-warning rounded-full px-2 py-0.5 text-xs font-medium">
+                    stale
+                  </span>
+                )}
               {version.published_at && (
                 <span className="text-text-muted text-xs">
                   published {new Date(version.published_at).toLocaleDateString()}

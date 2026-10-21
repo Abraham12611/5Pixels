@@ -13,6 +13,7 @@ import {
   transitionProductStatus,
   updateProduct,
   selectEditableVersion,
+  resolveStaleVersions,
   duplicateProductAsVariant,
   reorderFamilyVariants,
   updateVariantSummary,
@@ -22,6 +23,8 @@ import { ProductForm } from "./product-form";
 import { type VersionSummary } from "./version-list";
 import { ReferenceAssetManager } from "./reference-asset-manager";
 import { FamilyPanel } from "./family-panel";
+import { StaleDraftBanner } from "./stale-draft-banner";
+import { selectStaleVersions } from "@/lib/admin/version-selection";
 import { PublishingSection } from "./publishing-section";
 import {
   EditorSectionGroup,
@@ -320,6 +323,36 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     (v: Record<string, unknown>) => v.state === "active"
   );
 
+  // Live vs editing (#251): the header always shows which version customers
+  // actually use (active) next to the version this editor loaded. Drafts
+  // numbered below the live version are stale leftovers — flagged loudly and
+  // resolvable only through the explicit discard/rebase workflow.
+  const routeLabel = (v: Record<string, unknown> | null | undefined) => {
+    const strategy = v?.provider_strategy as
+      | { primary_provider?: string; primary_model?: string }
+      | undefined;
+    return (
+      [strategy?.primary_provider, strategy?.primary_model]
+        .filter(Boolean)
+        .join("/") || "route unset"
+    );
+  };
+  const staleVersionIds = new Set(
+    selectStaleVersions(
+      versions.map((v: Record<string, unknown>) => ({
+        id: String(v.id),
+        state: String(v.state),
+        version_number: Number(v.version_number),
+      }))
+    ).map((v) => v.id)
+  );
+  const staleVersions = versions
+    .filter((v: Record<string, unknown>) => staleVersionIds.has(String(v.id)))
+    .map((v: Record<string, unknown>) => ({
+      version_number: Number(v.version_number),
+      route: routeLabel(v),
+    }));
+
   // Legacy incomplete presets (#233): a product row with no version at all
   // cannot be saved — the atomic write RPC fails closed on a missing
   // editable source. Explain the state and block pointless submissions
@@ -376,12 +409,35 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
             Status: {product.public_status}
           </span>
+          {activeVersion && (
+            <span className="bg-lime-500/20 text-lime-400 rounded-full px-2 py-0.5 text-xs font-medium">
+              Live v{Number(activeVersion.version_number)} ·{" "}
+              {routeLabel(activeVersion)}
+            </span>
+          )}
           <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
             Editing v{initialData.version.version_number} ·{" "}
             {initialData.version.state}
+            {version?.id && activeVersion?.id === version.id
+              ? " (live)"
+              : ` · ${routeLabel(version)}`}
           </span>
         </div>
       </div>
+
+      {staleVersions.length > 0 && activeVersion && (
+        <div className="mb-6">
+          <StaleDraftBanner
+            productId={id}
+            liveVersion={{
+              version_number: Number(activeVersion.version_number),
+              route: routeLabel(activeVersion),
+            }}
+            staleVersions={staleVersions}
+            resolve={resolveStaleVersions}
+          />
+        </div>
+      )}
 
       {!hasEditableVersion && (
         <div
