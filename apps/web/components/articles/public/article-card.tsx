@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { publicAssetUrl } from "@/lib/catalog/media";
+import { authorAvatarUrl, publicAssetUrl } from "@/lib/catalog/media";
 import { readingMinutes } from "@/lib/articles/reading-time";
 import type { PublicArticleSummary } from "@/lib/articles/types";
 
@@ -27,7 +27,7 @@ export function ArticleCard({
     ? publicAssetUrl(article.cover.bucket, article.cover.storageKey)
     : null;
   const avatarUrl = article.author_avatar
-    ? publicAssetUrl(
+    ? authorAvatarUrl(
         article.author_avatar.bucket,
         article.author_avatar.storageKey
       )

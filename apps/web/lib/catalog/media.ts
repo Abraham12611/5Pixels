@@ -8,6 +8,20 @@ export function publicAssetUrl(bucket: string, storageKey: string): string {
   return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey}`;
 }
 
+/**
+ * Resolves an author-avatar asset ref to a renderable URL. Rows in the
+ * 'default-avatars' pseudo-bucket are static files in apps/web/public —
+ * building a storage URL for them 404s. Uploaded avatars are private
+ * (visibility='private'), so public_asset_json never projects them here.
+ */
+export function authorAvatarUrl(
+  bucket: string,
+  storageKey: string
+): string {
+  if (bucket === "default-avatars") return `/avatars/${storageKey}`;
+  return publicAssetUrl(bucket, storageKey);
+}
+
 const CARD_ROLE_ORDER: string[] = [
   "preview_video",
   "preview_gif",

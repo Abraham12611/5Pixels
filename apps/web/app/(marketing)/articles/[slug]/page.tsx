@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
 import { getPublishedArticleBySlug } from "@/lib/articles/queries";
-import { publicAssetUrl } from "@/lib/catalog/media";
+import { authorAvatarUrl, publicAssetUrl } from "@/lib/catalog/media";
 import { getSiteUrl } from "@/lib/billing/site-url";
 import { getPublicProductBySlug } from "@/lib/db/explore";
 import type { PublicProductDetail } from "@/types/catalog";
@@ -150,7 +150,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
   const readingTime = estimateReadingTimeMinutes(article.content);
   const cover = coverUrl(article);
   const avatarUrl = article.author_avatar
-    ? publicAssetUrl(
+    ? authorAvatarUrl(
         article.author_avatar.bucket,
         article.author_avatar.storageKey
       )
