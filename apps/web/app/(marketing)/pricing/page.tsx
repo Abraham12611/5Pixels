@@ -8,6 +8,7 @@ import { PricingCards } from "@/components/marketing/pricing-cards";
 import { PricingComparison } from "@/components/marketing/pricing-comparison";
 import { PricingFaq } from "@/components/marketing/pricing-faq";
 import { Button } from "@/components/ui/button";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 
 export const dynamic = "force-dynamic";
 
@@ -121,9 +122,13 @@ export default async function PricingPage() {
         <div className="mt-16 text-center">
           <p className="text-cream-50 text-lg font-semibold">Ready to create?</p>
           <Button asChild className="mt-4">
-            <Link href={user ? "/app/billing/plan" : "/signup?next=/pricing"}>
-              Choose your plan
-            </Link>
+            {user ? (
+              <Link href="/app/billing/plan">Choose your plan</Link>
+            ) : (
+              <AuthModalLink tab="signup" next="/pricing">
+                Choose your plan
+              </AuthModalLink>
+            )}
           </Button>
         </div>
       </section>

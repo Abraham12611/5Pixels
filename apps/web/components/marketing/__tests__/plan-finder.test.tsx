@@ -102,10 +102,12 @@ describe("PlanFinder", () => {
     ).toBeInTheDocument();
   });
 
-  it("links anonymous users to signup", () => {
+  it("opens the auth modal on the signup tab for anonymous users", () => {
     renderFinder({ isAuthenticated: false });
-    const cta = screen.getByRole("link", { name: "Choose Creator" });
-    expect(cta).toHaveAttribute("href", "/signup?next=/pricing");
+    fireEvent.click(screen.getByRole("button", { name: "Choose Creator" }));
+    expect(
+      screen.getByRole("dialog", { name: /create your account/i })
+    ).toBeInTheDocument();
   });
 
   it("disables checkout when the recommended plan has no purchasable product", () => {
