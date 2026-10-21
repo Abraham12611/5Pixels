@@ -265,3 +265,16 @@ REVOKE ALL ON FUNCTION public.create_generation(UUID, UUID, JSONB, TEXT)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.create_generation(UUID, UUID, JSONB, TEXT)
   TO authenticated;
+
+-- 3. EXECUTE grants on the auth helpers — prod grants EXECUTE to `anon`
+--    (proacl: postgres, authenticated, service_role, anon) so that the
+--    `*_select` policies that are `TO public` and call public.is_admin()
+--    can evaluate for anonymous catalog reads (products_select etc.).
+--    Without this, a direct anon SELECT on public.products errors 42501
+--    inside the policy instead of returning public rows — the behavior
+--    divergence this migration exists to eliminate. Both functions are
+--    SECURITY DEFINER returning a boolean about the *caller* only; for an
+--    anonymous caller auth.uid() is NULL so they return false. No data
+--    exposure beyond the intended public rows.
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon;
+GRANT EXECUTE ON FUNCTION public.is_owner() TO anon;

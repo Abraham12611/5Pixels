@@ -112,17 +112,79 @@ describe("profiles policies", () => {
 });
 
 describe("anon catalog read", () => {
-  // Mirrors hosted behavior: is_admin() is not anon-executable, so direct
-  // anon table reads fail closed. Anonymous discovery goes through the
-  // SECURITY DEFINER get_public_catalog / get_public_product_by_slug RPCs.
-  it("anon direct reads of public.products fail closed", async () => {
+  // Mirrors hosted behavior: anon has SELECT on public.products and EXECUTE
+  // on is_admin()/is_owner() (explicit anon grants on prod), so direct table
+  // reads succeed but the products_select policy (TO public) filters to
+  // public_status='active' AND visibility='public' rows. Column exposure is
+  // the intended public surface — get_public_catalog returns metadata to
+  // anonymous callers, and the confidential generation config lives in
+  // product_versions, which is admin-only.
+  it("anon can read public+active products but not draft or non-public ones", async () => {
     await withDb(async (client) => {
-      await makeProduct(client);
-      const err = await asAnon(client, () =>
-        client.query(`SELECT id FROM public.products LIMIT 1`)
+      const { productId: pub } = await makeProduct(client);
+      const { productId: draft } = await makeProduct(client, {
+        publicStatus: "draft",
+      });
+      const { productId: internal } = await makeProduct(client, {
+        visibility: "internal",
+      });
+
+      const res = await asAnon(client, () =>
+        client.query(`SELECT id, metadata, public_prompt_recipe FROM public.products`)
+      );
+      const ids = res.rows.map((r) => r.id);
+      expect(ids).toContain(pub);
+      expect(ids).not.toContain(draft);
+      expect(ids).not.toContain(internal);
+    });
+  });
+
+  it("anon cannot write public.products", async () => {
+    await withDb(async (client) => {
+      const ins = await asAnon(client, () =>
+        client.query(
+          `INSERT INTO public.products (type, slug, name) VALUES ('filter', 'x', 'x')`
+        )
       ).catch((e) => e);
-      expect(err.code).toBe("42501");
-      expect(String(err.message)).toMatch(/is_admin/);
+      expect(ins.code).toBe("42501");
+
+      const { productId } = await makeProduct(client);
+      // RLS filters rather than raising on UPDATE: the row is invisible to
+      // anon, so either a 42501 or a silent rowCount=0 proves the write was
+      // blocked — verify the row is unchanged either way.
+      const upd = await asAnon(client, () =>
+        client.query(`UPDATE public.products SET name = 'x' WHERE id = $1`, [
+          productId,
+        ])
+      ).catch((e) => e);
+      if (upd.code) {
+        expect(upd.code).toBe("42501");
+      } else {
+        expect(upd.rowCount).toBe(0);
+      }
+      const check = await client.query(
+        `SELECT name FROM public.products WHERE id = $1`,
+        [productId]
+      );
+      expect(check.rows[0].name).not.toBe("x");
+    });
+  });
+
+  it("anon cannot read product_versions (confidential prompt config)", async () => {
+    await withDb(async (client) => {
+      await makeProduct(client); // creates a product_versions row
+      // Protected either by missing table grants (42501) or by the
+      // admin-only RLS policy returning zero rows — both are protected.
+      const res = await asAnon(client, () =>
+        client.query(
+          `SELECT id, private_instruction_template FROM public.product_versions`
+        )
+      ).catch((e) => e);
+      if (res.code) {
+        expect(res.code).toBe("42501");
+      } else {
+        expect(res.rows).toHaveLength(0);
+      }
     });
   });
 });
