@@ -18,7 +18,10 @@ secrets, JWTs or user data are recorded here.
 | 2026-10-28 | `20261023000004_converge_article_media.sql` applied verbatim (adds `sweep_stale_article_uploads`, adds `invalid_cover_asset` check to `save_article_draft`); bodies hash-verified identical to repo | `20261023000004` (`issue-139-pr-b`) |
 | 2026-10-28 | Backup table `schema_migrations_backup_139_v4` (140 rows then-live, `4fd342e5d61cd4bde7020145452676f5` name-digest) | — |
 | 2026-10-19/21 | 8 canonical migrations applied on prod via CLI push: `20261028000001`–`20261103000001` (all exist as repo files on develop) | `20261028000001`…`20261103000001` |
-| 2026-10-21 | Backup table `schema_migrations_backup_139_v5` (148 rows = current live, `ea35484df7e41595d022b452534e2a84` name-digest) | — |
+| 2026-10-21 | Backup table `schema_migrations_backup_139_v5` (148 rows then-live, `ea35484df7e41595d022b452534e2a84` name-digest) | — |
+| 2026-10-21 | `20261106000001_rpc_least_privilege` applied on prod by owner (PR D / #255) | `20261106000001` (`issue-139-pr-d`) |
+| 2026-10-21 | `20261105000001_profile_field_grants` applied on prod verbatim (PR C / #253) — grants verified live | `20261105000001` (`issue-139-pr-c`) |
+| 2026-10-21 | Backup table `schema_migrations_backup_139_v6` (152 rows = current live, `9a1f7d6e40343759ef6145a8032c7179` name-digest) | — |
 
 Each migration was applied verbatim from the repo file and recorded under its
 **repo version**, so no new drift was introduced.
@@ -74,9 +77,13 @@ History digest formula (used throughout):
 - After `20261023000004` was recorded: **140 rows**
   — rich digest `a8845ab8d900e1d87a920b59ed496313`, name-digest
   `4fd342e5d61cd4bde7020145452676f5` (= backup v4).
-- After the 8 canonical CLI pushes (current pre-state): **148 rows**
+- After the 8 canonical CLI pushes: **148 rows**
   — rich digest `4969688da594ead3ef48f37b8bb3ebe9`, name-digest
   `ea35484df7e41595d022b452534e2a84` (= backup v5).
+- After `20261104000001`, `20261105000001`, `20261106000001`,
+  `20261107000001` (current pre-state): **152 rows**
+  — rich digest `d35a4d6a800bc734cde168b532de226a`, name-digest
+  `9a1f7d6e40343759ef6145a8032c7179` (= backup v6).
 
 ### Schema fingerprint after rollout
 
@@ -121,9 +128,11 @@ Not expected to be needed; if required, re-apply the previous definitions:
     `cecdc8546df1318a8646ad31d4fd731b`.
    - `supabase_migrations.schema_migrations_backup_139_v4` — 140 rows,
      `4fd342e5d61cd4bde7020145452676f5`.
-   - `supabase_migrations.schema_migrations_backup_139_v5` — **148 rows
-     (current live), `ea35484df7e41595d022b452534e2a84`** — this is the table
-     the v5 repair script checks before deleting.
+   - `supabase_migrations.schema_migrations_backup_139_v5` — 148 rows,
+     `ea35484df7e41595d022b452534e2a84`.
+   - `supabase_migrations.schema_migrations_backup_139_v6` — **152 rows
+     (current live), `9a1f7d6e40343759ef6145a8032c7179`** — this is the table
+     the v6 repair script checks before deleting.
    - All copies include original `statements`; no `anon`/`authenticated`
      privileges.
 2. **Off-production, encrypted** (`~/Secure/5pixels-backups/`, mode 0600;
@@ -142,25 +151,30 @@ Not expected to be needed; if required, re-apply the previous definitions:
      `2019ab9b8e16fc4a11010dde5a6fc920d1d51e7b3a2457d69ecea9c4646caf33`;
      round-trip decrypt verified; digest recomputed from the export equals the
      then-live digest `4fd342e5…`.
-   - `schema_migrations_20261021.json.enc` — **148 rows (current)**;
+   - `schema_migrations_20261021.json.enc` — 148 rows;
      plaintext SHA-256
      `c9c9d649d22936a9fddbe842c796676c8bb48744bdfa921db2a7605ea37d58df`;
+     round-trip decrypt verified; digest equals then-live `4969688d…`.
+   - `schema_migrations_20261021b.json.enc` — **152 rows (current)**;
+     plaintext SHA-256
+     `a0bbc3863d13fabe3e883db4ffec446fd76df95b7a9dcfd1ae09b42cec11d4bf`;
      round-trip decrypt verified; digest recomputed from the export equals the
-     live digest `4969688d…`. Passphrase in Keychain item
-     `5pixels-issue139-schema-migrations-20261021`.
+     live digest `d35a4d6a…`. Passphrase in Keychain item
+     `5pixels-issue139-schema-migrations-20261021b`.
    - Recommended: copy the `.enc` files to a second off-machine location
      (owner action).
 
 ## 3. Pending — history repair (awaiting owner authorization)
 
-Scripts: `scripts/ops/issue-139/history_repair.sql` (v5) and
+Scripts: `scripts/ops/issue-139/history_repair.sql` (v6) and
 `scripts/ops/issue-139/history_repair_rollback.sql` (exact text to be run).
-v5 supersedes v4: prod accumulated 8 additional canonical rows
-(`20261028000001`–`20261103000001`, pushed via CLI — all exist as repo files
-on develop), so the pre-state is now **148 rows** and the post-repair count
-is **88**. The deletion set is unchanged (the same 60 app-timestamp
-duplicates); the script is still **delete-only** and its digest guard makes
-it impossible to run against a history that has moved since rehearsal.
+v6 supersedes v5: prod accumulated 4 more canonical rows —
+`20261104000001`, `20261105000001` (PR C grants), `20261106000001` (PR D
+least privilege), `20261107000001` — so the pre-state is now **152 rows**
+and the post-repair count is **92**. The deletion set is unchanged (the
+same 60 app-timestamp duplicates); the script is still **delete-only** and
+its digest guard makes it impossible to run against a history that has
+moved since rehearsal.
 
 **Preconditions before running:**
 
@@ -174,15 +188,15 @@ it impossible to run against a history that has moved since rehearsal.
    closed, not merged.)
 2. `20261023000004_converge_article_media` applied on prod and recorded —
    **done 2026-10-28**.
-3. Live history digest equals `4969688da594ead3ef48f37b8bb3ebe9` — the script
+3. Live history digest equals `d35a4d6a800bc734cde168b532de226a` — the script
    checks this itself and aborts otherwise.
 
 The repair, in one transaction with `LOCK TABLE … IN EXCLUSIVE MODE`:
 
 Deletes the 60 app-timestamp duplicates listed below. Guards: aborts unless
 the pre-state digest matches, exactly 60 targets are listed, all 60 exist in
-`schema_migrations_backup_139_v5`, all 60 still exist in the live history,
-exactly 60 rows are deleted, and the post-count is exactly 88.
+`schema_migrations_backup_139_v6`, all 60 still exist in the live history,
+exactly 60 rows are deleted, and the post-count is exactly 92.
 
 ### Why each deletion is safe
 
@@ -272,25 +286,25 @@ The 6 Articles/editorial app-timestamp duplicates (new in v3):
 | 59 | `20261017075236` | `article_editorial_blocks` | `20261027000001_article_editorial_blocks.sql` (prompt-settings PR) | present (devin-drift-reconcile) | First half of the repo file; fingerprint-identical. |
 | 60 | `20261017075303` | `article_editorial_publish_gate` | same `20261027000001` file | (same row as #59) | Second half (`publish_article` redefinition); fingerprint-identical. |
 
-## 4. Rehearsal v5 (done 2026-10-21, local staging replica)
+## 4. Rehearsal v6 (done 2026-10-21, local staging replica)
 
 Replica construction: local Supabase stack holding production's exact
-**148-row history** (loaded from the verified encrypted export
-`schema_migrations_20261021.json.enc`; digest `4969688d…` byte-identical to
-live). `schema_migrations_backup_139_v5` (148 rows) loaded identically.
+**152-row history** (loaded from the verified encrypted export
+`schema_migrations_20261021b.json.enc`; digest `d35a4d6a…` verified
+identically server-side and in the replica). `schema_migrations_backup_139_v6`
+(152 rows) loaded identically.
 
 | Step | Action | Result |
 |---|---|---|
-| 1 | Load replica + verify digest | 148 rows, `4969688d…` **MATCH** |
-| 2 | `history_repair.sql` (v5, delete-only) | COMMIT; history **88 rows**, digest `1fafe32d169b39b274be835e230a3930` |
-| 3 | Post-repair version set vs canonical set (develop's 84 files + in-flight `20261023000001`–`0004`) | **Identical** — zero remote-only, zero pending |
-| 4 | `history_repair_rollback.sql` | History restored to exactly 148 rows / `4969688d…` (byte-identical to pre-repair) |
-| 5 | `history_repair.sql` again | Back to 88 rows / `1fafe32d…` (repeatable) |
+| 1 | Load replica + verify digest | 152 rows, `d35a4d6a…` **MATCH** |
+| 2 | `history_repair.sql` (v6, delete-only) | COMMIT; history **92 rows**, digest `b0f6f0e708f371fce902f2b49d479978` |
+| 3 | Post-repair version set vs canonical set (develop's 91 files + `20261105000001`) | **Identical** — zero remote-only, zero pending |
+| 4 | `history_repair_rollback.sql` | History restored to exactly 152 rows / `d35a4d6a…` (byte-identical to pre-repair) |
+| 5 | `history_repair.sql` again | Back to 92 rows / `b0f6f0e7…` (repeatable) |
 | 6 | Repair run against already-repaired history | Aborts on digest mismatch — cannot run against a history that moved after rehearsal |
 
-Earlier rehearsals (v2: 127→77; v3: 129→78; v4: 140→80) passed the same
-checks; superseded by v5 after the 8 canonical CLI pushes moved the
-pre-state.
+Earlier rehearsals (v2: 127→77; v3: 129→78; v4: 140→80; v5: 148→88) passed
+the same checks; superseded by v6 after 4 more canonical rows landed.
 
 ### Rehearsal v4 (done 2026-10-28, local staging replica)
 
@@ -353,15 +367,15 @@ and require an owner-approved staging/production smoke.
 ## 6. After the history repair is authorized
 
 1. Confirm preconditions in §3 (merges done, digest still
-   `4969688d…`). If the digest differs — more migrations were applied
+   `d35a4d6a…`). If the digest differs — more migrations were applied
    directly — stop and re-baseline (new backup, updated script, new
    rehearsal).
 2. Run `scripts/ops/issue-139/history_repair.sql` on production.
-3. Verify: **88 rows**, digest `1fafe32d169b39b274be835e230a3930`;
+3. Verify: **92 rows**, digest `b0f6f0e708f371fce902f2b49d479978`;
    `supabase migration list` shows 0 remote-only;
    `supabase db push --dry-run` reports "up to date".
 4. Rollback if anything is off:
    `scripts/ops/issue-139/history_repair_rollback.sql` (restores the 60 rows
-   from `schema_migrations_backup_139_v5`),
-   then re-check digest `4969688d…`.
+   from `schema_migrations_backup_139_v6`),
+   then re-check digest `d35a4d6a…`.
 5. Keep `schema_migrations_backup_139*` for at least one release cycle.

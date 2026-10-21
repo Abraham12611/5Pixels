@@ -1,22 +1,23 @@
--- Issue #139 PR B: migration-history repair v5 (exact production script).
--- Supersedes v4 (re-baselined: prod accumulated 8 additional canonical rows
--- 20261028000001..20261103000001 via CLI push; pre-state is now 148 rows,
--- not 140). Deletion set is unchanged: the same 60 app-timestamp duplicates.
+-- Issue #139 PR B: migration-history repair v6 (exact production script).
+-- Supersedes v5 (re-baselined: prod accumulated 4 more canonical rows —
+-- 20261104000001, 20261105000001 (PR C profile grants, applied 2026-10-21),
+-- 20261106000001 (PR D rpc_least_privilege, applied by owner), and
+-- 20261107000001 — for a 152-row pre-state, not 148). Deletion set is
+-- unchanged: the same 60 app-timestamp duplicates.
 -- Preconditions (operational):
---   * All 9 canonical drift-reconcile rows already present on prod
---     (created_by='devin-drift-reconcile'); this script inserts nothing.
---   * Canonical rows for 20261023000001..0004 (PR A/B migrations) are already
---     recorded on prod; the 3 extra abraham-email rows 20260925151956,
---     20261024000002, 20261026000001 are canonical and MUST remain.
+--   * All canonical rows already present on prod; this script inserts
+--     nothing (delete-only).
+--   * The 3 extra abraham-email rows 20260925151956, 20261024000002,
+--     20261026000001 are canonical and MUST remain.
 --   * Backups: schema_migrations_backup_139 (119), _v2 (126), _v3 (128),
---     _v4 (140), _v5 (148 = current live).
---   * Off-production export: schema_migrations_20261021.json.enc in the
---     Secure backups folder (148 rows, round-trip verified, sha256 in
---     schema_migrations_20261021.sha256; key in Keychain under service
---     '5pixels-issue139-schema-migrations-20261021').
--- Guard: aborts unless the live history digest equals the rehearsed pre-state
--- (148 rows), so it cannot run against a history that has moved since
--- rehearsal.
+--     _v4 (140), _v5 (148), _v6 (152 = current live).
+--   * Off-production export: schema_migrations_20261021b.json.enc in the
+--     Secure backups folder (152 rows, round-trip verified, sha256 in
+--     schema_migrations_20261021b.sha256; key in Keychain under service
+--     '5pixels-issue139-schema-migrations-20261021b').
+-- Guard: aborts unless the live history digest equals the rehearsed
+-- pre-state (152 rows), so it cannot run against a history that has moved
+-- since rehearsal.
 BEGIN;
 LOCK TABLE supabase_migrations.schema_migrations IN EXCLUSIVE MODE;
 DO $$
@@ -88,12 +89,12 @@ DECLARE
 BEGIN
   SELECT md5(string_agg(version||'|'||coalesce(name,'')||'|'||coalesce(created_by,'')||'|'||coalesce(idempotency_key,'')||'|'||coalesce(array_to_string(statements,E'\x1f'),'')||'|'||coalesce(array_to_string(rollback,E'\x1f'),''), E'\x1e' ORDER BY version))
     INTO v_digest FROM supabase_migrations.schema_migrations;
-  IF v_digest <> '4969688da594ead3ef48f37b8bb3ebe9' THEN
-    RAISE EXCEPTION 'history digest % does not match rehearsed pre-state 4969688da594ead3ef48f37b8bb3ebe9; re-plan', v_digest;
+  IF v_digest <> 'd35a4d6a800bc734cde168b532de226a' THEN
+    RAISE EXCEPTION 'history digest % does not match rehearsed pre-state d35a4d6a800bc734cde168b532de226a; re-plan', v_digest;
   END IF;
   IF array_length(v_targets, 1) <> 60 THEN RAISE EXCEPTION 'expected 60 targets'; END IF;
-  IF (SELECT count(*) FROM supabase_migrations.schema_migrations_backup_139_v5 WHERE version = ANY (v_targets)) <> 60 THEN
-    RAISE EXCEPTION 'not all 60 targets are in schema_migrations_backup_139_v5';
+  IF (SELECT count(*) FROM supabase_migrations.schema_migrations_backup_139_v6 WHERE version = ANY (v_targets)) <> 60 THEN
+    RAISE EXCEPTION 'not all 60 targets are in schema_migrations_backup_139_v6';
   END IF;
   IF (SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = ANY (v_targets)) <> 60 THEN
     RAISE EXCEPTION 'not all 60 targets still present in live history';
@@ -102,8 +103,8 @@ BEGIN
   DELETE FROM supabase_migrations.schema_migrations WHERE version = ANY (v_targets);
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   IF v_deleted <> 60 THEN RAISE EXCEPTION 'deleted % rows, expected 60', v_deleted; END IF;
-  IF (SELECT count(*) FROM supabase_migrations.schema_migrations) <> 88 THEN
-    RAISE EXCEPTION 'post-repair count % <> 88', (SELECT count(*) FROM supabase_migrations.schema_migrations);
+  IF (SELECT count(*) FROM supabase_migrations.schema_migrations) <> 92 THEN
+    RAISE EXCEPTION 'post-repair count % <> 92', (SELECT count(*) FROM supabase_migrations.schema_migrations);
   END IF;
 END $$;
 COMMIT;
