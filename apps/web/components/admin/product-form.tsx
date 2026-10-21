@@ -243,6 +243,31 @@ export function ProductForm({
     formState: { errors, isSubmitting, isDirty },
   } = methods;
 
+  // Catalog-status actions update the product independently and call
+  // router.refresh(). RHF only consumes defaultValues at mount; without
+  // syncing this one field, Save Changes can submit the old "active" value
+  // even while Publishing & history correctly displays "draft".
+  // Preserve all other unsaved form edits; never reset the entire form.
+  const lastServerStatus = useRef({
+    productId: initialData?.id,
+    status: initialData?.public_status,
+  });
+  useEffect(() => {
+    const serverStatus = initialData?.public_status;
+    if (!initialData?.id || !serverStatus) return;
+    const previous = lastServerStatus.current;
+    if (
+      previous.productId !== initialData.id ||
+      previous.status !== serverStatus
+    ) {
+      lastServerStatus.current = {
+        productId: initialData.id,
+        status: serverStatus,
+      };
+      setValue("public_status", serverStatus, { shouldDirty: true });
+    }
+  }, [initialData?.id, initialData?.public_status, setValue]);
+
   // The "saved" acknowledgement is transient — revert the dock to the
   // steady-state label a few seconds after the server confirms.
   useEffect(() => {
