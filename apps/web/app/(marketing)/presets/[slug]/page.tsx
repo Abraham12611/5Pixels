@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   getPublicProductBySlug,
+  getPublicProductEditorial,
   getUserFavoriteProductIds,
 } from "@/lib/db/explore";
 import { getPresetFamilyRail } from "@/lib/catalog/family";
@@ -15,17 +16,13 @@ import { PresetFamilySelector } from "@/components/consumer/preset-family-select
 import { ProductMedia } from "@/components/consumer/product-media";
 import { ProductVideoPlayer } from "@/components/consumer/product-video-player";
 import { FavoriteButton } from "@/components/consumer/favorite-button";
-import { TeaserFlow } from "@/components/consumer/teaser-flow";
 import { TeaserLauncher } from "@/components/consumer/teaser-launcher";
 import { ControlPreview } from "@/components/consumer/control-preview";
 import { ExampleGallery } from "@/components/consumer/example-gallery";
 import { RelatedPresets } from "@/components/consumer/related-presets";
 import { RecentPresetRecorder } from "@/components/consumer/recent-preset-recorder";
-import { PresetDetailHero } from "@/components/consumer/mobile/preset-detail-hero";
-import { PresetExamples } from "@/components/consumer/mobile/preset-examples";
-import { WhatYouGet } from "@/components/consumer/what-you-get";
-import { WorksBestWith } from "@/components/consumer/works-best-with";
-import { MobileSection } from "@/components/consumer/mobile/mobile-section";
+import { PresetPromptCard } from "@/components/consumer/preset-prompt-card";
+import { PresetShareButton } from "@/components/consumer/preset-share-button";
 import {
   DockedActionBar,
   MobilePageBottomSpacer,
@@ -37,7 +34,7 @@ import {
 } from "@/lib/catalog/media";
 import { fidelityLabel } from "@/lib/catalog/badges";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
+import { X } from "@phosphor-icons/react/dist/ssr";
 
 interface PresetDetailPageProps {
   params: Promise<{ slug: string }>;
@@ -127,7 +124,10 @@ export default async function PresetDetailPage({
   }
 
   const isFavorite = favoriteIds.includes(product.id);
-  const { data: familyMembers } = await getPresetFamilyRail(product);
+  const [{ data: familyMembers }, editorial] = await Promise.all([
+    getPresetFamilyRail(product),
+    getPublicProductEditorial(product.id),
+  ]);
   // #181: dependent variants are reached by direct link — attribute them to
   // the family root so the shared URL still leads back to discoverable
   // context.
@@ -141,26 +141,26 @@ export default async function PresetDetailPage({
   const videoAsset = product.public_assets.find(
     (asset) => asset.role === "preview_video"
   );
-  const exampleUrls = product.public_assets
-    .filter(
-      (asset) =>
-        asset.role === "example_result" && isImageMimeType(asset.mime_type)
-    )
-    .slice(0, 3)
-    .map((asset) => publicAssetUrl(asset.bucket, asset.storage_key));
   const ctaHref = `/app/create/${product.slug}`;
   const returnPath = `/presets/${product.slug}`;
   const jsonLd = buildJsonLd(product);
   const dockedInfo = "Each run is unique — results will differ";
 
-  const mobileCta = isAuthenticated ? (
-    <Button asChild className="w-full" variant="brand">
+  // Console prompt card: the approved public recipe when one exists, else
+  // the preset description — matching the admin's optional-recipe contract.
+  const description =
+    product.short_description || product.long_description || null;
+  const recipeText = editorial?.publicPromptRecipe ?? null;
+  const promptCardText = recipeText ?? description;
+
+  const cta = isAuthenticated ? (
+    <Button asChild className="w-full" variant="brand" size="lg">
       <Link
         href={ctaHref}
         prefetch={false}
-        aria-label={`Use ${product.name}`}
+        aria-label={`Try ${product.name}`}
       >
-        Use this look
+        Try this look
       </Link>
     </Button>
   ) : (
@@ -188,214 +188,122 @@ export default async function PresetDetailPage({
         />
       )}
 
-      <main className="flex flex-1 flex-col">
-        {/* ============ Mobile composition (07 §3) ============ */}
-        <div className="md:hidden">
-          <PresetDetailHero
-            asset={heroAsset}
-            stillAsset={stillAsset}
-            name={product.name}
-            isPoster={product.type === "poster"}
-          />
+      {/*
+        Lightbox composition (#246-style detail view): the artwork fills the
+        stage while a fixed-width console carries everything else. The page
+        never scrolls on desktop — the console scrolls internally — and the
+        hero is blurred behind the whole surface as ambient backdrop.
+      */}
+      <main className="relative flex flex-1 flex-col">
+        {presetThumbUrl && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- decorative blur, not content */}
+            <img
+              src={presetThumbUrl}
+              alt=""
+              className="h-full w-full scale-125 object-cover opacity-40 blur-3xl"
+            />
+            <div className="bg-ink-950/60 absolute inset-0" />
+          </div>
+        )}
 
-          <div className="px-5 pt-5">
-            <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-1 flex-col md:grid md:h-[calc(100dvh-4rem)] md:grid-cols-[1fr_23rem] md:overflow-hidden">
+          {/* ============ Image stage ============ */}
+          <div className="relative flex h-[46dvh] shrink-0 items-center justify-center p-3 md:h-auto md:min-h-0 md:p-6">
+            <div className="bg-charcoal-800 relative h-full w-full overflow-hidden rounded-2xl">
+              <ProductMedia
+                asset={heroAsset}
+                alt={product.name}
+                className="h-full w-full object-contain"
+                fill
+                priority
+                sizes="(max-width: 768px) 100vw, 70vw"
+              />
+            </div>
+          </div>
+
+          {/* ============ Console ============ */}
+          <aside className="border-cream-100/10 bg-ink-900/95 supports-[backdrop-filter]:bg-ink-900/80 flex min-h-0 flex-1 flex-col border-t backdrop-blur md:h-full md:border-l md:border-t-0">
+            {/* Header — name + category/type + close */}
+            <div className="border-cream-100/10 flex items-start justify-between gap-3 border-b px-5 py-4">
               <div className="min-w-0">
-                <h1 className="font-display text-cream-50 text-[28px] leading-tight">
+                <h1 className="font-display text-cream-50 truncate text-xl font-bold leading-tight">
                   {product.name}
                 </h1>
-                {product.category_name && (
-                  <Link
-                    href={`/explore?category=${product.category_slug}`}
-                    className="text-sm font-medium text-lime-400 hover:underline"
-                  >
-                    {product.category_name}
-                  </Link>
-                )}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  {product.category_name && (
+                    <Link
+                      href={`/explore?category=${product.category_slug}`}
+                      className="font-medium text-lime-400 hover:underline"
+                    >
+                      {product.category_name}
+                    </Link>
+                  )}
+                  <span className="text-text-muted capitalize">
+                    {product.type}
+                  </span>
+                  {fidelityLabel(product.likeness_level) && (
+                    <span className="text-text-muted">
+                      · {fidelityLabel(product.likeness_level)}
+                    </span>
+                  )}
+                </div>
                 {attribution && (
                   <Link
                     href={`/presets/${attribution.slug}`}
-                    className="text-text-secondary mt-0.5 block text-[13px] hover:underline"
+                    className="text-text-secondary mt-1 block text-xs hover:underline"
                   >
                     Part of the {attribution.name} look
                   </Link>
                 )}
               </div>
-              <FavoriteButton
-                productId={product.id}
-                initialIsFavorite={isFavorite}
-                isAuthenticated={isAuthenticated}
-                returnPath={returnPath}
-                preset={{ name: product.name, thumbUrl: presetThumbUrl }}
-              />
+              <Link
+                href="/explore"
+                prefetch={false}
+                aria-label="Back to explore"
+                className="text-text-secondary hover:text-cream-50 hover:bg-charcoal-800 shrink-0 rounded-full p-2 transition-colors"
+              >
+                <X size={18} weight="bold" />
+              </Link>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px] capitalize">
-                {product.type}
-              </span>
-              {fidelityLabel(product.likeness_level) && (
-                <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px]">
-                  {fidelityLabel(product.likeness_level)}
-                </span>
+            {/* Scroll body — hidden-scrollbar, page-level scroll on mobile */}
+            <div className="scrollbar-none min-h-0 flex-1 space-y-5 px-5 py-5 md:overflow-y-auto">
+              {/* Description stands alone only when a recipe fills the card —
+                  otherwise the card already carries it. */}
+              {recipeText && description && (
+                <p className="text-text-secondary text-[0.875rem] leading-5">
+                  {description}
+                </p>
               )}
-            </div>
-
-            {(product.short_description || product.long_description) && (
-              <p className="text-text-secondary mt-3 text-[15px] leading-relaxed">
-                {product.short_description || product.long_description}
-              </p>
-            )}
-
-            {familyMembers.length > 0 && (
-              <div className="mt-5">
-                <PresetFamilySelector
-                  members={familyMembers}
-                  currentProductId={product.id}
-                />
-              </div>
-            )}
-          </div>
-
-          <MobileSection title="What you get">
-            <WhatYouGet product={product} />
-          </MobileSection>
-
-          {exampleUrls.length > 0 && (
-            <MobileSection title="Examples">
-              <PresetExamples urls={exampleUrls} name={product.name} />
-            </MobileSection>
-          )}
-
-          <MobileSection title="Works best with">
-            <WorksBestWith />
-          </MobileSection>
-
-          {product.active_fields.length > 0 && (
-            <MobileSection title="Adjustments">
-              <div className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-5">
-                <ControlPreview fields={product.active_fields} />
-              </div>
-            </MobileSection>
-          )}
-
-          <RelatedPresets
-            product={product}
-            isAuthenticated={isAuthenticated}
-            favoriteIds={favoriteIds}
-            variant="rail"
-          />
-
-          {/* Signed-in shells already carry bottom-nav clearance (pb-24). */}
-          {!isAuthenticated && <MobilePageBottomSpacer />}
-
-          <DockedActionBar info={dockedInfo}>{mobileCta}</DockedActionBar>
-        </div>
-
-        {/* ============ Desktop composition (unchanged) ============ */}
-        <div className="hidden md:block">
-          <div className="border-cream-100/10 bg-charcoal-850 border-b">
-            <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 sm:px-6">
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/explore" prefetch={false}>
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Explore
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          <div className="mx-auto grid w-full max-w-7xl flex-1 gap-8 px-4 py-8 sm:px-6 lg:grid-cols-2 lg:py-12">
-            <div>
-              {/* Height-bounded width: keeps the 4:5 ratio but never grows
-                  taller than the viewport, so the whole preview stays on
-                  screen instead of requiring a scroll (same technique as
-                  StudioStage). 10rem covers the top bar + section padding. */}
-              <div className="bg-charcoal-800 relative aspect-[4/5] overflow-hidden rounded-2xl lg:sticky lg:top-6 lg:w-[min(100%,calc((100dvh_-_10rem)*0.8))]">
-                <ProductMedia
-                  asset={heroAsset}
-                  alt={product.name}
-                  className="h-full w-full"
-                  fill
-                  priority
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                />
-              </div>
-
-              {videoAsset && (
-                <div className="mt-6">
-                  <ProductVideoPlayer
-                    publicUrl={publicAssetUrl(
-                      videoAsset.bucket,
-                      videoAsset.storage_key
-                    )}
-                    posterUrl={presetThumbUrl ?? undefined}
-                    label={`${product.name} preview`}
-                  />
-                </div>
-              )}
-
-              <ExampleGallery publicAssets={product.public_assets} />
-            </div>
-
-            <div className="flex flex-col gap-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  {product.category_name && (
-                    <Link
-                      href={`/explore?category=${product.category_slug}`}
-                      className="text-sm font-medium text-lime-400 hover:underline"
-                    >
-                      {product.category_name}
-                    </Link>
-                  )}
-                  <h1 className="text-cream-50 mt-2 text-3xl font-bold sm:text-4xl">
-                    {product.name}
-                  </h1>
-                  <p className="text-text-muted mt-1 text-sm capitalize">
-                    {product.type}
+              {recipeText &&
+                product.long_description &&
+                product.short_description && (
+                  <p className="text-text-secondary text-[0.875rem] leading-5">
+                    {product.long_description}
                   </p>
-                  {attribution && (
-                    <Link
-                      href={`/presets/${attribution.slug}`}
-                      className="text-text-secondary mt-1 block text-sm hover:underline"
-                    >
-                      Part of the {attribution.name} look
-                    </Link>
-                  )}
-                </div>
-                <FavoriteButton
-                  productId={product.id}
-                  initialIsFavorite={isFavorite}
-                  isAuthenticated={isAuthenticated}
-                  returnPath={returnPath}
-                  preset={{ name: product.name, thumbUrl: presetThumbUrl }}
+                )}
+
+              {promptCardText && (
+                <PresetPromptCard
+                  text={promptCardText}
+                  isRecipe={Boolean(recipeText)}
                 />
-              </div>
-
-              <p className="text-text-secondary text-lg">
-                {product.short_description || product.long_description}
-              </p>
-
-              {product.long_description && product.short_description && (
-                <p className="text-text-secondary">{product.long_description}</p>
               )}
 
-              <div className="flex flex-wrap items-center gap-2">
-                {fidelityLabel(product.likeness_level) && (
-                  <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px]">
-                    {fidelityLabel(product.likeness_level)}
-                  </span>
-                )}
-                <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px] capitalize">
-                  {product.type}
-                </span>
-              </div>
-
-              <p className="text-text-muted text-sm">
-                Works best with clear, well-lit photos — keep the subject
-                centered.
-              </p>
+              {product.active_fields.length > 0 && (
+                <section>
+                  <h2 className="text-cream-50 text-base font-semibold">
+                    Controls
+                  </h2>
+                  <div className="border-cream-100/10 bg-charcoal-850 mt-3 rounded-2xl border p-5">
+                    <ControlPreview fields={product.active_fields} />
+                  </div>
+                </section>
+              )}
 
               {familyMembers.length > 0 && (
                 <PresetFamilySelector
@@ -404,40 +312,65 @@ export default async function PresetDetailPage({
                 />
               )}
 
-              <div className="border-cream-100/10 border-t pt-6">
-                <h2 className="text-cream-50 text-lg font-semibold">Controls</h2>
-                <div className="border-cream-100/10 bg-charcoal-850 mt-4 rounded-2xl border p-6">
-                  <ControlPreview fields={product.active_fields} />
-                </div>
-              </div>
+              {videoAsset && (
+                <ProductVideoPlayer
+                  publicUrl={publicAssetUrl(
+                    videoAsset.bucket,
+                    videoAsset.storage_key
+                  )}
+                  posterUrl={presetThumbUrl ?? undefined}
+                  label={`${product.name} preview`}
+                />
+              )}
 
-              <div className="mt-auto flex flex-col gap-3 pt-6">
-                {isAuthenticated ? (
-                  <Button asChild size="lg" className="w-full sm:w-auto">
-                    <Link
-                      href={ctaHref}
-                      prefetch={false}
-                      aria-label={`Try ${product.name}`}
-                    >
-                      Try this look
-                    </Link>
-                  </Button>
-                ) : (
-                  <TeaserFlow
-                    productVersionId={product.version_id}
-                    presetName={product.name}
-                    heroUrl={presetThumbUrl}
-                  />
-                )}
-              </div>
+              <ExampleGallery publicAssets={product.public_assets} />
+
+              <p className="text-text-muted text-xs">
+                Works best with clear, well-lit photos — keep the subject
+                centered.
+              </p>
 
               <RelatedPresets
                 product={product}
                 isAuthenticated={isAuthenticated}
                 favoriteIds={favoriteIds}
+                variant="rail"
               />
+
+              {/* Signed-in shells already carry bottom-nav clearance. */}
+              {!isAuthenticated && (
+                <div className="md:hidden">
+                  <MobilePageBottomSpacer withDockedBar />
+                </div>
+              )}
             </div>
-          </div>
+
+            {/* Footer — primary CTA (desktop; mobile uses the docked bar)
+                + share/like cluster on every breakpoint */}
+            <div className="border-cream-100/10 shrink-0 border-t px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+              <div className="max-md:hidden">{cta}</div>
+              <div className="mt-3 flex items-center gap-2 max-md:mt-0">
+                <PresetShareButton
+                  path={returnPath}
+                  name={product.name}
+                  className="flex-1"
+                />
+                <FavoriteButton
+                  productId={product.id}
+                  initialIsFavorite={isFavorite}
+                  isAuthenticated={isAuthenticated}
+                  returnPath={returnPath}
+                  preset={{ name: product.name, thumbUrl: presetThumbUrl }}
+                  compact
+                />
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        {/* Mobile pinned CTA — same docked-bar pattern as the rest of the app. */}
+        <div className="md:hidden">
+          <DockedActionBar info={dockedInfo}>{cta}</DockedActionBar>
         </div>
       </main>
     </>
