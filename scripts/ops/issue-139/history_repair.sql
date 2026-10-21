@@ -1,21 +1,21 @@
--- Issue #139 PR B: migration-history repair v4 (exact production script).
--- Supersedes v3 (which still carried the canonical INSERTs; those rows now
--- already exist on prod, applied by devin-drift-reconcile).
+-- Issue #139 PR B: migration-history repair v5 (exact production script).
+-- Supersedes v4 (re-baselined: prod accumulated 8 additional canonical rows
+-- 20261028000001..20261103000001 via CLI push; pre-state is now 148 rows,
+-- not 140). Deletion set is unchanged: the same 60 app-timestamp duplicates.
 -- Preconditions (operational):
---   * #143 (20261023000001), #145 (20261023000002..0004), #146
---     (20261024000001_duplicate_article), #147 (20261024000002,
---     20261026000001), #148 (20261025000001) and the article-prompt-settings
---     PR (20261027000001_article_editorial_blocks) merged to develop with
---     exactly these versions.
---   * 20261023000004_converge_article_media applied on prod and recorded as
---     (version='20261023000004', name='converge_article_media',
---      created_by='issue-139-pr-b'). DONE.
 --   * All 9 canonical drift-reconcile rows already present on prod
 --     (created_by='devin-drift-reconcile'); this script inserts nothing.
+--   * Canonical rows for 20261023000001..0004 (PR A/B migrations) are already
+--     recorded on prod; the 3 extra abraham-email rows 20260925151956,
+--     20261024000002, 20261026000001 are canonical and MUST remain.
 --   * Backups: schema_migrations_backup_139 (119), _v2 (126), _v3 (128),
---     _v4 (140 = current live).
+--     _v4 (140), _v5 (148 = current live).
+--   * Off-production export: schema_migrations_20261021.json.enc in the
+--     Secure backups folder (148 rows, round-trip verified, sha256 in
+--     schema_migrations_20261021.sha256; key in Keychain under service
+--     '5pixels-issue139-schema-migrations-20261021').
 -- Guard: aborts unless the live history digest equals the rehearsed pre-state
--- (140 rows), so it cannot run against a history that has moved since
+-- (148 rows), so it cannot run against a history that has moved since
 -- rehearsal.
 BEGIN;
 LOCK TABLE supabase_migrations.schema_migrations IN EXCLUSIVE MODE;
@@ -88,12 +88,12 @@ DECLARE
 BEGIN
   SELECT md5(string_agg(version||'|'||coalesce(name,'')||'|'||coalesce(created_by,'')||'|'||coalesce(idempotency_key,'')||'|'||coalesce(array_to_string(statements,E'\x1f'),'')||'|'||coalesce(array_to_string(rollback,E'\x1f'),''), E'\x1e' ORDER BY version))
     INTO v_digest FROM supabase_migrations.schema_migrations;
-  IF v_digest <> 'a8845ab8d900e1d87a920b59ed496313' THEN
-    RAISE EXCEPTION 'history digest % does not match rehearsed pre-state a8845ab8d900e1d87a920b59ed496313; re-plan', v_digest;
+  IF v_digest <> '4969688da594ead3ef48f37b8bb3ebe9' THEN
+    RAISE EXCEPTION 'history digest % does not match rehearsed pre-state 4969688da594ead3ef48f37b8bb3ebe9; re-plan', v_digest;
   END IF;
   IF array_length(v_targets, 1) <> 60 THEN RAISE EXCEPTION 'expected 60 targets'; END IF;
-  IF (SELECT count(*) FROM supabase_migrations.schema_migrations_backup_139_v4 WHERE version = ANY (v_targets)) <> 60 THEN
-    RAISE EXCEPTION 'not all 60 targets are in schema_migrations_backup_139_v4';
+  IF (SELECT count(*) FROM supabase_migrations.schema_migrations_backup_139_v5 WHERE version = ANY (v_targets)) <> 60 THEN
+    RAISE EXCEPTION 'not all 60 targets are in schema_migrations_backup_139_v5';
   END IF;
   IF (SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = ANY (v_targets)) <> 60 THEN
     RAISE EXCEPTION 'not all 60 targets still present in live history';
@@ -102,8 +102,8 @@ BEGIN
   DELETE FROM supabase_migrations.schema_migrations WHERE version = ANY (v_targets);
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   IF v_deleted <> 60 THEN RAISE EXCEPTION 'deleted % rows, expected 60', v_deleted; END IF;
-  IF (SELECT count(*) FROM supabase_migrations.schema_migrations) <> 80 THEN
-    RAISE EXCEPTION 'post-repair count % <> 80', (SELECT count(*) FROM supabase_migrations.schema_migrations);
+  IF (SELECT count(*) FROM supabase_migrations.schema_migrations) <> 88 THEN
+    RAISE EXCEPTION 'post-repair count % <> 88', (SELECT count(*) FROM supabase_migrations.schema_migrations);
   END IF;
 END $$;
 COMMIT;
