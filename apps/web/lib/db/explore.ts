@@ -1,6 +1,11 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { mapCatalogRow } from "@/lib/catalog/catalog-rows";
+import {
+  reconcilePrimaryCatalogMedia,
+  type PublicPrimaryMediaRow,
+} from "@/lib/catalog/media";
+import { createServiceClient } from "@/lib/supabase/service";
 import type {
   FavoriteProduct,
   PresetFamilyMember,
@@ -86,9 +91,43 @@ export async function getPublicProductBySlug(
   }
 
   const row = rows[0];
+
+  // The public detail RPC can include an inherited hero link from
+  // product_assets after a variant's independent hero/poster changed.
+  // Resolve only current product pointers, restricted to public preset-media
+  // objects, and replace stale primary-role links. This keeps the detail
+  // hero, OG image and variant rail consistent without touching DB records.
+  const ids = [row.poster_asset_id, row.hero_asset_id].filter(
+    (id): id is string => Boolean(id)
+  );
+  let currentMedia: PublicPrimaryMediaRow[] = [];
+  if (ids.length > 0) {
+    try {
+      const { data: assets, error: mediaError } = await createServiceClient()
+        .from("assets")
+        .select("id, bucket, storage_key, mime_type, width, height")
+        .in("id", [...new Set(ids)])
+        .eq("bucket", "preset-media")
+        .eq("visibility", "public")
+        .is("deleted_at", null);
+      if (mediaError) throw mediaError;
+      currentMedia = (assets ?? []) as PublicPrimaryMediaRow[];
+    } catch {
+      // Keep the page available without showing an incorrect inherited hero.
+      console.error("[getPublicProductBySlug] primary media unavailable");
+    }
+  }
   return {
     data: {
       ...row,
+      public_assets: reconcilePrimaryCatalogMedia(
+        row.public_assets ?? [],
+        {
+          hero_asset_id: row.hero_asset_id,
+          poster_asset_id: row.poster_asset_id,
+        },
+        currentMedia
+      ),
       version_id: row.version_id ?? null,
       credit_cost: Number(row.credit_cost),
       output_sizes: Array.isArray(row.output_sizes) ? row.output_sizes : [],
