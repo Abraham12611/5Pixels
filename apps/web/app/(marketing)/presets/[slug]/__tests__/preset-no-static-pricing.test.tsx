@@ -6,6 +6,15 @@ const getPublicProductBySlug = vi.fn();
 const getUserFavoriteProductIds = vi.fn();
 const getPresetFamilyRail = vi.fn();
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/presets/warm-look",
+  useSearchParams: () => new URLSearchParams(),
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_HTTP_ERROR_FALLBACK;404");
+  }),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser },
@@ -16,6 +25,7 @@ vi.mock("@/lib/db/explore", () => ({
   getPublicProductBySlug: (...args: unknown[]) =>
     getPublicProductBySlug(...args),
   getUserFavoriteProductIds: () => getUserFavoriteProductIds(),
+  getPublicProductEditorial: vi.fn(async () => null),
   // RelatedPresets is stubbed below, but keep the export in case the page
   // wiring changes.
   getPublicProducts: vi.fn(async () => ({ data: [] })),
@@ -25,10 +35,16 @@ vi.mock("@/lib/catalog/family", () => ({
   getPresetFamilyRail: (...args: unknown[]) => getPresetFamilyRail(...args),
 }));
 
-// Async server component — the client renderer can't mount it; pricing
+// Related rail — the swap path resolves related products itself; pricing
 // coverage lives in the rendered surface under test.
-vi.mock("@/components/consumer/related-presets", () => ({
-  RelatedPresets: () => null,
+vi.mock("@/components/consumer/related-presets-section", () => ({
+  RelatedPresetsSection: () => null,
+}));
+
+// Server action used by the lightbox's in-place variant swap — not exercised
+// by these render assertions.
+vi.mock("@/lib/catalog/actions", () => ({
+  fetchPresetView: vi.fn(async () => null),
 }));
 
 vi.mock("@/app/actions/favorites", () => ({ toggleFavorite: vi.fn() }));
@@ -116,11 +132,10 @@ describe("PresetDetailPage — no static credit pricing (#248)", () => {
   it("keeps CTA labels free of the static cost", async () => {
     signedIn();
     await renderPage();
+    // One shared CTA renders in the console footer and the mobile docked
+    // bar — both carry the same "Try {name}" label.
     expect(
       screen.getAllByRole("link", { name: "Try Warm Look" }).length
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByRole("link", { name: "Use Warm Look" }).length
     ).toBeGreaterThan(0);
     for (const link of screen.getAllByRole("link")) {
       expect(link.getAttribute("aria-label") ?? "").not.toMatch(/credit/i);
@@ -138,11 +153,15 @@ describe("PresetDetailPage — no static credit pricing (#248)", () => {
   it("shows the anonymous teaser without a credit price", async () => {
     signedOut();
     await renderPage();
-    const uploader = screen.getByRole("button", {
-      name: /upload your photo/i,
+    // Anon CTAs are the teaser launcher — the flow mounts on tap, so the
+    // page-level affordance is the "Try this look" button itself.
+    const launchers = screen.getAllByRole("button", {
+      name: "Try this look",
     });
-    expect(uploader).toHaveTextContent("Warm Look");
-    expect(uploader).not.toHaveTextContent(/credit/i);
+    expect(launchers.length).toBeGreaterThan(0);
+    for (const launcher of launchers) {
+      expect(launcher).not.toHaveTextContent(/credit/i);
+    }
     expect(screen.queryByText(/\bcredits?\b/i)).not.toBeInTheDocument();
   });
 

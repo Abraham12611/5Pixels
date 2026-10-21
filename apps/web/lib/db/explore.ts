@@ -144,6 +144,35 @@ export async function getPublicProductBySlug(
   };
 }
 
+export interface PublicProductEditorial {
+  publicPromptRecipe: string | null;
+}
+
+/**
+ * Anon-safe editorial read for the preset detail console — returns ONLY the
+ * approved public prompt recipe. `get_public_product_editorial` (#128)
+ * structurally excludes private recipes, provider names and inference
+ * internals.
+ */
+export async function getPublicProductEditorial(
+  productId: string
+): Promise<PublicProductEditorial | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_public_product_editorial", {
+    p_product_id: productId,
+  });
+
+  if (error) {
+    console.error("[getPublicProductEditorial] editorial RPC failed", error);
+    return null;
+  }
+
+  const row = (data ?? [])[0] as
+    | { public_prompt_recipe: string | null }
+    | undefined;
+  return { publicPromptRecipe: row?.public_prompt_recipe ?? null };
+}
+
 /**
  * Ordered family members for a preset — the contract surface the variation
  * rail (#180) consumes. Accepts a parent or any variant id; returns []
