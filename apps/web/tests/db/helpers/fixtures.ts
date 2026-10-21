@@ -49,16 +49,21 @@ export interface TestProduct {
   productVersionId: string;
 }
 
-export async function makeProduct(client: Client): Promise<TestProduct> {
+export async function makeProduct(
+  client: Client,
+  opts: { publicStatus?: string; visibility?: string } = {}
+): Promise<TestProduct> {
   const productId = randomUUID();
   const productVersionId = randomUUID();
   await client.query(
     `INSERT INTO public.products (id, type, slug, name, public_status, visibility)
-     VALUES ($1, 'filter', $2, $3, 'active', 'public')`,
+     VALUES ($1, 'filter', $2, $3, $4, $5)`,
     [
       productId,
       `dbtest-${productId.slice(0, 8)}`,
       `DB Test ${productId.slice(0, 8)}`,
+      opts.publicStatus ?? "active",
+      opts.visibility ?? "public",
     ]
   );
   await client.query(
