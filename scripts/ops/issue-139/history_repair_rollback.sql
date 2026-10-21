@@ -1,5 +1,5 @@
--- Rollback for history_repair.sql v5: restores the 60 deleted rows from
--- schema_migrations_backup_139_v5. Repair v5 inserts nothing, so rollback
+-- Rollback for history_repair.sql v6: restores the 60 deleted rows from
+-- schema_migrations_backup_139_v6. Repair v6 inserts nothing, so rollback
 -- only re-inserts the deleted duplicate rows.
 BEGIN;
 LOCK TABLE supabase_migrations.schema_migrations IN EXCLUSIVE MODE;
@@ -8,7 +8,7 @@ DECLARE
   v_restored INT;
 BEGIN
   INSERT INTO supabase_migrations.schema_migrations
-  SELECT * FROM supabase_migrations.schema_migrations_backup_139_v5
+  SELECT * FROM supabase_migrations.schema_migrations_backup_139_v6
   WHERE version = ANY (ARRAY[
     '20260831185638',
     '20260831191440',
