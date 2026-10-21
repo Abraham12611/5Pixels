@@ -4,4 +4,4 @@
  * changes — signed-in users whose profiles.legal_consent_version is older
  * are asked to re-accept on their next password sign-in.
  */
-export const LEGAL_VERSION = "2026-10-02";
+export const LEGAL_VERSION = "2026-10-21";
