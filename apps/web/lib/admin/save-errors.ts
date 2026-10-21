@@ -14,6 +14,14 @@ export function describeAdminSaveError(error: unknown): string {
         ? error.message
         : "";
 
+  if (/requires an active version before it can be activated/i.test(message)) {
+    return (
+      "This preset has no published recipe version, so Save Changes cannot " +
+      "activate its catalog listing. Set Status to Draft in the main editor " +
+      "before saving, then use Publish version after the draft is saved. " +
+      "Your edits are preserved."
+    );
+  }
   if (/no editable source version/i.test(message)) {
     return (
       "This preset has no saved version — it can't be saved until the " +
