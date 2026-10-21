@@ -44,7 +44,11 @@ function formatDate(iso: string | null): string | null {
   }
 }
 
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -53,6 +57,10 @@ export default async function BillingPage() {
   if (!user) {
     redirect("/login?next=/app/billing");
   }
+
+  // Checkout/portal failures land here as ?error= — surface them or the
+  // user silently bounces back to billing with no explanation (#247).
+  const { error: checkoutError } = await searchParams;
 
   const [
     billing,
@@ -130,6 +138,15 @@ export default async function BillingPage() {
             Your plan, credits, and billing records.
           </p>
         </div>
+
+        {checkoutError && (
+          <p
+            role="alert"
+            className="border-warning/40 bg-warning/10 text-warning rounded-xl border px-4 py-3 text-sm"
+          >
+            {checkoutError}
+          </p>
+        )}
 
         {/* Balance hero */}
         <SettingCard className="relative overflow-hidden">
