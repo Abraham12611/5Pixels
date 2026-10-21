@@ -4,6 +4,7 @@ import {
   isMotionMimeType,
   isVideoMimeType,
   selectCatalogMediaAsset,
+  reconcilePrimaryCatalogMedia,
 } from "@/lib/catalog/media";
 import type { PublicProductAsset } from "@/types/catalog";
 
@@ -74,5 +75,60 @@ describe("mime type helpers", () => {
     expect(isMotionMimeType("image/gif")).toBe(true);
     expect(isMotionMimeType("video/webm")).toBe(true);
     expect(isMotionMimeType("image/png")).toBe(false);
+  });
+});
+
+describe("reconcilePrimaryCatalogMedia (#244)", () => {
+  it("replaces an inherited hero role with the variant's current hero and adds its poster", () => {
+    const oldParentHero = asset("hero", "image/png");
+    const childHero = {
+      id: "child-hero",
+      bucket: "preset-media",
+      storage_key: "child-hero.png",
+      mime_type: "image/png",
+      width: 640,
+      height: 640,
+    };
+    const childPoster = {
+      ...childHero,
+      id: "child-poster",
+      storage_key: "child-poster.png",
+    };
+    const result = reconcilePrimaryCatalogMedia(
+      [oldParentHero, asset("example_result", "image/png")],
+      { hero_asset_id: childHero.id, poster_asset_id: childPoster.id },
+      [childHero, childPoster]
+    );
+    expect(result.find((a) => a.role === "hero")?.asset_id).toBe("child-hero");
+    expect(result.find((a) => a.role === "poster")?.asset_id).toBe("child-poster");
+    expect(result.some((a) => a.asset_id === oldParentHero.asset_id)).toBe(false);
+    expect(result.some((a) => a.role === "example_result")).toBe(true);
+    expect(selectCatalogMediaAsset(result, "hero")?.asset_id).toBe("child-hero");
+    expect(selectCatalogMediaAsset(result, "card")?.asset_id).toBe("child-poster");
+  });
+
+  it("does not expose private or non-image primary rows", () => {
+    const result = reconcilePrimaryCatalogMedia(
+      [asset("hero", "image/png")],
+      { hero_asset_id: "private-hero", poster_asset_id: null },
+      [{
+        id: "private-hero",
+        bucket: "user-assets",
+        storage_key: "private.png",
+        mime_type: "image/png",
+        width: null,
+        height: null,
+      }]
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("preserves original media for legacy products with no primary pointers", () => {
+    const media = [asset("hero", "image/png")];
+    expect(reconcilePrimaryCatalogMedia(
+      media,
+      { hero_asset_id: null, poster_asset_id: null },
+      []
+    )).toEqual(media);
   });
 });
