@@ -288,6 +288,79 @@ export async function canPurchaseWeeklyPass(
   return { allowed: true, reason: "" };
 }
 
+/**
+ * One active/past_due monthly or annual subscription per user (#247).
+ * Until a real upgrade/downgrade flow exists, a new recurring checkout
+ * fails closed while the user already holds one — the user manages or
+ * cancels the current plan instead of silently stacking a second.
+ *
+ * Uses the has_active_recurring_subscription RPC; if it is unavailable
+ * (e.g. migration not yet applied) the same invariant is read directly —
+ * subscriptions/plans are self-readable under RLS. A total failure is
+ * fail-closed.
+ */
+export async function canPurchaseRecurringPlan(
+  userId?: string
+): Promise<EntitlementResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) {
+    return { allowed: false, reason: "Please sign in to continue." };
+  }
+
+  const blocked: EntitlementResult = {
+    allowed: false,
+    reason:
+      "You already have an active plan. Manage or cancel your current plan before changing plans.",
+  };
+  const unavailable: EntitlementResult = {
+    allowed: false,
+    reason: "Billing is temporarily unavailable — try again in a moment.",
+  };
+
+  const { data, error } = await supabase.rpc(
+    "has_active_recurring_subscription",
+    { p_user_id: effectiveUserId }
+  );
+  if (!error) {
+    return data ? blocked : { allowed: true, reason: "" };
+  }
+
+  // RPC missing/unavailable — read the invariant directly.
+  const { data: subs, error: subsError } = await supabase
+    .from("subscriptions")
+    .select("plan_id")
+    .eq("user_id", effectiveUserId)
+    .in("status", ["active", "past_due"]);
+  if (subsError) {
+    console.error("[canPurchaseRecurringPlan] failed", subsError.message);
+    return unavailable;
+  }
+  const planIds = [
+    ...new Set(
+      (subs ?? []).map((s) => s.plan_id as string | null).filter(Boolean)
+    ),
+  ] as string[];
+  if (planIds.length === 0) return { allowed: true, reason: "" };
+
+  const { data: plans, error: plansError } = await supabase
+    .from("plans")
+    .select("type")
+    .in("id", planIds);
+  if (plansError) {
+    console.error("[canPurchaseRecurringPlan] failed", plansError.message);
+    return unavailable;
+  }
+  return (plans ?? []).some(
+    (p) => p.type === "monthly" || p.type === "annual"
+  )
+    ? blocked
+    : { allowed: true, reason: "" };
+}
+
 export async function canPurchaseExtraCredits(
   userId?: string
 ): Promise<EntitlementResult> {

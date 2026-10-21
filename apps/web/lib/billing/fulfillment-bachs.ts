@@ -320,6 +320,91 @@ async function findInvoiceByPeriod(
     : null;
 }
 
+/**
+ * #247 — one active/past_due recurring (monthly/annual) subscription per
+ * user. A second Bachs subscription reaching fulfillment for a user that
+ * already holds one is a billing anomaly: alert ops, grant nothing, and
+ * return 200 so Bachs does not retry-storm the event.
+ */
+export class DuplicateRecurringSubscriptionError extends Error {
+  constructor(
+    readonly userId: string,
+    readonly incomingSubscriptionId: string,
+    readonly existingSubscriptionId: string | null
+  ) {
+    super(
+      `single_recurring_plan: user ${userId} already holds ` +
+        `${existingSubscriptionId ?? "a recurring subscription"}; ` +
+        `refusing ${incomingSubscriptionId}`
+    );
+    this.name = "DuplicateRecurringSubscriptionError";
+  }
+}
+
+/** Matches the subscriptions trigger's distinct message prefix. */
+function isSingleRecurringPlanViolation(error: unknown): boolean {
+  const message = (error as { message?: unknown } | null)?.message;
+  return typeof message === "string" && message.includes("single_recurring_plan");
+}
+
+async function flagDuplicateRecurringSubscription(
+  err: DuplicateRecurringSubscriptionError
+): Promise<void> {
+  console.error(`[billing-anomaly] ${err.message}`);
+  try {
+    const service = createServiceClient();
+    // One open alert per user — a duplicate subscription usually fires a
+    // burst of events (created + invoice.paid + updated).
+    const { data: open } = await service
+      .from("admin_alerts")
+      .select("id")
+      .eq("rule", "duplicate_recurring_subscription")
+      .is("acknowledged_at", null)
+      .is("resolved_at", null)
+      .filter("details->>user_id", "eq", err.userId)
+      .limit(1);
+    if ((open ?? []).length > 0) return;
+
+    const { error } = await service.from("admin_alerts").insert({
+      rule: "duplicate_recurring_subscription",
+      severity: "critical",
+      message:
+        `A second recurring Bachs subscription (${err.incomingSubscriptionId}) ` +
+        `was refused for a user that already holds one — investigate; the ` +
+        `customer may need a refund plus cancellation.`,
+      details: {
+        user_id: err.userId,
+        existing_subscription_id: err.existingSubscriptionId,
+        incoming_subscription_id: err.incomingSubscriptionId,
+      },
+    });
+    if (error) {
+      console.error("[billing-anomaly] alert insert failed:", error.message);
+    }
+  } catch (alertErr) {
+    console.error("[billing-anomaly] alert failed:", alertErr);
+  }
+}
+
+/** The user's current active/past_due recurring plan holder, if any. */
+async function findRecurringConflict(
+  userId: string
+): Promise<string | null> {
+  const service = createServiceClient();
+  const { data: subs } = await service
+    .from("subscriptions")
+    .select("id, plan_id, bachs_subscription_id")
+    .eq("user_id", userId)
+    .in("status", ["active", "past_due"]);
+  for (const sub of subs ?? []) {
+    const plan = await getPlanById(sub.plan_id as string);
+    if (plan && (plan.type === "monthly" || plan.type === "annual")) {
+      return (sub.bachs_subscription_id as string | null) ?? (sub.id as string);
+    }
+  }
+  return null;
+}
+
 async function findSubscriptionByBachsId(bachsSubscriptionId: string) {
   const service = createServiceClient();
   const { data } = await service
@@ -395,8 +480,16 @@ async function upsertSubscription(
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
-    if (error)
+    if (error) {
+      if (isSingleRecurringPlanViolation(error)) {
+        throw new DuplicateRecurringSubscriptionError(
+          userId,
+          info.subscriptionId,
+          null
+        );
+      }
       throw new Error(`Failed to update subscription: ${error.message}`);
+    }
     return { id: existing.id, isNew: false };
   }
 
@@ -407,6 +500,23 @@ async function upsertSubscription(
   }
 
   const isDripped = (plan?.credit_drip_months ?? 1) > 1;
+
+  // #247: a second recurring subscription for this user is a billing
+  // anomaly — refuse it up front with the conflict id for the alert.
+  // The subscriptions trigger remains the final authority under races.
+  const occupiesRecurringSlot =
+    (status === "active" || status === "past_due") &&
+    (plan?.type === "monthly" || plan?.type === "annual");
+  if (occupiesRecurringSlot) {
+    const conflict = await findRecurringConflict(userId);
+    if (conflict) {
+      throw new DuplicateRecurringSubscriptionError(
+        userId,
+        info.subscriptionId,
+        conflict
+      );
+    }
+  }
 
   const { data, error } = await service
     .from("subscriptions")
@@ -434,9 +544,19 @@ async function upsertSubscription(
   if (error || !data) {
     // Concurrent webhook deliveries (subscription.created + updated +
     // invoice.paid arrive together) can all miss the existence check and
-    // race the insert — the unique index on bachs_subscription_id makes
-    // all but one lose. Re-read the winner and update it instead.
+    // race the insert — re-read by provider id FIRST: a winner holding
+    // the same bachs_subscription_id means this was a replay race, not a
+    // second subscription.
     const raced = await findSubscriptionByBachsId(info.subscriptionId);
+    if (!raced && isSingleRecurringPlanViolation(error)) {
+      // The trigger fired on a race the pre-check missed — anomaly, not
+      // a retriable failure.
+      throw new DuplicateRecurringSubscriptionError(
+        userId,
+        info.subscriptionId,
+        null
+      );
+    }
     if (raced) {
       const { error: updateError } = await service
         .from("subscriptions")
@@ -454,6 +574,13 @@ async function upsertSubscription(
         })
         .eq("id", raced.id);
       if (updateError) {
+        if (isSingleRecurringPlanViolation(updateError)) {
+          throw new DuplicateRecurringSubscriptionError(
+            userId,
+            info.subscriptionId,
+            null
+          );
+        }
         throw new Error(
           `Failed to update raced subscription: ${updateError.message}`
         );
@@ -688,11 +815,22 @@ async function fulfillSubscriptionCharge(input: {
     info.productId = plan.bachs_product_id;
   }
 
-  const { id: subscriptionRowId } = await upsertSubscription(
-    mapping.userId,
-    info,
-    mapping.bachsCustomerId
-  );
+  let subscriptionRowId: string;
+  try {
+    ({ id: subscriptionRowId } = await upsertSubscription(
+      mapping.userId,
+      info,
+      mapping.bachsCustomerId
+    ));
+  } catch (err) {
+    if (err instanceof DuplicateRecurringSubscriptionError) {
+      // Anomaly: never activate or grant against a second recurring
+      // subscription — surface it for ops and acknowledge the event.
+      await flagDuplicateRecurringSubscription(err);
+      return;
+    }
+    throw err;
+  }
 
   const invoiceId = await ensureInvoiceForSubscriptionPeriod({
     userId: mapping.userId,
@@ -910,11 +1048,20 @@ export async function fulfillBachsSubscriptionEvent(
   const info = toSubscriptionInfo(subscription);
   if (!info.subscriptionId) return;
 
-  const { id: subscriptionRowId } = await upsertSubscription(
-    mapping.userId,
-    info,
-    mapping.bachsCustomerId
-  );
+  let subscriptionRowId: string;
+  try {
+    ({ id: subscriptionRowId } = await upsertSubscription(
+      mapping.userId,
+      info,
+      mapping.bachsCustomerId
+    ));
+  } catch (err) {
+    if (err instanceof DuplicateRecurringSubscriptionError) {
+      await flagDuplicateRecurringSubscription(err);
+      return;
+    }
+    throw err;
+  }
 
   if (mapSubscriptionStatus(info.status) !== "active") return;
 
@@ -1070,10 +1217,26 @@ export async function markBachsSubscriptionPastDue(
   bachsSubscriptionId: string
 ): Promise<void> {
   const service = createServiceClient();
-  await service
+  const { error } = await service
     .from("subscriptions")
     .update({ status: "past_due", updated_at: new Date().toISOString() })
     .eq("bachs_subscription_id", bachsSubscriptionId);
+  if (error) {
+    if (isSingleRecurringPlanViolation(error)) {
+      // Pre-existing duplicate data: the row being marked past_due
+      // conflicts with another active recurring plan — flag it.
+      const local = await findSubscriptionByBachsId(bachsSubscriptionId);
+      await flagDuplicateRecurringSubscription(
+        new DuplicateRecurringSubscriptionError(
+          local?.userId ?? "",
+          bachsSubscriptionId,
+          null
+        )
+      );
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function markBachsSubscriptionCancelled(

@@ -11,6 +11,7 @@ import type { CheckoutAttribution, CheckoutResult } from "./checkout-shared";
 import { attributionMetadata } from "./checkout-shared";
 import {
   canPurchaseExtraCredits,
+  canPurchaseRecurringPlan,
   canPurchaseTrial,
   canPurchaseWeeklyPass,
 } from "./entitlements";
@@ -76,6 +77,14 @@ export async function createBachsPlanCheckoutSession(
     }
   } else if (plan.type === "extra_credit") {
     const can = await canPurchaseExtraCredits(user.id);
+    if (!can.allowed) {
+      return { error: can.reason };
+    }
+  } else {
+    // monthly/annual recurring — one active plan at a time (#247). A plan
+    // change must go through manage/cancel; never open a second
+    // subscription.
+    const can = await canPurchaseRecurringPlan(user.id);
     if (!can.allowed) {
       return { error: can.reason };
     }
