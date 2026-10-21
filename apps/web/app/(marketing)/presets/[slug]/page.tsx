@@ -23,6 +23,7 @@ import { RelatedPresets } from "@/components/consumer/related-presets";
 import { RecentPresetRecorder } from "@/components/consumer/recent-preset-recorder";
 import { PresetPromptCard } from "@/components/consumer/preset-prompt-card";
 import { PresetShareButton } from "@/components/consumer/preset-share-button";
+import { PresetScrollLock } from "@/components/consumer/preset-scroll-lock";
 import {
   DockedActionBar,
   MobilePageBottomSpacer,
@@ -187,14 +188,18 @@ export default async function PresetDetailPage({
           dangerouslySetInnerHTML={jsonLd}
         />
       )}
+      <PresetScrollLock />
 
       {/*
         Lightbox composition (#246-style detail view): the artwork fills the
-        stage while a fixed-width console carries everything else. The page
-        never scrolls on desktop — the console scrolls internally — and the
-        hero is blurred behind the whole surface as ambient backdrop.
+        stage while a fixed-width console carries everything else. On
+        desktop the surface is a fixed takeover covering the site header and
+        footer entirely — the console scrolls internally and document scroll
+        is locked — while mobile keeps the normal chrome and page flow.
+        z-40 sits above the header/docked chrome but under every overlay
+        (teaser sheet, auth modal, quick view) at z-50+.
       */}
-      <main className="relative flex flex-1 flex-col">
+      <main className="bg-ink-950 relative flex flex-1 flex-col md:fixed md:inset-0 md:z-40">
         {presetThumbUrl && (
           <div
             aria-hidden="true"
@@ -210,7 +215,7 @@ export default async function PresetDetailPage({
           </div>
         )}
 
-        <div className="flex flex-1 flex-col md:grid md:h-[calc(100dvh-4rem)] md:grid-cols-[1fr_23rem] md:overflow-hidden">
+        <div className="flex flex-1 flex-col md:grid md:h-full md:grid-cols-[1fr_23rem] md:overflow-hidden">
           {/* ============ Image stage ============ */}
           <div className="relative flex h-[46dvh] shrink-0 items-center justify-center p-3 md:h-auto md:min-h-0 md:p-6">
             <div className="bg-charcoal-800 relative h-full w-full overflow-hidden rounded-2xl">
