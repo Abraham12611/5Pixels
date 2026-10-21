@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -39,6 +39,26 @@ describe("billing-reconcile cron cadence (#103)", () => {
     expect(cronFor("/api/cron/referral-hold-release").schedule).toBe(
       "30 0 * * *"
     );
+  });
+});
+
+describe("cron registry coverage (#112)", () => {
+  it("every app/api/cron/*/route.ts has a registered schedule in vercel.json", () => {
+    // teaser-sweep shipped its route without a schedule entry — expired
+    // pending generations were never swept in production. Guard the
+    // route→schedule pairing so new crons can't silently go unscheduled.
+    const cronDir = join(__dirname, "../../../app/api/cron");
+    const routes = readdirSync(cronDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => `/api/cron/${d.name}`)
+      .sort();
+    expect(routes.length).toBeGreaterThan(0);
+    for (const path of routes) {
+      expect(
+        vercelJson.crons.map((c) => c.path),
+        `${path} route exists but has no vercel.json schedule`
+      ).toContain(path);
+    }
   });
 });
 
