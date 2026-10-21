@@ -6,6 +6,15 @@ const getPublicProductBySlug = vi.fn();
 const getUserFavoriteProductIds = vi.fn();
 const getPresetFamilyRail = vi.fn();
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/presets/warm-look",
+  useSearchParams: () => new URLSearchParams(),
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_HTTP_ERROR_FALLBACK;404");
+  }),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     auth: { getUser },
@@ -26,10 +35,16 @@ vi.mock("@/lib/catalog/family", () => ({
   getPresetFamilyRail: (...args: unknown[]) => getPresetFamilyRail(...args),
 }));
 
-// Async server component — the client renderer can't mount it; pricing
+// Related rail — the swap path resolves related products itself; pricing
 // coverage lives in the rendered surface under test.
-vi.mock("@/components/consumer/related-presets", () => ({
-  RelatedPresets: () => null,
+vi.mock("@/components/consumer/related-presets-section", () => ({
+  RelatedPresetsSection: () => null,
+}));
+
+// Server action used by the lightbox's in-place variant swap — not exercised
+// by these render assertions.
+vi.mock("@/lib/catalog/actions", () => ({
+  fetchPresetView: vi.fn(async () => null),
 }));
 
 vi.mock("@/app/actions/favorites", () => ({ toggleFavorite: vi.fn() }));
