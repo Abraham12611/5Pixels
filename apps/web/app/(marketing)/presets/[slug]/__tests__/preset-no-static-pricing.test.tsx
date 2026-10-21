@@ -16,6 +16,7 @@ vi.mock("@/lib/db/explore", () => ({
   getPublicProductBySlug: (...args: unknown[]) =>
     getPublicProductBySlug(...args),
   getUserFavoriteProductIds: () => getUserFavoriteProductIds(),
+  getPublicProductEditorial: vi.fn(async () => null),
   // RelatedPresets is stubbed below, but keep the export in case the page
   // wiring changes.
   getPublicProducts: vi.fn(async () => ({ data: [] })),
@@ -116,11 +117,10 @@ describe("PresetDetailPage — no static credit pricing (#248)", () => {
   it("keeps CTA labels free of the static cost", async () => {
     signedIn();
     await renderPage();
+    // One shared CTA renders in the console footer and the mobile docked
+    // bar — both carry the same "Try {name}" label.
     expect(
       screen.getAllByRole("link", { name: "Try Warm Look" }).length
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByRole("link", { name: "Use Warm Look" }).length
     ).toBeGreaterThan(0);
     for (const link of screen.getAllByRole("link")) {
       expect(link.getAttribute("aria-label") ?? "").not.toMatch(/credit/i);
@@ -138,11 +138,15 @@ describe("PresetDetailPage — no static credit pricing (#248)", () => {
   it("shows the anonymous teaser without a credit price", async () => {
     signedOut();
     await renderPage();
-    const uploader = screen.getByRole("button", {
-      name: /upload your photo/i,
+    // Anon CTAs are the teaser launcher — the flow mounts on tap, so the
+    // page-level affordance is the "Try this look" button itself.
+    const launchers = screen.getAllByRole("button", {
+      name: "Try this look",
     });
-    expect(uploader).toHaveTextContent("Warm Look");
-    expect(uploader).not.toHaveTextContent(/credit/i);
+    expect(launchers.length).toBeGreaterThan(0);
+    for (const launcher of launchers) {
+      expect(launcher).not.toHaveTextContent(/credit/i);
+    }
     expect(screen.queryByText(/\bcredits?\b/i)).not.toBeInTheDocument();
   });
 
