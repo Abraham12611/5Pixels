@@ -148,7 +148,7 @@ export async function finalizeAvatarUpload(
       media_type: "image",
       mime_type: actualMimeType,
       bytes: actualSize,
-      visibility: "public",
+      visibility: "private",
       source_type: "avatar",
     })
     .select("id")
