@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Check } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { AuthReturnLink } from "@/components/auth/auth-return-link";
 import { CadenceToggle, type Cadence } from "@/components/promo/cadence-toggle";
 import { OfferBadge } from "@/components/promo/offer-badge";
 import { SaveLine } from "@/components/promo/save-line";
@@ -143,7 +144,7 @@ export function PricingCards({
               </Button>
             ) : (
               <Button asChild variant="secondary" className="w-full">
-                <Link href="/signup">Sign up</Link>
+                <AuthReturnLink href="/signup">Sign up</AuthReturnLink>
               </Button>
             )}
           </div>
