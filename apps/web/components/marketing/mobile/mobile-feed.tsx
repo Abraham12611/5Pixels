@@ -92,11 +92,7 @@ export function MobileFeed({ items, categories }: MobileFeedProps) {
                 key={item.id}
                 type="button"
                 onClick={() => openItem?.(item)}
-                aria-label={`${item.name}, ${item.type}${
-                  item.creditCost
-                    ? `, ${item.creditCost} ${item.creditCost === 1 ? "credit" : "credits"}`
-                    : ""
-                }`}
+                aria-label={`${item.name}, ${item.type}`}
                 className="media-frame relative aspect-[4/5] w-full overflow-hidden rounded-xl text-left"
               >
                 {item.thumbUrl ? (

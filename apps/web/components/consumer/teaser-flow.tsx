@@ -26,13 +26,11 @@ export function TeaserFlow({
   productVersionId,
   presetName,
   heroUrl,
-  creditCost,
   className,
 }: {
   productVersionId: string | null;
   presetName: string;
   heroUrl: string | null;
-  creditCost: number;
   className?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -160,9 +158,7 @@ export function TeaserFlow({
             </span>
           </span>
           <span className="text-lime-400 text-xs font-semibold">
-            {creditCost > 0
-              ? `${presetName} · ${creditCost} ${creditCost === 1 ? "credit" : "credits"}`
-              : presetName}
+            {presetName}
           </span>
         </button>
       )}

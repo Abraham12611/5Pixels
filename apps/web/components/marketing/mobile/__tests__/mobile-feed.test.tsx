@@ -85,6 +85,18 @@ describe("MobileFeed", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not embed the static credit cost in card labels (#248)", () => {
+    renderFeed();
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.getAttribute("aria-label") ?? "").not.toMatch(/credit/i);
+    }
+    expect(
+      screen.getAllByRole("button", { name: "Midnight Premiere, filter" })
+        .length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/\bcredits?\b/i)).not.toBeInTheDocument();
+  });
+
   it("opens the quick sheet when a card is tapped", () => {
     renderFeed();
     fireEvent.click(screen.getAllByText("Modern Cover")[0]!);

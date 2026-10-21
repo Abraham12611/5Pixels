@@ -138,7 +138,7 @@ export function ArticlePresetCard({
             {preset.name}
           </span>
           <span className="text-text-muted text-xs">
-            {TYPE_LABEL[preset.type]} · {preset.creditCost} credits
+            {TYPE_LABEL[preset.type]}
           </span>
         </span>
         <span className="text-text-secondary group-hover:text-lime-300 inline-flex shrink-0 items-center gap-1 text-xs font-medium">
@@ -172,11 +172,16 @@ export function ArticlePresetCard({
               {preset.shortDescription}
             </p>
           )}
-          <p className="text-text-muted mt-1.5 text-xs">
-            {preset.creditCost} credits
-            {preset.categoryName ? ` · ${preset.categoryName}` : ""}
-            {pinnedVersionStale ? " · Shows the current version" : ""}
-          </p>
+          {(preset.categoryName || pinnedVersionStale) && (
+            <p className="text-text-muted mt-1.5 text-xs">
+              {[
+                preset.categoryName,
+                pinnedVersionStale ? "Shows the current version" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
         </div>
         <Link
           href={preset.href}
