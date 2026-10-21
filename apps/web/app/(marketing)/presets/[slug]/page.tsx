@@ -102,11 +102,6 @@ function buildJsonLd(product: Awaited<ReturnType<typeof getPublicProductBySlug>>
       name: product.name,
       description: product.short_description ?? product.long_description,
       applicationCategory: "PhotoApplication",
-      offers: {
-        "@type": "Offer",
-        price: product.credit_cost ?? 0,
-        priceCurrency: "USD",
-      },
       image: heroAsset
         ? publicAssetUrl(heroAsset.bucket, heroAsset.storage_key)
         : undefined,
@@ -156,17 +151,14 @@ export default async function PresetDetailPage({
   const ctaHref = `/app/create/${product.slug}`;
   const returnPath = `/presets/${product.slug}`;
   const jsonLd = buildJsonLd(product);
-  const costLabel = product.credit_cost
-    ? `${product.credit_cost} ${product.credit_cost === 1 ? "credit" : "credits"}`
-    : "Free";
-  const dockedInfo = `${costLabel} · Each run is unique — results will differ`;
+  const dockedInfo = "Each run is unique — results will differ";
 
   const mobileCta = isAuthenticated ? (
     <Button asChild className="w-full" variant="brand">
       <Link
         href={ctaHref}
         prefetch={false}
-        aria-label={`Use ${product.name} — ${costLabel}`}
+        aria-label={`Use ${product.name}`}
       >
         Use this look
       </Link>
@@ -176,7 +168,6 @@ export default async function PresetDetailPage({
       productVersionId={product.version_id}
       presetName={product.name}
       heroUrl={presetThumbUrl}
-      creditCost={product.credit_cost}
       className="w-full"
     />
   );
@@ -242,9 +233,6 @@ export default async function PresetDetailPage({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px] capitalize">
                 {product.type}
-              </span>
-              <span className="bg-charcoal-800 text-cream-50 rounded-md px-2.5 py-1 text-[13px] font-medium tabular-nums">
-                {costLabel}
               </span>
               {fidelityLabel(product.likeness_level) && (
                 <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px]">
@@ -394,9 +382,6 @@ export default async function PresetDetailPage({
               )}
 
               <div className="flex flex-wrap items-center gap-2">
-                <span className="bg-charcoal-800 text-cream-50 rounded-md px-2.5 py-1 text-[13px] font-medium tabular-nums">
-                  {costLabel}
-                </span>
                 {fidelityLabel(product.likeness_level) && (
                   <span className="bg-charcoal-800 text-text-secondary rounded-md px-2.5 py-1 text-[13px]">
                     {fidelityLabel(product.likeness_level)}
@@ -432,14 +417,9 @@ export default async function PresetDetailPage({
                     <Link
                       href={ctaHref}
                       prefetch={false}
-                      aria-label={`Try ${product.name} — ${costLabel}`}
+                      aria-label={`Try ${product.name}`}
                     >
                       Try this look
-                      {product.credit_cost > 0 && (
-                        <span className="text-ink-950/60 text-xs font-medium">
-                          · {costLabel}
-                        </span>
-                      )}
                     </Link>
                   </Button>
                 ) : (
@@ -447,7 +427,6 @@ export default async function PresetDetailPage({
                     productVersionId={product.version_id}
                     presetName={product.name}
                     heroUrl={presetThumbUrl}
-                    creditCost={product.credit_cost}
                   />
                 )}
               </div>

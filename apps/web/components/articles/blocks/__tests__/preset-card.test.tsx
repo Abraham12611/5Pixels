@@ -42,13 +42,13 @@ const CARD: PresetCardData = {
 };
 
 describe("ArticlePresetCard", () => {
-  it("renders name, type badge, credits and the Try this look deep link", () => {
+  it("renders name, type badge and the Try this look deep link — no static price (#248)", () => {
     render(<ArticlePresetCard preset={CARD} />);
     expect(
       screen.getByText("Film Grain Portrait")
     ).toBeInTheDocument();
     expect(screen.getByText("Filter")).toBeInTheDocument();
-    expect(screen.getByText(/4 credits/)).toBeInTheDocument();
+    expect(screen.queryByText(/credit/i)).not.toBeInTheDocument();
     const cta = screen.getByRole("link", { name: /try this look/i });
     expect(cta).toHaveAttribute("href", "/presets/film-grain-portrait");
   });

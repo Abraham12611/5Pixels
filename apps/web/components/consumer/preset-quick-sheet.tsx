@@ -126,10 +126,6 @@ function QuickSheetBody({
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <Chip>{item.type === "poster" ? "Poster" : "Filter"}</Chip>
             {item.categoryName ? <Chip>{item.categoryName}</Chip> : null}
-            <Chip>
-              <Lightning size={11} weight="fill" className="text-lime-400" />
-              {item.creditCost} {item.creditCost === 1 ? "credit" : "credits"}
-            </Chip>
           </div>
         </div>
 

@@ -80,6 +80,12 @@ describe("PresetQuickSheet", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not present the legacy credit cost as a price (#248)", () => {
+    renderSheet();
+    expect(screen.queryByText(/\bcredits?\b/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/4/)).not.toBeInTheDocument();
+  });
+
   it("closes via the explicit close control", () => {
     const onOpenChange = renderSheet();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
