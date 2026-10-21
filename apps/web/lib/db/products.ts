@@ -11,6 +11,7 @@ import {
   publishProductVersionSchema,
   rollbackProductVersionSchema,
   productStatusTransitionSchema,
+  resolveStaleVersionsSchema,
 } from "@/lib/validation/admin-actions";
 import {
   validateCapabilityForRoute,
@@ -26,6 +27,11 @@ import { assertVersionQuotable } from "@/lib/validation/route-publish-check";
 import { isFamilySchemaUnavailableError } from "./schema-errors";
 import { isUserPromptReleased } from "@/lib/generation/user-prompt";
 import { isMultiInputReleased } from "@/lib/generation/release-gates";
+import {
+  selectEditableVersionSync,
+  stalePublishConflict,
+  type VersionRef,
+} from "@/lib/admin/version-selection";
 
 const REFERENCE_ASSET_ROLES = [
   "style_reference",
@@ -388,6 +394,15 @@ export async function publishProductVersion(
     throw new Error("Cannot publish: version not found on this product.");
   }
 
+  // Stale-draft conflict (#251): a version older than the live one must be
+  // resolved through discard/rebase — never silently published over it. The
+  // RPC enforces the same block for direct requests.
+  const staleConflict = stalePublishConflict(
+    version as VersionRef,
+    (product.product_versions ?? []) as VersionRef[]
+  );
+  if (staleConflict) throw new Error(staleConflict);
+
   const parent = product.parent_preset_id
     ? await getFamilyParentRow(supabase, product.parent_preset_id)
     : null;
@@ -491,6 +506,29 @@ export async function rollbackProductVersion(
   if (error) throw error;
 }
 
+/**
+ * Resolve stale drafts (#251): retire every draft/testing version older than
+ * the live version. With `recreate` the live version is also cloned into a
+ * fresh draft, giving the admin an editing target that starts from exactly
+ * what customers use. Atomic server-side; the live version is untouched.
+ */
+export async function resolveStaleVersions(
+  productId: string,
+  recreate: boolean
+) {
+  await requireAdminOrOwner();
+  const input = resolveStaleVersionsSchema.parse({ productId, recreate });
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("admin_resolve_stale_versions", {
+    p_product_id: input.productId,
+    p_create_draft: input.recreate,
+  });
+
+  if (error) throw error;
+  return (data ?? null) as string | null;
+}
+
 export async function transitionProductStatus(
   productId: string,
   newStatus: string,
@@ -542,29 +580,8 @@ export async function duplicateProduct(id: string) {
   return product as { id: string };
 }
 
-/**
- * Select the version an admin should be editing: the current draft if one exists,
- * otherwise the active (published) version. Retired versions are only selectable
- * explicitly via rollback.
- */
-export async function selectEditableVersion(
-  versions: Array<{ id: string; state: string; version_number: number }>
-) {
-  const ordered = [...versions].sort((a, b) => {
-    const stateRank = (state: string) =>
-      ({ draft: 0, testing: 1, active: 2, retired: 3 })[state] ?? 4;
-    const rankDiff = stateRank(a.state) - stateRank(b.state);
-    if (rankDiff !== 0) return rankDiff;
-    return b.version_number - a.version_number;
-  });
-
-  const draft = ordered.find((v) => v.state === "draft");
-  if (draft) return draft;
-
-  const testing = ordered.find((v) => v.state === "testing");
-  if (testing) return testing;
-
-  return ordered.find((v) => v.state === "active") ?? ordered[0] ?? null;
+export async function selectEditableVersion(versions: VersionRef[]) {
+  return selectEditableVersionSync(versions);
 }
 
 /**

@@ -46,6 +46,11 @@ export const publishProductVersionSchema = z.object({
   overrideReason: ownerOverrideReasonSchema.optional(),
 });
 
+export const resolveStaleVersionsSchema = z.object({
+  productId: uuidSchema,
+  recreate: z.boolean(),
+});
+
 export const rollbackProductVersionSchema = z.object({
   productId: uuidSchema,
   targetVersionId: uuidSchema,
