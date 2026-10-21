@@ -17,6 +17,10 @@
       "schedule": "30 0 * * *"
     },
     {
+      "path": "/api/cron/teaser-sweep",
+      "schedule": "15 3 * * *"
+    },
+    {
       "path": "/api/cron/article-media-sweep",
       "schedule": "45 3 * * *"
     }
