@@ -77,7 +77,7 @@ export default async function BillingPage() {
   ]);
 
   if (!billing) {
-    redirect("/login");
+    redirect(`/login?next=${encodeURIComponent("/app/billing")}`);
   }
 
   const name =

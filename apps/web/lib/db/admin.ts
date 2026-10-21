@@ -63,7 +63,7 @@ async function requireAuthSession() {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    redirect("/login");
+    redirect(`/login?next=${encodeURIComponent("/admin")}`);
   }
 
   return { supabase, user };

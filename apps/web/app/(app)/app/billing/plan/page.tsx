@@ -128,7 +128,7 @@ export default async function BillingPlanPage() {
     ]);
 
   if (!billing) {
-    redirect("/login");
+    redirect(`/login?next=${encodeURIComponent("/app/billing/plan")}`);
   }
 
   const name =

@@ -21,6 +21,7 @@ import {
   NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
 import { Button } from "@/components/ui/button";
+import { AuthReturnLink } from "@/components/auth/auth-return-link";
 import { GlobalSearch } from "@/components/consumer/global-search";
 import { LogoMark } from "@/components/logo-mark";
 import type { SearchCategory, SearchPreset } from "@/lib/search";
@@ -237,21 +238,21 @@ export function MarketingHeader({
             </>
           ) : (
             <>
-              <Link
+              <AuthReturnLink
                 href="/login"
                 className="text-cream-50 hidden text-sm font-medium hover:text-lime-400 sm:block"
               >
                 Log in
-              </Link>
+              </AuthReturnLink>
               <Button
                 asChild
                 size="sm"
                 className="bg-lime-500 text-ink-950 hover:bg-lime-400"
               >
-                <Link href="/signup">
+                <AuthReturnLink href="/signup">
                   <Sparkle size={14} weight="fill" className="mr-1" />
                   Try 5Pixels
-                </Link>
+                </AuthReturnLink>
               </Button>
             </>
           )}
@@ -288,22 +289,22 @@ export function MarketingHeader({
             {!isAuthenticated && (
               <>
                 <li>
-                  <Link
+                  <AuthReturnLink
                     href="/login"
                     onClick={() => setMobileOpen(false)}
                     className="text-cream-50 hover:bg-charcoal-800 block rounded-lg px-3 py-2 text-sm font-medium"
                   >
                     Log in
-                  </Link>
+                  </AuthReturnLink>
                 </li>
                 <li>
-                  <Link
+                  <AuthReturnLink
                     href="/signup"
                     onClick={() => setMobileOpen(false)}
                     className="bg-lime-500 text-ink-950 hover:bg-lime-400 mt-2 block rounded-lg px-3 py-2.5 text-sm font-semibold text-center"
                   >
                     Try 5Pixels
-                  </Link>
+                  </AuthReturnLink>
                 </li>
               </>
             )}
