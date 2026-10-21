@@ -98,6 +98,45 @@ describe("ProductForm", () => {
   );
 });
 
+describe("ProductForm — catalog status refresh (#241)", () => {
+  it("uses the updated server status after an independent catalog transition, preserving unsaved edits", async () => {
+    const productId = "0e44dbbd-da50-4a3b-8c2b-35562506f940";
+    const onSubmit = vi.fn().mockResolvedValue({ id: productId });
+    const props = {
+      type: "filter" as const,
+      categories: [],
+      modelCatalog: [],
+      onSubmit,
+    };
+    const { rerender } = render(
+      <ProductForm
+        {...props}
+        initialData={{ ...BASE_DATA, id: productId, public_status: "active" }}
+      />
+    );
+
+    // The owner edits the recipe but independently transitions the catalog
+    // to Draft using Publishing & history, which refreshes server props.
+    fireEvent.change(screen.getByLabelText(/^name/i), {
+      target: { value: "Kept unsaved edit" },
+    });
+    rerender(
+      <ProductForm
+        {...props}
+        initialData={{ ...BASE_DATA, id: productId, public_status: "draft" }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1), {
+      timeout: 20000,
+    });
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      public_status: "draft",
+      name: "Kept unsaved edit",
+    });
+  }, 30_000);
+});
+
 describe("ProductForm — Preset Studio 2.0 defaults (#177)", () => {
   const parents = [
     {
