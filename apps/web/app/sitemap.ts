@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/constants";
 import { getPublishedArticles } from "@/lib/articles/queries";
+import { MODEL_LINES } from "@/lib/marketing/model-lines";
 
 /**
  * Minimal sitemap for the Articles directory (#132).
@@ -28,7 +29,10 @@ const SITEMAP_PAGE_SIZE = 50;
 const SITEMAP_MAX_ARTICLES = 1000;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const entries: MetadataRoute.Sitemap = STATIC_ROUTES.map((path) => ({
+  const entries: MetadataRoute.Sitemap = [
+    ...STATIC_ROUTES,
+    ...MODEL_LINES.flatMap((line) => [line.pageHref, line.presetsHref]),
+  ].map((path) => ({
     url: `${SITE_URL}${path}`,
   }));
 
