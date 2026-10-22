@@ -33,7 +33,7 @@ async function LandingData() {
       1,
       48
     ),
-    getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, 8),
+    getPublicProducts(undefined, undefined, undefined, undefined, "newest", 1, 12),
     getActiveCategories(),
   ]);
 
@@ -56,6 +56,7 @@ async function LandingData() {
     <LandingPage
       isAuthenticated={Boolean(userData.user)}
       products={products}
+      latestProducts={newest}
       categories={categories.map((c) => ({ slug: c.slug, name: c.name }))}
       searchPresets={buildSearchPresets(products, newest)}
       promoLabel={promoLabel}
