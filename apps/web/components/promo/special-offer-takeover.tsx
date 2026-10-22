@@ -160,6 +160,8 @@ export function SpecialOfferTakeover({
       ]);
     }
     if (planInputRef.current) planInputRef.current.value = planId;
+    // Preview mounts must never launch a real checkout.
+    if (isAdminPreview) return;
     checkoutFormRef.current?.submit();
   }
 
