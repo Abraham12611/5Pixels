@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/article-media-sweep",
       "schedule": "45 3 * * *"
+    },
+    {
+      "path": "/api/cron/prompt-recipe-sweep",
+      "schedule": "8 * * * *"
     }
   ]
 }
