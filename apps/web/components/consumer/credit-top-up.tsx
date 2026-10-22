@@ -20,14 +20,16 @@ function translation(credits: number, perTransformation: number): string {
  * Fixed-pack credit top-up: each pack is a plans row mapped to a Bachs
  * product server-side — the form posts only `plan_id`, never an amount.
  * Every option carries the plain-English "what it buys" line (06 §3.2).
+ * `creditsPerTransformation` comes from the cheapest currently-quotable
+ * generation (fresh pricing snapshots), so the estimate is honest.
  */
 export function CreditTopUp({
   packs,
   creditsPerTransformation,
 }: {
   packs: CreditPack[];
-  /** Cheapest active transformation cost — basis for the "≈ N" line. */
-  creditsPerTransformation: number;
+  /** Cheapest currently-quotable transformation — basis for "≈ N". */
+  creditsPerTransformation?: number | null;
 }) {
   if (packs.length === 0) return null;
 
@@ -55,9 +57,11 @@ export function CreditTopUp({
                 <Coins size={14} weight="fill" className="text-lime-400" />
                 {pack.credits.toLocaleString()} credits
               </p>
-              <p className="text-text-muted mt-1 text-xs">
-                {translation(pack.credits, creditsPerTransformation)}
-              </p>
+              {creditsPerTransformation ? (
+                <p className="text-text-muted mt-1 text-xs">
+                  {translation(pack.credits, creditsPerTransformation)}
+                </p>
+              ) : null}
             </div>
             <form action="/api/billing/checkout" method="post">
               <input type="hidden" name="plan_id" value={pack.planId} />

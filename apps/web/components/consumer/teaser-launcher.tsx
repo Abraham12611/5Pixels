@@ -12,7 +12,6 @@ export function TeaserLauncher(props: {
   productVersionId: string | null;
   presetName: string;
   heroUrl: string | null;
-  creditCost: number;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);

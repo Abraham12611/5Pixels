@@ -7,6 +7,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { CookieSettingsButton } from "@/components/consent/cookie-settings-button";
 import { SOCIAL_LINKS, SUPPORT_EMAIL } from "@/lib/constants";
 
@@ -31,6 +32,7 @@ const footerLinks = {
     { label: "Categories", href: "/categories" },
   ],
   Resources: [
+    { label: "Articles", href: "/articles" },
     { label: "How it works", href: "/#how-it-works" },
     { label: "Pricing", href: "/pricing" },
     { label: "FAQ", href: "/pricing#faq" },
@@ -66,18 +68,18 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
               {!isAuthenticated && (
                 <>
-                  <Link
-                    href="/signup"
+                  <AuthModalLink
+                    tab="signup"
                     className="inline-flex items-center justify-center rounded-full bg-ink-950 px-5 py-2.5 text-sm font-semibold text-lime-400 hover:bg-ink-900"
                   >
                     Sign up
-                  </Link>
-                  <Link
-                    href="/login"
+                  </AuthModalLink>
+                  <AuthModalLink
+                    tab="login"
                     className="text-ink-950 text-sm font-medium hover:underline"
                   >
                     Log in
-                  </Link>
+                  </AuthModalLink>
                 </>
               )}
             </div>

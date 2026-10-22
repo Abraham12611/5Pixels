@@ -3,12 +3,19 @@
 import { createClient } from "@/lib/supabase/client";
 import { mapCatalogRow } from "@/lib/catalog/catalog-rows";
 import type { CatalogSort } from "@/lib/db/explore";
-import type { ProductType, PublicProductSummary } from "@/types/catalog";
+import type {
+  ProductType,
+  PublicProductField,
+  PublicProductSummary,
+} from "@/types/catalog";
 
 export interface CatalogPageQuery {
   type?: ProductType | null;
   category?: string | null;
   search?: string | null;
+  /** Restrict the page to these product ids — used by the article preset
+   * block to resolve a block's canonical reference (#127). */
+  productIds?: string[] | null;
   sort?: CatalogSort;
   page?: number;
   pageSize?: number;
@@ -17,6 +24,10 @@ export interface CatalogPageQuery {
 export interface CatalogPage {
   products: PublicProductSummary[];
   totalCount: number;
+  /** Set when the catalog RPC failed — distinguishes a failed request from
+   * a genuinely empty page (the article preset picker needs this to show
+   * its error/retry state, #127). */
+  error?: "catalog_query_failed";
 }
 
 /**
@@ -31,7 +42,10 @@ export async function fetchCatalogPage(
   const { data, error } = await supabase.rpc("get_public_catalog", {
     p_type: query.type ?? null,
     p_category_slug: query.category ?? null,
-    p_product_ids: null,
+    p_product_ids:
+      query.productIds && query.productIds.length > 0
+        ? query.productIds
+        : null,
     p_search: query.search?.trim() || null,
     p_sort: query.sort ?? "featured",
     p_page: query.page ?? 1,
@@ -40,7 +54,7 @@ export async function fetchCatalogPage(
 
   if (error) {
     console.error("[fetchCatalogPage] catalog RPC failed", error);
-    return { products: [], totalCount: 0 };
+    return { products: [], totalCount: 0, error: "catalog_query_failed" };
   }
 
   const rows = (data ?? []) as (PublicProductSummary & {
@@ -49,6 +63,69 @@ export async function fetchCatalogPage(
   return {
     products: rows.map(mapCatalogRow),
     totalCount: rows.length > 0 ? Number(rows[0].total_count ?? 0) : 0,
+  };
+}
+
+export interface ProductEditorial {
+  id: string;
+  slug: string;
+  name: string;
+  type: string;
+  shortDescription: string | null;
+  /** Approved public editorial recipe — never the private system prompt. */
+  publicPromptRecipe: string | null;
+  /** The preset's publicly documented controls, sorted for display. */
+  activeFields: PublicProductField[];
+}
+
+export interface ProductEditorialResult {
+  editorial: ProductEditorial | null;
+  /** Set when the RPC failed — the caller shows its error/retry state. */
+  error?: "catalog_query_failed";
+}
+
+/**
+ * Public editorial read for the article promptRecipe/settings blocks (#128).
+ * Hits `get_public_product_editorial` — an anon-safe RPC that returns ONLY
+ * the approved public recipe and the publicly documented controls. Private
+ * recipes, provider names and inference internals are structurally absent.
+ */
+export async function fetchProductEditorial(
+  productId: string
+): Promise<ProductEditorialResult> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_public_product_editorial", {
+    p_product_id: productId,
+  });
+
+  if (error) {
+    console.error("[fetchProductEditorial] editorial RPC failed", error);
+    return { editorial: null, error: "catalog_query_failed" };
+  }
+
+  const row = (data ?? [])[0] as
+    | {
+        id: string;
+        slug: string;
+        name: string;
+        type: string;
+        short_description: string | null;
+        public_prompt_recipe: string | null;
+        active_fields: PublicProductField[] | null;
+      }
+    | undefined;
+
+  if (!row) return { editorial: null };
+  return {
+    editorial: {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      type: row.type,
+      shortDescription: row.short_description,
+      publicPromptRecipe: row.public_prompt_recipe,
+      activeFields: Array.isArray(row.active_fields) ? row.active_fields : [],
+    },
   };
 }
 

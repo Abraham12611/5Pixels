@@ -1,6 +1,9 @@
 # Free User First Run — Zero-COGS Teaser
 
-Status: **Proposal.** §4 decision is **settled: Option B** (owner, this revision).
+Status: **Shipped** (`lib/teaser/`, `pending_generations`, pre-auth blur
+gate). §4 decision is **settled: Option B** (owner, this revision). Provider
+references below predate the current stack — read "Polar" as "the payment
+processor" (currently Bachs).
 
 ---
 
@@ -178,7 +181,7 @@ Constraints on what may appear here, including as experiment variants:
 - No fake countdowns, no fabricated social proof
 - Trial terms state the end date and the post-trial price adjacent to the button
 
-These are also what Polar will expect if a dispute is ever reviewed.
+These are also what our payment processor will expect if a dispute is ever reviewed.
 
 ---
 

@@ -106,6 +106,12 @@ export async function createPendingGeneration(input: {
   size: number;
   params?: Record<string, unknown>;
   outputSize?: Record<string, unknown>;
+  /**
+   * Deferred-auth input contract (#176): ordered asset ids beyond the
+   * primary upload. The primary sourcePath asset is always ordinal 1 —
+   * callers pass additional inputs here; the DB CHECK validates shape.
+   */
+  inputAssets?: { assetId: string; role?: string }[];
 }): Promise<PendingGeneration> {
   const supabase = await createClient();
   const {
@@ -193,6 +199,13 @@ export async function createPendingGeneration(input: {
       anon_session_id: userId ? null : anonId,
       product_version_id: input.productVersionId,
       source_asset_id: asset.id,
+      input_assets: [
+        { asset_id: asset.id, role: null },
+        ...(input.inputAssets ?? []).map((i) => ({
+          asset_id: i.assetId,
+          role: i.role ?? null,
+        })),
+      ],
       params: input.params ?? {},
       output_size: input.outputSize ?? null,
       teaser_variant: teaserVariant,
@@ -393,7 +406,7 @@ export async function replayPendingGeneration(
     .eq("user_id", user.id)
     .is("consumed_at", null)
     .gt("expires_at", new Date().toISOString())
-    .select("id, product_version_id, source_asset_id, params, output_size")
+    .select("id, product_version_id, source_asset_id, input_assets, params, output_size")
     .maybeSingle();
 
   if (consumeError || !pending) {
@@ -446,10 +459,22 @@ export async function replayPendingGeneration(
     await grantRefereeUnlock(user.id, Number(version.credit_cost));
   }
 
+  // Multi-input contract (#176): replay the stored ordered input set when
+  // present; legacy pending rows (empty input_assets) derive the single
+  // input from source_asset_id.
+  const storedInputs = Array.isArray(pending.input_assets)
+    ? (pending.input_assets as { asset_id?: string; role?: string }[])
+        .filter((i) => typeof i?.asset_id === "string")
+        .map((i) => ({ assetId: i.asset_id as string, role: i.role }))
+    : [];
+
   const result = await createAndSubmitGeneration({
     productId,
     productVersionId: pending.product_version_id as string,
-    sourceAssetId: pending.source_asset_id as string,
+    inputs:
+      storedInputs.length > 0
+        ? storedInputs
+        : [{ assetId: pending.source_asset_id as string }],
     options: (pending.params as Record<string, unknown> | null) ?? {},
     outputSize,
     idempotencyKey: `replay:${pending.id}`,

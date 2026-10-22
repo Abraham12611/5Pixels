@@ -33,7 +33,10 @@ export function RouteFocus() {
         document.querySelector<HTMLElement>("h1");
       if (heading) {
         if (!heading.hasAttribute("tabindex")) heading.tabIndex = -1;
-        heading.focus({ preventScroll: true });
+        // focusVisible:false — AT/keyboard users get the focus move, but
+        // programmatic focus must not paint the global :focus-visible ring
+        // around the page heading on load/navigation.
+        heading.focus({ preventScroll: true, focusVisible: false });
       }
     });
     return () => cancelAnimationFrame(id);

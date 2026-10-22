@@ -1,13 +1,29 @@
-"use server";
-
 import { createClient } from "@/lib/supabase/server";
+
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Returns the signed-in user's id — the only subject these helpers ever
+ * answer for. A caller-supplied `userId` that differs from the session user
+ * (or any `userId` with no session) fails closed to null. See issue #139.
+ */
+async function resolveSubject(
+  supabase: Supabase,
+  userId?: string
+): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  if (userId && userId !== user.id) return null;
+  return user.id;
+}
 
 export interface ActivePlan {
   planId: string;
   slug: string;
   name: string;
   type: string;
-  markupMultiplier: number;
   creditsGrant: number;
   currentPeriodEnd: string | null;
 }
@@ -26,10 +42,7 @@ export type UserTier = "visitor" | "free" | "paid_active" | "paid_exhausted";
  */
 export async function hasEverPaid(userId?: string): Promise<boolean> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return false;
 
   const [invoiceCount, subscriptionCount] = await Promise.all([
@@ -51,10 +64,7 @@ export async function hasEverPaid(userId?: string): Promise<boolean> {
 
 export async function getUserTier(userId?: string): Promise<UserTier> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return "visitor";
 
   const [everPaid, activePlan, balance] = await Promise.all([
@@ -70,10 +80,7 @@ export async function getUserTier(userId?: string): Promise<UserTier> {
 
 export async function getAvailableBalance(userId?: string): Promise<number> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return 0;
 
   const { data, error } = await supabase.rpc("get_available_balance");
@@ -88,10 +95,7 @@ export async function getAvailableBalance(userId?: string): Promise<number> {
 
 export async function getActivePlan(userId?: string): Promise<ActivePlan | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return null;
 
   const { data, error } = await supabase.rpc("get_active_plan_id", {
@@ -105,7 +109,7 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
 
   const { data: plan, error: planError } = await supabase
     .from("plans")
-    .select("id, slug, name, type, markup_multiplier, credits_grant")
+    .select("id, slug, name, type, credits_grant")
     .eq("id", data as string)
     .single();
 
@@ -129,38 +133,14 @@ export async function getActivePlan(userId?: string): Promise<ActivePlan | null>
     slug: plan.slug as string,
     name: plan.name as string,
     type: plan.type as string,
-    markupMultiplier: Number(plan.markup_multiplier),
     creditsGrant: Number(plan.credits_grant ?? 0),
     currentPeriodEnd: (subscription?.current_period_end as string | null) ?? null,
   };
 }
 
-export async function getUserMarkupMultiplier(userId?: string): Promise<number> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
-  if (!effectiveUserId) return 4.0;
-
-  const { data, error } = await supabase.rpc("get_user_markup_multiplier", {
-    p_user_id: effectiveUserId,
-  });
-
-  if (error || data === null) {
-    console.error("[getUserMarkupMultiplier] failed", error?.message);
-    return 4.0;
-  }
-
-  return Number(data);
-}
-
 export async function isMonthlySubscriber(userId?: string): Promise<boolean> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) return false;
 
   const { count, error } = await supabase
@@ -182,10 +162,7 @@ export async function canPurchaseTrial(
   userId?: string
 ): Promise<EntitlementResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
@@ -246,10 +223,7 @@ export async function canPurchaseWeeklyPass(
   userId?: string
 ): Promise<EntitlementResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
@@ -310,12 +284,87 @@ export async function canPurchaseWeeklyPass(
   return { allowed: true, reason: "" };
 }
 
+/**
+ * One active/past_due monthly or annual subscription per user (#247).
+ * Until a real upgrade/downgrade flow exists, a new recurring checkout
+ * fails closed while the user already holds one — the user manages or
+ * cancels the current plan instead of silently stacking a second.
+ *
+ * Uses the has_active_recurring_subscription RPC; if it is unavailable
+ * (e.g. migration not yet applied) the same invariant is read directly —
+ * subscriptions/plans are self-readable under RLS. A total failure is
+ * fail-closed.
+ */
+export async function canPurchaseRecurringPlan(
+  userId?: string
+): Promise<EntitlementResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const effectiveUserId = userId ?? user?.id;
+  if (!effectiveUserId) {
+    return { allowed: false, reason: "Please sign in to continue." };
+  }
+
+  const blocked: EntitlementResult = {
+    allowed: false,
+    reason:
+      "You already have an active plan. Manage or cancel your current plan before changing plans.",
+  };
+  const unavailable: EntitlementResult = {
+    allowed: false,
+    reason: "Billing is temporarily unavailable — try again in a moment.",
+  };
+
+  const { data, error } = await supabase.rpc(
+    "has_active_recurring_subscription",
+    { p_user_id: effectiveUserId }
+  );
+  if (!error) {
+    return data ? blocked : { allowed: true, reason: "" };
+  }
+
+  // RPC missing/unavailable — read the invariant directly.
+  const { data: subs, error: subsError } = await supabase
+    .from("subscriptions")
+    .select("plan_id")
+    .eq("user_id", effectiveUserId)
+    .in("status", ["active", "past_due"]);
+  if (subsError) {
+    console.error("[canPurchaseRecurringPlan] failed", subsError.message);
+    return unavailable;
+  }
+  const planIds = [
+    ...new Set(
+      (subs ?? []).map((s) => s.plan_id as string | null).filter(Boolean)
+    ),
+  ] as string[];
+  if (planIds.length === 0) return { allowed: true, reason: "" };
+
+  const { data: plans, error: plansError } = await supabase
+    .from("plans")
+    .select("type")
+    .in("id", planIds);
+  if (plansError) {
+    console.error("[canPurchaseRecurringPlan] failed", plansError.message);
+    return unavailable;
+  }
+  return (plans ?? []).some(
+    (p) => p.type === "monthly" || p.type === "annual"
+  )
+    ? blocked
+    : { allowed: true, reason: "" };
+}
+
 export async function canPurchaseExtraCredits(
   userId?: string
 ): Promise<EntitlementResult> {
   // Top-ups are open to any signed-in user — the dedicated credits surface
   // sells them to subscribers, lapsed users, and free users alike.
-  if (!userId) {
+  const supabase = await createClient();
+  const effectiveUserId = await resolveSubject(supabase, userId);
+  if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }
   return { allowed: true, reason: "" };
@@ -326,10 +375,7 @@ export async function canGenerate(
   userId?: string
 ): Promise<EntitlementResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const effectiveUserId = userId ?? user?.id;
+  const effectiveUserId = await resolveSubject(supabase, userId);
   if (!effectiveUserId) {
     return { allowed: false, reason: "Please sign in to continue." };
   }

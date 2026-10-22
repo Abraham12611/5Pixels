@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { grantSubsidyCredits } from "./subsidies";
 import { RETENTION_CREDITS } from "./retention-shared";
 
 /**
@@ -45,31 +46,28 @@ export async function claimRetentionCredits(): Promise<
     return { ok: false, error: "This offer applies to recurring plans only." };
   }
 
-  const idempotencyKey = `retention:${sub.id}`;
-  const { data: existing } = await service
-    .from("credit_ledger")
-    .select("id")
-    .eq("idempotency_key", idempotencyKey)
-    .maybeSingle();
-  if (existing) {
-    return { ok: true, credits: RETENTION_CREDITS, already: true };
-  }
-
-  const { error } = await service.from("credit_ledger").insert({
-    user_id: user.id,
-    entry_type: "adjustment",
-    amount: RETENTION_CREDITS,
-    currency_unit: "credits",
-    idempotency_key: idempotencyKey,
-    metadata: { kind: "cancel_retention", subscription_id: sub.id },
+  // Issue #110: retention credits are a real subsidy — the RPC spends
+  // from the monthly `retention` budget, dedupes on the idempotency key,
+  // and fails closed when the program cap is exhausted.
+  const result = await grantSubsidyCredits(service, {
+    userId: user.id,
+    program: "retention",
+    credits: RETENTION_CREDITS,
+    idempotencyKey: `retention:${sub.id}`,
+    metadata: {
+      reason: "cancel_retention",
+      subscription_id: sub.id,
+    },
   });
 
-  if (error) {
-    if (error.message.includes("duplicate key")) {
-      return { ok: true, credits: RETENTION_CREDITS, already: true };
-    }
-    console.error(`[claimRetentionCredits] failed: ${error.message}`);
-    return { ok: false, error: "Couldn't add the credits — try again." };
+  if (result.outcome === "duplicate") {
+    return { ok: true, credits: RETENTION_CREDITS, already: true };
+  }
+  if (result.outcome === "budget_exhausted") {
+    return {
+      ok: false,
+      error: "This offer isn't available right now — try again later.",
+    };
   }
 
   return { ok: true, credits: RETENTION_CREDITS, already: false };

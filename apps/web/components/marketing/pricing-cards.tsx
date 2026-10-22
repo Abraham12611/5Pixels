@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Check } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { CadenceToggle, type Cadence } from "@/components/promo/cadence-toggle";
 import { OfferBadge } from "@/components/promo/offer-badge";
 import { SaveLine } from "@/components/promo/save-line";
@@ -25,9 +25,13 @@ function planBenefits(plan: PlanForPurchase, annual: boolean): string[] {
     "HD downloads",
     "Failed transformations release credits",
   ];
+  const creditsPerDollar =
+    plan.price_cents > 0
+      ? plan.credits_grant / (plan.price_cents / 100)
+      : 0;
   if (annual) benefits.push("Lower credit rate than monthly");
-  else if (plan.markup_multiplier <= 2.5)
-    benefits.push("Lower credit cost per transformation");
+  else if (creditsPerDollar >= 45)
+    benefits.push("More credits per dollar");
   return benefits.slice(0, 5);
 }
 
@@ -80,7 +84,9 @@ export function PricingCards({
           variant={recommended ? "brand" : "secondary"}
           className="w-full"
         >
-          <Link href="/signup?next=/pricing">{label}</Link>
+          <AuthModalLink tab="signup" next="/pricing">
+            {label}
+          </AuthModalLink>
         </Button>
       );
     }
@@ -139,7 +145,7 @@ export function PricingCards({
               </Button>
             ) : (
               <Button asChild variant="secondary" className="w-full">
-                <Link href="/signup">Sign up</Link>
+                <AuthModalLink tab="signup">Sign up</AuthModalLink>
               </Button>
             )}
           </div>
@@ -249,7 +255,9 @@ export function PricingCards({
             </form>
           ) : (
             <Button asChild variant="secondary" size="sm">
-              <Link href="/signup?next=/pricing">Start a weekly pass</Link>
+              <AuthModalLink tab="signup" next="/pricing">
+                Start a weekly pass
+              </AuthModalLink>
             </Button>
           )}
         </div>

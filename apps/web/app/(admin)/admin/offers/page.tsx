@@ -47,19 +47,19 @@ export default async function OffersPage() {
                   : "—";
               return (
                 <li key={c.id} className="p-4">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                     <div className="min-w-0">
-                      <p className="text-cream-50 truncate font-semibold">
+                      <p className="text-cream-50 wrap-anywhere font-semibold">
                         {c.name}
                       </p>
-                      <p className="text-text-muted font-mono text-xs">
+                      <p className="text-text-muted break-all font-mono text-xs">
                         {c.slug}
                       </p>
                       <p className="text-text-muted mt-1 text-xs">
                         {c.audience.join(", ")} · {c.surfaces.join(", ")}
                       </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                       <span
                         className={cn(
                           "rounded-full px-3 py-1 text-xs",

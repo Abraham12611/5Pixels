@@ -65,8 +65,8 @@ function Field({
         {label}
       </p>
       <p
-        className={`text-cream-100 mt-1 text-sm ${
-          mono ? "font-mono" : ""
+        className={`text-cream-100 mt-1 wrap-anywhere text-sm ${
+          mono ? "break-all font-mono" : ""
         }`}
       >
         {value}
@@ -187,9 +187,9 @@ export default async function AdminGenerationDetailPage({
               {generation.creditLedger.map((entry) => (
                 <li
                   key={entry.idempotencyKey}
-                  className="flex items-center justify-between py-2"
+                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2"
                 >
-                  <span className="text-cream-100 text-sm capitalize">
+                  <span className="text-cream-100 wrap-anywhere text-sm capitalize">
                     {entry.entryType.replace(/_/g, " ")}
                   </span>
                   <span

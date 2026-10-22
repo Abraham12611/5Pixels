@@ -13,7 +13,7 @@ export default function AcceptableUsePage() {
   return (
     <LegalPage
       title="Acceptable Use Policy"
-      lastUpdated="September 28, 2026"
+      lastUpdated="October 21, 2026"
       intro={
         <p>
           This Acceptable Use Policy (&ldquo;AUP&rdquo;) defines what is and is
@@ -142,10 +142,12 @@ export default function AcceptableUsePage() {
           body: (
             <>
               <p>
-                User-supplied text inputs are screened by automated moderation
-                systems before a
-                transformation is generated. Inputs that are flagged or denied
-                are refused and never reach our AI providers.
+                We use automated content-moderation services to review inputs
+                before a transformation is generated: text you enter may be
+                screened by OpenAI&rsquo;s content-moderation service, and
+                uploaded images may be screened by an automated NSFW image
+                check. Inputs that are flagged or denied are refused and never
+                reach our AI providers.
               </p>
               <p>
                 Presets are curated and configured server-side with safety

@@ -1,0 +1,241 @@
+import { cache } from "react";
+import { requireAdminOrOwner } from "@/lib/db/admin";
+import { createClient } from "@/lib/supabase/server";
+import { prepareDocumentForEditing } from "./document-media";
+import type {
+  Article,
+  ArticleRevision,
+  ArticleStatus,
+  PublicArticle,
+  PublicArticleSummary,
+  PublicArticleTopic,
+  StaffArticle,
+} from "./types";
+
+const GENERIC_ERROR = "Unable to load articles. Please try again.";
+
+export interface ArticlesResult<T> {
+  data: T;
+  error?: string;
+  totalCount?: number;
+}
+
+/* --------------------------------------------------------------------------
+ * Staff reads — gated by requireAdminOrOwner() AND the staff SELECT policy.
+ * The RLS policy is the real boundary; requireAdminOrOwner gives the app's
+ * redirect behaviour on top.
+ * ------------------------------------------------------------------------ */
+
+export async function listArticlesForStaff(options?: {
+  status?: ArticleStatus;
+  /** Case-insensitive substring match on title OR author email. */
+  search?: string;
+  /** ISO yyyy-mm-dd bounds on updated_at (inclusive). */
+  updatedFrom?: string;
+  updatedTo?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ArticlesResult<StaffArticle[]>> {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  const page = Math.max(1, options?.page ?? 1);
+  const pageSize = Math.min(50, Math.max(1, options?.pageSize ?? 20));
+
+  let query = supabase
+    .from("articles")
+    .select("*", { count: "exact" })
+    .order("updated_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+  if (options?.status) query = query.eq("status", options.status);
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (options?.updatedFrom && DATE_RE.test(options.updatedFrom)) {
+    query = query.gte("updated_at", `${options.updatedFrom}T00:00:00Z`);
+  }
+  if (options?.updatedTo && DATE_RE.test(options.updatedTo)) {
+    query = query.lte("updated_at", `${options.updatedTo}T23:59:59.999Z`);
+  }
+  const search = options?.search?.trim();
+  if (search) {
+    // Escape ilike metacharacters — the pattern is author input. The `or`
+    // form additionally drops characters that would break PostgREST's
+    // or-syntax (quotes, commas, parens, dots).
+    const pattern = `%${search.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const orPattern = pattern.replace(/[",().]/g, "");
+    // Author match is a second lookup: resolve profile ids by email, then
+    // OR them into the article filter so "smith" finds smith@5pixels.ai.
+    const { data: matchedAuthors } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("email", pattern)
+      .limit(50);
+    const authorIds = (matchedAuthors ?? [])
+      .map((a) => (a as { id: string }).id)
+      .filter(Boolean);
+    query =
+      authorIds.length > 0
+        ? query.or(`title.ilike."${orPattern}",author_id.in.(${authorIds.join(",")})`)
+        : query.ilike("title", pattern);
+  }
+
+  const { data, error, count } = await query;
+  if (error) {
+    console.error("[listArticlesForStaff] query failed", error);
+    return { data: [], error: GENERIC_ERROR };
+  }
+
+  const articles = (data ?? []) as Article[];
+  // Resolve author + last-editor identities for the staff table. A second
+  // lookup keeps this independent of FK constraint names.
+  const ids = [
+    ...new Set(
+      articles.flatMap((a) =>
+        [a.author_id, a.last_edited_by].filter((v): v is string => !!v)
+      )
+    ),
+  ];
+  const emails = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .in("id", ids);
+    for (const p of (profiles ?? []) as { id: string; email: string | null }[]) {
+      if (p.email) emails.set(p.id, p.email);
+    }
+  }
+
+  return {
+    data: articles.map((a) => ({
+      ...a,
+      author_email: a.author_id ? (emails.get(a.author_id) ?? null) : null,
+      editor_email: a.last_edited_by
+        ? (emails.get(a.last_edited_by) ?? null)
+        : null,
+    })),
+    totalCount: count ?? 0,
+  };
+}
+
+/** Full working row for the editor. Staff-only (draft content never leaves). */
+export async function getArticleForEditor(
+  articleId: string
+): Promise<ArticlesResult<Article | null>> {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("articles")
+    .select("*")
+    .eq("id", articleId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[getArticleForEditor] query failed", error);
+    return { data: null, error: GENERIC_ERROR };
+  }
+  const article = (data as Article | null) ?? null;
+  if (article) {
+    // Expand asset:// references to staff-gated proxy URLs for the editor.
+    article.draft_content = prepareDocumentForEditing(article.draft_content);
+  }
+  return { data: article };
+}
+
+export async function listArticleRevisions(
+  articleId: string,
+  limit = 50
+): Promise<ArticlesResult<ArticleRevision[]>> {
+  await requireAdminOrOwner();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("article_revisions")
+    .select("*")
+    .eq("article_id", articleId)
+    .order("saved_at", { ascending: false })
+    .limit(Math.min(200, Math.max(1, limit)));
+
+  if (error) {
+    console.error("[listArticleRevisions] query failed", error);
+    return { data: [], error: GENERIC_ERROR };
+  }
+  return { data: (data ?? []) as ArticleRevision[] };
+}
+
+/* --------------------------------------------------------------------------
+ * Public reads — anonymous-safe, fixed-projection SECURITY DEFINER RPCs.
+ * Only published snapshots are reachable; anything else returns no rows.
+ * ------------------------------------------------------------------------ */
+
+export const getPublishedArticles = cache(async function getPublishedArticles(options?: {
+  page?: number;
+  pageSize?: number;
+  topic?: string;
+  /** Free-text search over the published snapshot's title/summary/tags. */
+  query?: string;
+}): Promise<ArticlesResult<PublicArticleSummary[]>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_public_articles", {
+    p_page: options?.page ?? 1,
+    p_page_size: options?.pageSize ?? 12,
+    p_topic: options?.topic ?? null,
+    p_query: options?.query ?? null,
+  });
+
+  if (error) {
+    console.error("[getPublishedArticles] RPC failed", error);
+    return { data: [], error: GENERIC_ERROR };
+  }
+
+  const rows = (data ?? []) as PublicArticleSummary[];
+  const totalCount = rows.length > 0 ? Number(rows[0].total_count ?? 0) : 0;
+  return {
+    data: rows.map((row) => {
+      const clone = { ...row };
+      delete clone.total_count;
+      return clone;
+    }),
+    totalCount,
+  };
+});
+
+/** Distinct topics across live publications — feeds directory filter chips. */
+export const getPublishedArticleTopics = cache(
+  async function getPublishedArticleTopics(): Promise<
+    ArticlesResult<PublicArticleTopic[]>
+  > {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("get_public_article_topics");
+
+    if (error) {
+      console.error("[getPublishedArticleTopics] RPC failed", error);
+      return { data: [], error: GENERIC_ERROR };
+    }
+    return { data: (data ?? []) as PublicArticleTopic[] };
+  }
+);
+
+/**
+ * Published article by slug. Returns null for unpublished, archived or
+ * missing slugs — callers render a 404.
+ */
+export const getPublishedArticleBySlug = cache(
+  async function getPublishedArticleBySlug(
+    slug: string
+  ): Promise<PublicArticle | null> {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("get_public_article_by_slug", {
+      p_slug: slug,
+    });
+
+    if (error) {
+      console.error("[getPublishedArticleBySlug] RPC failed", error);
+      return null;
+    }
+    const rows = (data ?? []) as PublicArticle[];
+    const row = rows[0];
+    if (!row) return null;
+    return { ...row, media: row.media ?? {} };
+  }
+);

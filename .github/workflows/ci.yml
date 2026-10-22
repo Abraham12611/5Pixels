@@ -74,3 +74,39 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r build
+
+  db-integration:
+    name: DB integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
+      - run: pnpm install --frozen-lockfile
+      - name: Start local Supabase stack
+        run: supabase start
+      - name: Export local Supabase credentials
+        run: |
+          # `status -o env` emits shell-quoted KEY="value" pairs; GITHUB_ENV
+          # takes values literally, so the quotes must be stripped.
+          supabase status -o env \
+            | grep -E '^(API_URL|SERVICE_ROLE_KEY)=' \
+            | sed -e 's/^API_URL=/SUPABASE_TEST_URL=/' \
+                  -e 's/^SERVICE_ROLE_KEY=/SUPABASE_TEST_SERVICE_ROLE_KEY=/' \
+                  -e 's/"//g' \
+            >> "$GITHUB_ENV"
+      - name: Apply migrations
+        run: supabase db reset
+      - name: Run financial DB suite
+        run: pnpm --filter @5pixels/web test:db
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop

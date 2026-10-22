@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
 const getUser = vi.fn();
-const selectMaybeSingle = vi.fn();
 const canPurchaseWeeklyPass = vi.fn();
 const hasEverPaid = vi.fn();
 const getPlansForPurchase = vi.fn();
@@ -13,6 +12,19 @@ const redirect = vi.fn((url: string) => {
 
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => redirect(url),
+  usePathname: () => "/pricing/weekly",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("@/app/actions/auth", () => ({
+  signIn: vi.fn(),
+  signUp: vi.fn(),
+  signInWithGoogle: vi.fn(),
+}));
+
+vi.mock("@/lib/referrals/actions", () => ({
+  captureReferral: vi.fn(async () => {}),
+  recordReferralWelcomeEvent: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -24,14 +36,22 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/service", () => ({
   createServiceClient: vi.fn(() => ({
     from: (table: string) => {
-      expect(table).toBe("product_versions");
+      expect(table).toBe("provider_pricing_snapshots");
       return {
         select: () => ({
-          eq: () => ({
+          gt: () => ({
             order: () => ({
-              limit: () => ({
-                maybeSingle: selectMaybeSingle,
-              }),
+              limit: () =>
+                Promise.resolve({
+                  data: [
+                    {
+                      payload: {
+                        pricing_type: "flat_per_request",
+                        unit_price: 0.08,
+                      },
+                    },
+                  ],
+                }),
             }),
           }),
         }),
@@ -106,7 +126,7 @@ describe("WeeklyPassPage", () => {
       weeklyPlus,
       weeklyStarter,
     ]);
-    selectMaybeSingle.mockResolvedValue({ data: { credit_cost: 5 } });
+
     canPurchaseWeeklyPass.mockResolvedValue({ allowed: true, reason: "" });
     hasEverPaid.mockResolvedValue(false);
   });
@@ -120,16 +140,18 @@ describe("WeeklyPassPage", () => {
     expect(screen.getByText(/From \$5/)).toBeInTheDocument();
   });
 
-  it("links anonymous users to signup with the weekly page as return target", async () => {
+  it("opens the signup modal for anonymous users with the weekly page as return target", async () => {
     signedOut();
     await renderPage();
-    const links = screen
-      .getAllByRole("link")
-      .filter((a) => a.getAttribute("href")?.startsWith("/signup"));
-    expect(links.length).toBeGreaterThan(0);
-    for (const link of links) {
-      expect(link.getAttribute("href")).toBe("/signup?next=/pricing/weekly");
-    }
+    const triggers = screen
+      .getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-haspopup") === "dialog");
+    expect(triggers.length).toBeGreaterThan(0);
+    fireEvent.click(triggers[0]);
+    const nextInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="next"]')
+    ).map((input) => input.value);
+    expect(nextInputs).toContain("/pricing/weekly");
   });
 
   it("submits eligible signed-in users straight to checkout", async () => {

@@ -3,13 +3,18 @@ import { notFound } from "next/navigation";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
 import { getPublicProductBySlug } from "@/lib/db/explore";
+import { getPresetFamilyRail } from "@/lib/catalog/family";
 import { createClient } from "@/lib/supabase/server";
 import { getUserCreditBalance } from "@/lib/generation/balance";
 import { getSignedSourceUrlByAssetId } from "@/lib/generation/upload";
+import { isMultiInputReleased } from "@/lib/generation/release-gates";
+import { isUserPromptReleased } from "@/lib/generation/user-prompt";
+import { resolveVariantHandoff } from "@/lib/generation/variant-handoff-server";
 import { getPlansForPurchase } from "@/lib/db/plans";
 import { creditPackOptions } from "@/lib/billing/credit-packs";
 import { getBlockedCreditContext } from "@/lib/billing/segments";
 import { getMyReferralCode } from "@/lib/referrals/rewards";
+import { getCheapestGenerationCredits } from "@/lib/billing/credit-cost";
 import { getOrAssignCampaignForUser } from "@/lib/offers/engine";
 import { CreateGenerationForm } from "./create-form";
 import type { OutputSizeOption } from "@/types/catalog";
@@ -19,10 +24,22 @@ export default async function CreatePage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{
+    from?: string;
+    inputs?: string;
+    roles?: string;
+    variant_from?: string;
+    variant_source?: string;
+  }>;
 }) {
   const { slug } = await params;
-  const { from } = await searchParams;
+  const {
+    from,
+    inputs: inputsParam,
+    roles: rolesParam,
+    variant_from: variantFrom,
+    variant_source: variantSource,
+  } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -31,7 +48,8 @@ export default async function CreatePage({
   const { data: product } = await getPublicProductBySlug(slug);
   if (!product) notFound();
 
-  const [balance, generationCount, plans, cheapest, referralCode] = await Promise.all([
+  const [balance, generationCount, plans, cheapest, referralCode] =
+    await Promise.all([
     user ? getUserCreditBalance() : Promise.resolve(0),
     user
       ? supabase
@@ -41,17 +59,20 @@ export default async function CreatePage({
           .then((r) => r.count ?? 0)
       : Promise.resolve(0),
     getPlansForPurchase(),
-    supabase
-      .from("product_versions")
-      .select("credit_cost")
-      .eq("state", "active")
-      .order("credit_cost", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
+    getCheapestGenerationCredits(),
     user ? getMyReferralCode() : Promise.resolve(null),
   ]);
 
   const generationPaused = process.env.GENERATION_PAUSED === "true";
+  // Multi-image release gate (#178): the admin capability is a
+  // precondition — while the provider pipeline (#193) isn't live, carried
+  // sibling/adjust inputs aren't even resolved and the form renders the
+  // one-photo experience.
+  const multiReleased = isMultiInputReleased();
+  // Prompt release gate (#182): admin `prompt_override_enabled` is a
+  // precondition — while PRESET_USER_PROMPT_ENABLED is off (protected
+  // release switches not yet enabled) no preset exposes the composer.
+  const promptReleased = isUserPromptReleased();
 
   // Blocked-credit routing (06 §2): who the user is decides which recovery
   // surface the Generate gate opens — subscriber top-up, weekly repurchase,
@@ -70,23 +91,46 @@ export default async function CreatePage({
     creditPacks.length > 0
       ? {
           packs: creditPacks,
-          creditsPerTransformation:
-            Number(cheapest?.data?.credit_cost ?? 5) || 5,
+          // Cheapest currently-quotable generation; null omits the
+          // "≈ N transformations" claim rather than inventing a price.
+          creditsPerTransformation: cheapest,
         }
       : null;
 
   // Adjust flow (?from=<generationId>): restore the source photo and the
   // options used for that run. Everything is re-validated at submit time —
   // this only prefills what the user already owned.
-  let initialSource: { assetId: string; url: string; name: string } | null =
-    null;
+  let initialSource: {
+    assetId: string;
+    url: string;
+    name: string;
+    role?: string | null;
+  } | null = null;
   let initialOptions: Record<string, unknown> | null = null;
   let initialSize: OutputSizeOption | null = null;
+  /** The owner's own prompt text from a previous run (Adjust) — private,
+   *  only ever restored for them and only applied on prompt-eligible
+   *  presets (the form gates it). */
+  let initialPrompt: string | null = null;
+  /** Additional staged inputs handed across a sibling-variant switch
+   *  (?inputs=a1,a2) or restored from a multi-input Adjust. The signed-url
+   *  lookup enforces ownership — foreign ids are skipped, never shown. */
+  const initialInputs: {
+    assetId: string;
+    url: string;
+    name: string;
+    role?: string | null;
+  }[] = [];
+  /** Sibling handoff explanations (#184) — drops/reassignments are
+   *  surfaced, never silent. */
+  let variantNotices: string[] = [];
 
   if (from && user) {
     const { data: previous } = await supabase
       .from("generations")
-      .select("product_id, source_asset_id, requested_options, progress")
+      .select(
+        "product_id, source_asset_id, requested_options, progress, user_prompt"
+      )
       .eq("id", from)
       .eq("user_id", user.id)
       .single();
@@ -104,11 +148,43 @@ export default async function CreatePage({
           };
         }
       }
+      // Multi-input presets (#178): Adjust re-stages the full ordered input
+      // set, not just the ordinal-1 projection. Rows are immutable and
+      // owner-scoped, so this can only ever return the caller's own assets.
+      const { data: inputRows } = multiReleased
+        ? await supabase
+            .from("generation_input_assets")
+            .select("asset_id, ordinal")
+            .eq("generation_id", from)
+            .order("ordinal", { ascending: true })
+        : { data: null };
+      if (inputRows && inputRows.length > 1) {
+        for (const row of inputRows) {
+          if (row.asset_id === previous.source_asset_id) continue;
+          try {
+            const url = await getSignedSourceUrlByAssetId(
+              row.asset_id as string
+            );
+            if (url) {
+              initialInputs.push({
+                assetId: row.asset_id as string,
+                url,
+                name: "Your previous photo",
+              });
+            }
+          } catch {
+            // Unresolvable input — skip rather than fail the whole restore.
+          }
+        }
+      }
       if (
         previous.requested_options &&
         typeof previous.requested_options === "object"
       ) {
         initialOptions = previous.requested_options as Record<string, unknown>;
+      }
+      if (typeof previous.user_prompt === "string" && previous.user_prompt) {
+        initialPrompt = previous.user_prompt;
       }
       const progress = previous.progress as Record<string, unknown> | null;
       const prevW = Number(progress?.output_width);
@@ -121,6 +197,59 @@ export default async function CreatePage({
       }
     }
   }
+
+  // Result → sibling handoff (?variant_from=<generationId>): a completed
+  // generation's context carried onto a different preset in the same
+  // family. Distinct from ?from (same-preset Adjust) — resolveVariantHandoff
+  // verifies ownership + shared family root and filters every input,
+  // option and the prompt against THIS preset's capability, returning
+  // notices for whatever can't carry. ?variant_source=output opts into
+  // the finished result as the derivative input instead.
+  if (!from && variantFrom && user) {
+    const restored = await resolveVariantHandoff(product, variantFrom, {
+      useOutputAsSource: variantSource === "output",
+      multiReleased,
+    });
+    if (restored) {
+      initialSource = restored.initialSource;
+      initialInputs.push(...restored.initialInputs);
+      initialOptions = restored.initialOptions;
+      if (restored.initialPrompt) initialPrompt = restored.initialPrompt;
+      variantNotices = restored.notices;
+    }
+  }
+
+  // Sibling-variant carry (?inputs=a1,a2&roles=r1,,r3): a family switch
+  // hands already-uploaded input assets forward with the roles the
+  // switch-time assessment resolved against the target capability —
+  // parallel positional lists, empty role = unassigned (#178/#180).
+  if (!from && inputsParam && user && multiReleased) {
+    const ids = inputsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const roles = (rolesParam ?? "").split(",");
+    for (const [i, id] of ids.entries()) {
+      try {
+        const url = await getSignedSourceUrlByAssetId(id);
+        if (url) {
+          const role = roles[i]?.trim();
+          initialInputs.push({
+            assetId: id,
+            url,
+            name: "Kept photo",
+            role: role || null,
+          });
+        }
+      } catch {
+        // Unresolvable/foreign asset — skip rather than fail the page.
+      }
+    }
+  }
+
+  // The rail needs a thumbnail + the target's input capability per member —
+  // one family RPC + per-member detail fetches; degrades to [] on error.
+  const { data: familyMembers } = await getPresetFamilyRail(product);
 
   return (
     <main className="flex flex-1 flex-col lg:max-h-[calc(100dvh-3.5rem)]">
@@ -142,6 +271,21 @@ export default async function CreatePage({
           </Link>
         </header>
       )}
+      {variantNotices.length > 0 && (
+        <div
+          role="status"
+          className="border-amber-300/20 bg-amber-300/10 mx-4 mt-3 rounded-xl border px-4 py-3 sm:mx-6"
+        >
+          <p className="text-[12px] font-semibold text-amber-300">
+            Carried over from your last look
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-amber-200/90">
+            {variantNotices.map((notice) => (
+              <li key={notice}>{notice}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <CreateGenerationForm
         userId={user?.id ?? null}
         referralCode={referralCode ?? undefined}
@@ -150,8 +294,13 @@ export default async function CreatePage({
         hasPriorGenerations={generationCount > 0}
         generationPaused={generationPaused}
         initialSource={initialSource}
+        initialInputs={initialInputs}
+        family={familyMembers}
+        multiInputReleased={multiReleased}
+        promptReleased={promptReleased}
         initialOptions={initialOptions}
         initialSize={initialSize}
+        initialPrompt={initialPrompt}
         plans={plans}
         blocked={blocked}
         offer={offer}

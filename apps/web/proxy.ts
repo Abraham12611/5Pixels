@@ -1,11 +1,16 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
+// Routes a signed-in visitor should bounce off: credential-entry surfaces.
+// `/update-password` is deliberately NOT here — it requires a session (the
+// page redirects anonymous visitors to /forgot-password?error=link-expired)
+// and both of its legitimate audiences hold one: account-security users
+// changing their password, and recovery-link users whose email link already
+// exchanged into a session at /auth/callback.
 const authRoutes = [
   "/login",
   "/signup",
   "/forgot-password",
-  "/update-password",
 ];
 
 export async function proxy(request: NextRequest) {
@@ -43,7 +48,9 @@ export async function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/admin")) {
     if (!user) {
-      return NextResponse.redirect(new URL("/login", request.url));
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
+      return NextResponse.redirect(loginUrl);
     }
 
     const { data: profile } = await supabase

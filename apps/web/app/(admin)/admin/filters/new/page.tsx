@@ -2,15 +2,21 @@ import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { requireAdmin } from "@/lib/db/admin";
 import { getCategories } from "@/lib/db/categories";
-import { createProduct } from "@/lib/db/products";
+import {
+  createProduct,
+  getEligibleParentPresets,
+  updateProduct,
+} from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
+import { describeAdminSaveError } from "@/lib/admin/save-errors";
 import { ProductForm } from "@/components/admin/product-form";
 
 export default async function NewFilterPage() {
   await requireAdmin();
-  const [categories, modelCatalog] = await Promise.all([
+  const [categories, modelCatalog, eligibleResult] = await Promise.all([
     getCategories(),
     getProviderModelCatalog(),
+    getEligibleParentPresets("filter"),
   ]);
 
   return (
@@ -33,7 +39,29 @@ export default async function NewFilterPage() {
         type="filter"
         categories={categories}
         modelCatalog={modelCatalog}
-        onSubmit={createProduct}
+        eligibleParents={eligibleResult.parents}
+        familySchemaAvailable={eligibleResult.familySchemaAvailable}
+        onSubmit={async (data) => {
+          "use server";
+          // data.id is set when a previous create stayed mounted because
+          // edits were made mid-request (#222) — update that product
+          // instead of inserting a duplicate.
+          if (data.id) {
+            try {
+              await updateProduct(data.id, data);
+              return { id: data.id };
+            } catch (error) {
+              console.error("[admin] filter update failed", error);
+              return { error: describeAdminSaveError(error) };
+            }
+          }
+          try {
+            return await createProduct(data);
+          } catch (error) {
+            console.error("[admin] filter create failed", error);
+            return { error: describeAdminSaveError(error) };
+          }
+        }}
       />
     </>
   );

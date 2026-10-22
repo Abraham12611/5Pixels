@@ -105,7 +105,7 @@ export default async function DiscoverPage({
   } = await supabase.auth.getUser();
 
   if (error || !user) {
-    redirect("/login");
+    redirect(`/login?next=${encodeURIComponent("/app")}`);
   }
 
   // Admin preview: ?offer_preview=<campaignSlug>[:<variant>] — ignored for

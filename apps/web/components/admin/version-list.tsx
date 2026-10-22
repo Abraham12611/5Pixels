@@ -64,7 +64,7 @@ export function VersionList({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-cream-50 text-lg font-semibold">Versions</h2>
         {selected && active && selected.id !== active.id && (
           <Button
@@ -82,13 +82,13 @@ export function VersionList({
           <div
             key={version.id}
             className={cn(
-              "flex items-center justify-between rounded-xl border p-3",
+              "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border p-3",
               version.id === selectedVersionId
                 ? "border-lime-500/40 bg-lime-500/5"
                 : "border-cream-100/10 bg-charcoal-800"
             )}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-cream-50 font-medium">
                 v{version.version_number}
               </span>
@@ -100,17 +100,24 @@ export function VersionList({
               >
                 {version.state}
               </span>
+              {active &&
+                (version.state === "draft" || version.state === "testing") &&
+                version.version_number < active.version_number && (
+                  <span className="bg-warning/20 text-warning rounded-full px-2 py-0.5 text-xs font-medium">
+                    stale
+                  </span>
+                )}
               {version.published_at && (
                 <span className="text-text-muted text-xs">
                   published {new Date(version.published_at).toLocaleDateString()}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-text-secondary text-sm">
                 {version.credit_cost} credits
               </span>
-              <span className="text-text-muted text-xs">
+              <span className="text-text-muted max-w-56 truncate text-xs">
                 {version.provider_strategy.primary_provider}/
                 {version.provider_strategy.primary_model}
               </span>
@@ -259,7 +266,7 @@ function VersionDiff({
                 : "border-cream-100/10 bg-charcoal-800"
             )}
           >
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
               <span className="text-cream-50 text-sm font-medium">
                 {field.label}
               </span>

@@ -21,6 +21,7 @@ import {
   NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu";
 import { Button } from "@/components/ui/button";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { GlobalSearch } from "@/components/consumer/global-search";
 import { LogoMark } from "@/components/logo-mark";
 import type { SearchCategory, SearchPreset } from "@/lib/search";
@@ -88,11 +89,13 @@ const MOBILE_LINKS = [
   { label: "Categories", href: "/categories" },
   { label: "Filters", href: "/explore?type=filter" },
   { label: "Posters", href: "/explore?type=poster" },
+  { label: "Articles", href: "/articles" },
   { label: "How it works", href: "/#how-it-works" },
   { label: "Pricing", href: "/pricing" },
 ];
 
 const navLinks = [
+  { label: "Articles", href: "/articles" },
   { label: "How it works", href: "/#how-it-works" },
   { label: "Pricing", href: "/pricing" },
 ];
@@ -235,21 +238,21 @@ export function MarketingHeader({
             </>
           ) : (
             <>
-              <Link
-                href="/login"
+              <AuthModalLink
+                tab="login"
                 className="text-cream-50 hidden text-sm font-medium hover:text-lime-400 sm:block"
               >
                 Log in
-              </Link>
+              </AuthModalLink>
               <Button
                 asChild
                 size="sm"
                 className="bg-lime-500 text-ink-950 hover:bg-lime-400"
               >
-                <Link href="/signup">
+                <AuthModalLink tab="signup">
                   <Sparkle size={14} weight="fill" className="mr-1" />
                   Try 5Pixels
-                </Link>
+                </AuthModalLink>
               </Button>
             </>
           )}
@@ -286,22 +289,22 @@ export function MarketingHeader({
             {!isAuthenticated && (
               <>
                 <li>
-                  <Link
-                    href="/login"
+                  <AuthModalLink
+                    tab="login"
                     onClick={() => setMobileOpen(false)}
-                    className="text-cream-50 hover:bg-charcoal-800 block rounded-lg px-3 py-2 text-sm font-medium"
+                    className="text-cream-50 hover:bg-charcoal-800 block w-full rounded-lg px-3 py-2 text-left text-sm font-medium"
                   >
                     Log in
-                  </Link>
+                  </AuthModalLink>
                 </li>
                 <li>
-                  <Link
-                    href="/signup"
+                  <AuthModalLink
+                    tab="signup"
                     onClick={() => setMobileOpen(false)}
-                    className="bg-lime-500 text-ink-950 hover:bg-lime-400 mt-2 block rounded-lg px-3 py-2.5 text-sm font-semibold text-center"
+                    className="bg-lime-500 text-ink-950 hover:bg-lime-400 mt-2 block w-full rounded-lg px-3 py-2.5 text-sm font-semibold text-center"
                   >
                     Try 5Pixels
-                  </Link>
+                  </AuthModalLink>
                 </li>
               </>
             )}

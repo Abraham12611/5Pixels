@@ -6,6 +6,7 @@ import {
   useContext,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -32,6 +33,12 @@ interface CookieConsentContextValue {
 const CookieConsentContext =
   createContext<CookieConsentContextValue | null>(null);
 
+// Mount-only subscription — the banner cares that hydration finished, not
+// about storage events from other tabs.
+const subscribeNoop = () => () => {};
+const clientMounted = () => true;
+const serverMounted = () => false;
+
 export function useCookieConsent(): CookieConsentContextValue {
   const ctx = useContext(CookieConsentContext);
   if (!ctx) {
@@ -48,20 +55,26 @@ export function useCookieConsent(): CookieConsentContextValue {
  * pages, and in-app settings can all reopen preferences.
  */
 export function CookieConsentProvider({ children }: { children: ReactNode }) {
-  const [consent, setConsent] = useState<CookieConsent | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  // Mounted via useSyncExternalStore so the first client render matches
+  // the server HTML — a render-phase `typeof window` branch hydrated the
+  // tree with the banner mounted while SSR had none (#418). The stored
+  // record is read lazily once mounted; `choice` holds the in-session pick.
+  const hydrated = useSyncExternalStore(
+    subscribeNoop,
+    clientMounted,
+    serverMounted
+  );
+  const [choice, setChoice] = useState<CookieConsent | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // localStorage is read lazily on first render in the browser — the
-  // provider is a client component, so this runs before paint.
-  if (!hydrated && typeof window !== "undefined") {
-    setConsent(readConsent());
-    setHydrated(true);
-  }
+  const consent = useMemo(
+    () => (hydrated ? (choice ?? readConsent()) : null),
+    [hydrated, choice]
+  );
 
   const persist = useCallback((next: CookieConsent) => {
     writeConsent(next);
-    setConsent(next);
+    setChoice(next);
   }, []);
 
   const saveConsent = useCallback(

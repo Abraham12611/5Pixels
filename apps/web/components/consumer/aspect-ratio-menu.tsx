@@ -3,6 +3,7 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -167,11 +168,10 @@ export function AspectRatioMenu({
           {sizes.map((size) => {
             const isSelected = outputSizeKey(size) === selectedKey;
             return (
-              <button
+              <DropdownMenuItem
                 key={outputSizeKey(size)}
-                type="button"
                 disabled={disabled}
-                onClick={() => onChange(size)}
+                onSelect={() => onChange(size)}
                 className={cn(
                   "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm transition",
                   isSelected
@@ -203,7 +203,7 @@ export function AspectRatioMenu({
                       : `${aspectLabel(size)} · ${size.width} × ${size.height}`}
                   </span>
                 </span>
-              </button>
+              </DropdownMenuItem>
             );
           })}
         </div>

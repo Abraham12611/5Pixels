@@ -4,6 +4,8 @@ import {
   getProductAssetPreviews,
   getProductById,
   getProductReferenceAssets,
+  getEligibleParentPresets,
+  getPresetFamilyForAdmin,
   attachReferenceAsset,
   detachReferenceAsset,
   publishProductVersion,
@@ -11,20 +13,34 @@ import {
   transitionProductStatus,
   updateProduct,
   selectEditableVersion,
+  resolveStaleVersions,
+  duplicateProductAsVariant,
+  reorderFamilyVariants,
+  updateVariantSummary,
 } from "@/lib/db/products";
 import { getProviderModelCatalog } from "@/lib/db/provider-catalog";
 import { ProductForm } from "./product-form";
-import { PublishButton } from "./publish-button";
-import { ProductActions } from "./product-actions";
-import { VersionRollback } from "./version-rollback";
-import { VersionList, type VersionSummary } from "./version-list";
+import { type VersionSummary } from "./version-list";
 import { ReferenceAssetManager } from "./reference-asset-manager";
+import { FamilyPanel } from "./family-panel";
+import { StaleDraftBanner } from "./stale-draft-banner";
+import { selectStaleVersions } from "@/lib/admin/version-selection";
+import { PublishingSection } from "./publishing-section";
+import {
+  EditorSectionGroup,
+  REFERENCES_SECTION,
+  PUBLISHING_SECTION,
+} from "./editor-shell";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import type { ProductCreateInput } from "@5pixels/shared";
 import { validatePublishGates } from "@/lib/validation/publish-gates";
+import { getRouteCapability } from "@/lib/ai/route-capabilities";
+import { isUserPromptReleased } from "@/lib/generation/user-prompt";
+import { isMultiInputReleased } from "@/lib/generation/release-gates";
 import { coerceCreditCost } from "@/lib/admin/coerce";
+import { describeAdminSaveError } from "@/lib/admin/save-errors";
 
 interface EditProductPageProps {
   id: string;
@@ -36,18 +52,55 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const product = await getProductById(id);
   if (!product || product.type !== type) notFound();
 
-  const [categories, assetPreviewById, referenceAssets, modelCatalog] =
-    await Promise.all([
-      getCategories(),
-      getProductAssetPreviews([
-        product.hero_asset_id,
-        product.poster_asset_id,
-        product.preview_video_asset_id,
-        product.preview_gif_asset_id,
-      ]),
-      getProductReferenceAssets(id),
-      getProviderModelCatalog(),
-    ]);
+  const [
+    categories,
+    assetPreviewById,
+    referenceAssets,
+    modelCatalog,
+    eligibleResult,
+    familyResult,
+  ] = await Promise.all([
+    getCategories(),
+    getProductAssetPreviews([
+      product.hero_asset_id,
+      product.poster_asset_id,
+      product.preview_video_asset_id,
+      product.preview_gif_asset_id,
+    ]),
+    getProductReferenceAssets(id),
+    getProviderModelCatalog(),
+    getEligibleParentPresets(type, id),
+    getPresetFamilyForAdmin(id),
+  ]);
+
+  const eligibleParents = eligibleResult.parents;
+  const family = familyResult.family;
+  const familySchemaAvailable =
+    eligibleResult.familySchemaAvailable && familyResult.familySchemaAvailable;
+
+  // Admin private reference assets share the route's input-image budget —
+  // the multi-image config must fit in what remains.
+  const adminReferenceCount = referenceAssets.filter((a) =>
+    ["style_reference", "composition_reference", "layout_reference"].includes(
+      a.role
+    )
+  ).length;
+
+  const familyHeroUrls = await getProductAssetPreviews([
+    family?.root.hero_asset_id,
+    ...(family?.children ?? []).map((c) => c.hero_asset_id),
+  ]);
+  const heroUrlByProduct: Record<string, string> = {};
+  if (family) {
+    if (family.root.hero_asset_id && familyHeroUrls[family.root.hero_asset_id]) {
+      heroUrlByProduct[family.root.id] = familyHeroUrls[family.root.hero_asset_id]!.publicUrl;
+    }
+    for (const child of family.children) {
+      if (child.hero_asset_id && familyHeroUrls[child.hero_asset_id]) {
+        heroUrlByProduct[child.id] = familyHeroUrls[child.hero_asset_id]!.publicUrl;
+      }
+    }
+  }
 
   const versions = Array.isArray(product.product_versions)
     ? product.product_versions
@@ -76,6 +129,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   const metadata = (product.metadata ?? {}) as {
     filter_config?: ProductCreateInput["filter_config"];
     poster_config?: ProductCreateInput["poster_config"];
+    prompt_ui?: ProductCreateInput["prompt_ui"];
   };
 
   const initialData: ProductCreateInput & { id?: string } = {
@@ -85,6 +139,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     name: product.name,
     short_description: product.short_description ?? undefined,
     long_description: product.long_description ?? undefined,
+    public_prompt_recipe: product.public_prompt_recipe ?? undefined,
     category_id: product.category_id ?? undefined,
     public_status: product.public_status,
     visibility: product.visibility,
@@ -95,6 +150,14 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
     likeness_level: product.likeness_level ?? undefined,
     featured_rank: product.featured_rank ?? undefined,
     credit_cost: versionCreditCost ?? Number(product.credit_cost ?? 0),
+    parent_preset_id:
+      (product.parent_preset_id as string | null | undefined) ?? undefined,
+    standalone_discoverable: Boolean(product.standalone_discoverable),
+    variant_display_name:
+      (product.variant_display_name as string | null | undefined) ??
+      undefined,
+    variant_sort_order: Number(product.variant_sort_order ?? 0),
+    prompt_ui: metadata.prompt_ui,
     version: {
       id: version?.id as string | undefined,
       version_number: (version?.version_number as number) ?? 1,
@@ -120,6 +183,18 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         (version?.input_validation_config as
           | ProductCreateInput["version"]["input_validation_config"]
           | undefined) ?? {},
+      input_capability: {
+        input_mode:
+          ((version?.input_mode as "single" | "multi" | undefined) ??
+            "single"),
+        input_min_images: Number(version?.input_min_images ?? 1),
+        input_max_images: Number(version?.input_max_images ?? 1),
+        input_image_roles: Array.isArray(version?.input_image_roles)
+          ? (version.input_image_roles as ProductCreateInput["version"]["input_capability"]["input_image_roles"])
+          : [],
+        prompt_override_enabled: Boolean(version?.prompt_override_enabled),
+        prompt_max_chars: Number(version?.prompt_max_chars ?? 0),
+      },
       post_process_config: (version?.post_process_config as
         ProductCreateInput["version"]["post_process_config"] | undefined) ?? {
         crop: false,
@@ -193,6 +268,9 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       hero_asset_id: product.hero_asset_id ?? undefined,
       poster_asset_id: product.poster_asset_id ?? undefined,
       metadata,
+      parent_preset_id:
+        (product.parent_preset_id as string | null | undefined) ?? null,
+      standalone_discoverable: Boolean(product.standalone_discoverable),
     },
     {
       id: version?.id as string | undefined,
@@ -208,13 +286,78 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
       },
       credit_cost: versionCreditCost ?? 0,
       safety_config: (version?.safety_config as Record<string, unknown>) ?? {},
+      input_mode:
+        (version?.input_mode as "single" | "multi" | undefined) ?? "single",
+      input_min_images: Number(version?.input_min_images ?? 1),
+      input_max_images: Number(version?.input_max_images ?? 1),
+      input_image_roles: Array.isArray(version?.input_image_roles)
+        ? (version.input_image_roles as ProductCreateInput["version"]["input_capability"]["input_image_roles"])
+        : [],
+      prompt_override_enabled: Boolean(version?.prompt_override_enabled),
+      prompt_max_chars: Number(version?.prompt_max_chars ?? 0),
     },
-    initialData.fields
+    initialData.fields,
+    {
+      parent:
+        family && product.parent_preset_id
+          ? {
+              id: family.root.id,
+              type,
+              public_status: family.root.public_status,
+              parent_preset_id: family.root.parent_preset_id,
+            }
+          : null,
+      routeCapability: getRouteCapability(
+        (version?.provider_strategy as Record<string, string> | undefined)
+          ?.primary_provider,
+        (version?.provider_strategy as Record<string, string> | undefined)
+          ?.primary_model
+      ),
+      adminReferenceCount,
+      userPromptReleased: isUserPromptReleased(),
+      multiInputReleased: isMultiInputReleased(),
+    }
   );
 
   const activeVersion = versions.find(
     (v: Record<string, unknown>) => v.state === "active"
   );
+
+  // Live vs editing (#251): the header always shows which version customers
+  // actually use (active) next to the version this editor loaded. Drafts
+  // numbered below the live version are stale leftovers — flagged loudly and
+  // resolvable only through the explicit discard/rebase workflow.
+  const routeLabel = (v: Record<string, unknown> | null | undefined) => {
+    const strategy = v?.provider_strategy as
+      | { primary_provider?: string; primary_model?: string }
+      | undefined;
+    return (
+      [strategy?.primary_provider, strategy?.primary_model]
+        .filter(Boolean)
+        .join("/") || "route unset"
+    );
+  };
+  const staleVersionIds = new Set(
+    selectStaleVersions(
+      versions.map((v: Record<string, unknown>) => ({
+        id: String(v.id),
+        state: String(v.state),
+        version_number: Number(v.version_number),
+      }))
+    ).map((v) => v.id)
+  );
+  const staleVersions = versions
+    .filter((v: Record<string, unknown>) => staleVersionIds.has(String(v.id)))
+    .map((v: Record<string, unknown>) => ({
+      version_number: Number(v.version_number),
+      route: routeLabel(v),
+    }));
+
+  // Legacy incomplete presets (#233): a product row with no version at all
+  // cannot be saved — the atomic write RPC fails closed on a missing
+  // editable source. Explain the state and block pointless submissions
+  // instead of letting the form round-trip into a generic error.
+  const hasEditableVersion = Boolean(version?.id);
 
   const versionSummaries: VersionSummary[] = versions.map(
     (v: Record<string, unknown>) => ({
@@ -243,6 +386,7 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
   );
 
   const listHref = type === "filter" ? "/admin/filters" : "/admin/posters";
+  const typeLabel = type === "filter" ? "Filter" : "Poster";
 
   return (
     <>
@@ -254,41 +398,81 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
           <CaretLeft size={14} />
           {type === "filter" ? "Filters" : "Posters"}
         </Link>
-        <h1 className="text-cream-50 mt-2 text-3xl font-bold">
+        <h1 className="text-cream-50 wrap-anywhere mt-2 text-3xl font-bold">
           {product.name}
         </h1>
-        <p className="text-text-muted mt-1 text-sm">{product.slug}</p>
-      </div>
-      <div className="border-cream-100/10 bg-charcoal-850 mb-6 flex items-center justify-between rounded-2xl border p-4">
-        <div className="space-y-1">
-          <p className="text-text-secondary text-sm">
-            Current status:
-            <span className="bg-charcoal-700 text-cream-100 ml-1 rounded-full px-2 py-0.5 text-xs font-medium">
-              {product.public_status}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+          <span className="text-text-muted wrap-anywhere">{product.slug}</span>
+          <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
+            {typeLabel}
+          </span>
+          <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
+            Status: {product.public_status}
+          </span>
+          {activeVersion && (
+            <span className="bg-lime-500/20 text-lime-400 rounded-full px-2 py-0.5 text-xs font-medium">
+              Live v{Number(activeVersion.version_number)} ·{" "}
+              {routeLabel(activeVersion)}
             </span>
-          </p>
-          <p className="text-text-secondary text-sm">
-            Editing version:
-            <span className="text-cream-50 ml-1 font-medium">
-              v{initialData.version.version_number}
-            </span>
-            <span className="bg-charcoal-700 text-cream-100 ml-2 rounded-full px-2 py-0.5 text-xs font-medium">
-              {initialData.version.state}
-            </span>
-          </p>
+          )}
+          <span className="bg-charcoal-700 text-cream-100 rounded-full px-2 py-0.5 text-xs font-medium">
+            Editing v{initialData.version.version_number} ·{" "}
+            {initialData.version.state}
+            {version?.id && activeVersion?.id === version.id
+              ? " (live)"
+              : ` · ${routeLabel(version)}`}
+          </span>
         </div>
-        <ProductActions
-          productId={id}
-          status={product.public_status}
-          action={transitionProductStatus}
-        />
       </div>
 
-      {versionSummaries.length > 0 && (
-        <div className="border-cream-100/10 bg-charcoal-850 mb-6 rounded-2xl border p-6">
-          <VersionList
-            versions={versionSummaries}
-            selectedVersionId={initialData.version.id}
+      {staleVersions.length > 0 && activeVersion && (
+        <div className="mb-6">
+          <StaleDraftBanner
+            productId={id}
+            liveVersion={{
+              version_number: Number(activeVersion.version_number),
+              route: routeLabel(activeVersion),
+            }}
+            staleVersions={staleVersions}
+            resolve={resolveStaleVersions}
+          />
+        </div>
+      )}
+
+      {!hasEditableVersion && (
+        <div
+          role="alert"
+          className="border-warning/40 bg-warning/10 text-warning mb-6 rounded-xl border px-4 py-3 text-sm"
+        >
+          <p className="font-semibold">This preset is incomplete</p>
+          <p className="mt-1">
+            {product.name} has no saved version — there is no recipe to edit,
+            so saving and publishing are unavailable. The record must be
+            repaired or replaced (for example with a new variant) before it
+            can change. Any values you edit below are kept, but cannot be
+            saved in this state.
+          </p>
+        </div>
+      )}
+
+      {family && (family.children.length > 0 || product.parent_preset_id || product.public_status !== "retired") && (
+        <div className="mb-6">
+          <FamilyPanel
+            currentProductId={id}
+            type={type}
+            root={family.root}
+            children_={family.children}
+            heroUrls={heroUrlByProduct}
+            reorder={reorderFamilyVariants}
+            createVariant={async (parentId) => {
+              "use server";
+              const created = await duplicateProductAsVariant(parentId);
+              return { id: created.id };
+            }}
+            updateVariant={async (productId, patch) => {
+              "use server";
+              await updateVariantSummary(productId, patch);
+            }}
           />
         </div>
       )}
@@ -298,6 +482,21 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
         initialData={initialData}
         categories={categories}
         modelCatalog={modelCatalog}
+        eligibleParents={eligibleParents}
+        familySchemaAvailable={familySchemaAvailable}
+        hasChildren={(family?.children.length ?? 0) > 0}
+        adminReferenceCount={adminReferenceCount}
+        currentParent={
+          family && product.parent_preset_id
+            ? {
+                id: family.root.id,
+                type,
+                public_status: family.root.public_status,
+                parent_preset_id: family.root.parent_preset_id,
+              }
+            : null
+        }
+        additionalSections={[REFERENCES_SECTION, PUBLISHING_SECTION]}
         assetPreviews={{
           hero: product.hero_asset_id
             ? assetPreviewById[product.hero_asset_id]
@@ -312,47 +511,70 @@ export async function EditProductPage({ id, type }: EditProductPageProps) {
             ? assetPreviewById[product.preview_gif_asset_id]
             : undefined,
         }}
+        saveDisabledReason={
+          hasEditableVersion
+            ? undefined
+            : "This preset has no saved version — it must be repaired or replaced."
+        }
         onSubmit={async (data) => {
           "use server";
-          await updateProduct(id, data);
-          return { id };
+          try {
+            await updateProduct(id, data);
+            return { id };
+          } catch (error) {
+            // Expected rejections (no editable source, permissions, missing
+            // rows) return as data — a thrown error would reach the client
+            // as a minified React digest instead of an explanation.
+            console.error("[admin] product save failed", error);
+            return { error: describeAdminSaveError(error) };
+          }
         }}
-        headerAction={
-          <div className="flex items-center gap-3">
-            {activeVersion && (
-              <VersionRollback
-                productId={id}
-                activeVersionId={activeVersion.id as string}
-                versions={versions.map((v: Record<string, unknown>) => ({
-                  id: String(v.id),
-                  version_number: Number(v.version_number),
-                  state: String(v.state),
-                  published_at: v.published_at
-                    ? new Date(String(v.published_at)).toISOString()
-                    : null,
-                }))}
-                action={rollbackProductVersion}
-              />
-            )}
-            <PublishButton
+      >
+        <EditorSectionGroup id="references" className="mt-8">
+          <section className="border-cream-100/10 bg-charcoal-850 rounded-2xl border p-4 sm:p-6">
+            <h2 className="text-cream-50 mb-4 text-lg font-semibold">
+              Reference assets
+            </h2>
+            <p className="text-text-muted mb-4 text-xs">
+              Private images the AI recipe can draw on (style, composition,
+              layout). They count against the route&apos;s input-image budget
+              configured under Inputs &amp; controls.
+            </p>
+            <ReferenceAssetManager
               productId={id}
-              versionId={initialData.version.id}
-              isOwner={!!profile.is_owner}
-              gateFailures={gateResult.ok ? [] : gateResult.failures}
-              action={publishProductVersion}
+              initialAssets={referenceAssets}
+              onAttach={attachReferenceAsset}
+              onDetach={detachReferenceAsset}
             />
-          </div>
-        }
-      />
+          </section>
+        </EditorSectionGroup>
 
-      <div className="border-cream-100/10 bg-charcoal-850 mt-8 rounded-2xl border p-6">
-        <ReferenceAssetManager
-          productId={id}
-          initialAssets={referenceAssets}
-          onAttach={attachReferenceAsset}
-          onDetach={detachReferenceAsset}
-        />
-      </div>
+        <EditorSectionGroup id="publishing" className="mt-8">
+          <PublishingSection
+            productId={id}
+            status={product.public_status}
+            versionId={initialData.version.id}
+            isOwner={!!profile.is_owner}
+            gateFailures={gateResult.ok ? [] : gateResult.failures}
+            activeVersionId={activeVersion?.id as string | undefined}
+            rollbackVersions={versions.map(
+              (v: Record<string, unknown>) => ({
+                id: String(v.id),
+                version_number: Number(v.version_number),
+                state: String(v.state),
+                published_at: v.published_at
+                  ? new Date(String(v.published_at)).toISOString()
+                  : null,
+              })
+            )}
+            versionSummaries={versionSummaries}
+            selectedVersionId={initialData.version.id}
+            publish={publishProductVersion}
+            rollback={rollbackProductVersion}
+            transitionStatus={transitionProductStatus}
+          />
+        </EditorSectionGroup>
+      </ProductForm>
     </>
   );
 }

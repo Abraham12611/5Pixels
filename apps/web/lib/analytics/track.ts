@@ -10,6 +10,7 @@ type AnalyticsEvent =
   | "preset_preview_play"
   | "preset_preview_complete"
   | "preset_card_click"
+  | "article_preset_click"
   | "category_chip_click"
   | "view_all_presets_click"
   | "how_it_works_view"
@@ -17,7 +18,10 @@ type AnalyticsEvent =
   | "pricing_cta_click"
   | "final_cta_click"
   | "signup_cta_click"
-  | "faq_toggle";
+  | "faq_toggle"
+  | "plan_finder_use_case"
+  | "plan_finder_capability"
+  | "plan_finder_cta";
 
 interface TrackPayload {
   event: AnalyticsEvent;

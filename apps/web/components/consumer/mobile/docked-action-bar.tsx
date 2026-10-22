@@ -15,10 +15,11 @@ export function DockedActionBar({
   children,
   className,
 }: {
-  /** Cost or context line above the action, e.g. "5 credits · 12 left". */
+  /** Context line above the action, e.g. "Each run is unique". */
   info?: ReactNode;
-  /** Why the action is unavailable, e.g. "Add a photo to generate". */
-  reason?: string;
+  /** Why the action is unavailable, e.g. "Add a photo to generate". May
+   *  carry an inline retry affordance for recoverable failures. */
+  reason?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {

@@ -1,8 +1,14 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { mapCatalogRow } from "@/lib/catalog/catalog-rows";
+import {
+  reconcilePrimaryCatalogMedia,
+  type PublicPrimaryMediaRow,
+} from "@/lib/catalog/media";
+import { createServiceClient } from "@/lib/supabase/service";
 import type {
   FavoriteProduct,
+  PresetFamilyMember,
   PublicProductSummary,
   PublicProductDetail,
 } from "@/types/catalog";
@@ -85,14 +91,107 @@ export async function getPublicProductBySlug(
   }
 
   const row = rows[0];
+
+  // The public detail RPC can include an inherited hero link from
+  // product_assets after a variant's independent hero/poster changed.
+  // Resolve only current product pointers, restricted to public preset-media
+  // objects, and replace stale primary-role links. This keeps the detail
+  // hero, OG image and variant rail consistent without touching DB records.
+  const ids = [row.poster_asset_id, row.hero_asset_id].filter(
+    (id): id is string => Boolean(id)
+  );
+  let currentMedia: PublicPrimaryMediaRow[] = [];
+  if (ids.length > 0) {
+    try {
+      const { data: assets, error: mediaError } = await createServiceClient()
+        .from("assets")
+        .select("id, bucket, storage_key, mime_type, width, height")
+        .in("id", [...new Set(ids)])
+        .eq("bucket", "preset-media")
+        .eq("visibility", "public")
+        .is("deleted_at", null);
+      if (mediaError) throw mediaError;
+      currentMedia = (assets ?? []) as PublicPrimaryMediaRow[];
+    } catch {
+      // Keep the page available without showing an incorrect inherited hero.
+      console.error("[getPublicProductBySlug] primary media unavailable");
+    }
+  }
   return {
     data: {
       ...row,
+      public_assets: reconcilePrimaryCatalogMedia(
+        row.public_assets ?? [],
+        {
+          hero_asset_id: row.hero_asset_id,
+          poster_asset_id: row.poster_asset_id,
+        },
+        currentMedia
+      ),
       version_id: row.version_id ?? null,
       credit_cost: Number(row.credit_cost),
       output_sizes: Array.isArray(row.output_sizes) ? row.output_sizes : [],
+      parent_preset_id: row.parent_preset_id ?? null,
+      standalone_discoverable: row.standalone_discoverable ?? false,
+      variant_count: Number(row.variant_count ?? 0),
+      variant_display_name: row.variant_display_name ?? null,
+      family_id: row.family_id ?? row.id,
+      input_capability: row.input_capability ?? null,
+      parent_slug: row.parent_slug ?? null,
+      parent_name: row.parent_name ?? null,
+      parent_is_public: row.parent_is_public ?? null,
     } as PublicProductDetail,
   };
+}
+
+export interface PublicProductEditorial {
+  publicPromptRecipe: string | null;
+}
+
+/**
+ * Anon-safe editorial read for the preset detail console — returns ONLY the
+ * approved public prompt recipe. `get_public_product_editorial` (#128)
+ * structurally excludes private recipes, provider names and inference
+ * internals.
+ */
+export async function getPublicProductEditorial(
+  productId: string
+): Promise<PublicProductEditorial | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_public_product_editorial", {
+    p_product_id: productId,
+  });
+
+  if (error) {
+    console.error("[getPublicProductEditorial] editorial RPC failed", error);
+    return null;
+  }
+
+  const row = (data ?? [])[0] as
+    | { public_prompt_recipe: string | null }
+    | undefined;
+  return { publicPromptRecipe: row?.public_prompt_recipe ?? null };
+}
+
+/**
+ * Ordered family members for a preset — the contract surface the variation
+ * rail (#180) consumes. Accepts a parent or any variant id; returns []
+ * when the product has no published family or is itself unavailable.
+ */
+export async function getPresetFamily(
+  productId: string
+): Promise<CatalogResult<PresetFamilyMember[]>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_preset_family", {
+    p_product_id: productId,
+  });
+
+  if (error) {
+    console.error("[getPresetFamily] family RPC failed", error);
+    return { data: [], error: GENERIC_ERROR };
+  }
+
+  return { data: (data ?? []) as PresetFamilyMember[] };
 }
 
 export async function getPublicAssetUrl(
@@ -232,6 +331,55 @@ export const getMedianPresetCost = cache(async function getMedianPresetCost() {
   return costs.length % 2 === 0
     ? Math.round((costs[mid - 1]! + costs[mid]!) / 2)
     : costs[mid]!;
+});
+
+export interface CatalogCostProfile {
+  /** Median credit cost of a Filter transformation across the catalogue. */
+  filterCost: number;
+  /** Median credit cost of a Poster generation (image + layout render). */
+  posterCost: number;
+}
+
+const FALLBACK_FILTER_COST = 6;
+const FALLBACK_POSTER_COST = 12;
+
+function medianOf(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1]! + sorted[mid]!) / 2)
+    : sorted[mid]!;
+}
+
+/**
+ * Median credit cost per product kind — powers the plan-finder's
+ * "≈ N credits each" labels and monthly estimate. Falls back to fixed
+ * defaults when the catalogue is empty.
+ */
+export const getCatalogCostProfile = cache(async function getCatalogCostProfile(): Promise<CatalogCostProfile> {
+  const { data } = await getPublicProducts(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    "featured",
+    1,
+    200
+  );
+  const priced = (data ?? []).filter(
+    (p) => typeof p.credit_cost === "number" && p.credit_cost > 0
+  );
+  const filters = priced
+    .filter((p) => p.type === "filter")
+    .map((p) => p.credit_cost);
+  const posters = priced
+    .filter((p) => p.type === "poster")
+    .map((p) => p.credit_cost);
+  return {
+    filterCost: medianOf(filters) ?? FALLBACK_FILTER_COST,
+    posterCost: medianOf(posters) ?? FALLBACK_POSTER_COST,
+  };
 });
 
 export async function getUserFavoriteProductIds(): Promise<string[]> {

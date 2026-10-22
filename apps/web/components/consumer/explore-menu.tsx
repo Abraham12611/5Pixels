@@ -45,7 +45,7 @@ export function ExploreMenu({ categories, featured, active }: ExploreMenuProps) 
             )}
           </NavigationMenuTrigger>
 
-          <NavigationMenuContent className="bg-charcoal-850 border-cream-100/10 shadow-elevated w-[min(42rem,90vw)] rounded-xl border p-3">
+          <NavigationMenuContent className="bg-charcoal-850 border-cream-100/10 shadow-elevated md:w-[min(42rem,90vw)] rounded-xl border p-3">
             <div className="grid gap-3 sm:grid-cols-[190px_1fr]">
               {/* Browse column */}
               <div className="border-cream-100/10 flex flex-col gap-0.5 sm:border-r sm:pr-2">

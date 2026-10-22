@@ -65,3 +65,11 @@ export const GENERATION_STATUSES = [
   "cancelled",
 ] as const;
 export type GenerationStatus = (typeof GENERATION_STATUSES)[number];
+
+/** Preset input modes — single remains the default; multi is admin opt-in. */
+export const INPUT_MODES = ["single", "multi"] as const;
+export type InputMode = (typeof INPUT_MODES)[number];
+
+/** Hard bounds shared by the DB CHECK and the Zod contract (#176). */
+export const MAX_INPUT_IMAGES = 8;
+export const MAX_PROMPT_CHARS = 2000;

@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      lastUpdated="October 2, 2026"
+      lastUpdated="October 21, 2026"
       intro={
         <p>
           5Pixels (&ldquo;5Pixels,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or
@@ -51,10 +51,11 @@ export default function PrivacyPage() {
                 your retention settings remove them.
               </p>
               <p>
-                <strong>Preset options.</strong> Some presets let you customize
-                the result with short text fields or option selections (for
-                example, a name on a poster). These inputs are part of your
-                generation request.
+                <strong>Preset options and custom edits.</strong> Some presets
+                let you customize the result with short text fields, option
+                selections, or optional written instructions for the desired
+                transformation. These inputs are part of your generation
+                request and may be screened by our content-moderation provider.
               </p>
               <p>
                 <strong>Billing information.</strong> Purchases are processed by
@@ -176,13 +177,15 @@ export default function PrivacyPage() {
                 handling are governed by our provider agreements.
               </p>
               <p>
-                We do not name our model providers publicly as part of the
-                product experience, but all processing happens server-side.
-                Your photos are not sold and are not shared for unrelated
-                purposes. We do not use your uploads or results to train AI
-                models, and our primary generation provider is contractually
-                prohibited from using customer content to create, train, or
-                develop its models or services.
+                We do not name our generation-model providers publicly as part
+                of the product experience, but all processing happens
+                server-side. Our content-moderation provider, OpenAI, is
+                identified in the sharing section below. Your photos are not
+                sold and are not shared for unrelated purposes. We do not use
+                your uploads or results to train AI models, and our primary
+                generation provider is contractually prohibited from using
+                customer content to create, train, or develop its models or
+                services.
               </p>
             </>
           ),
@@ -201,6 +204,12 @@ export default function PrivacyPage() {
                 <li>
                   <strong>AI model providers</strong> that render your requested
                   transformations.
+                </li>
+                <li>
+                  <strong>OpenAI</strong>, our content-moderation provider.
+                  Text you enter for a transformation (for example, custom
+                  edit instructions or text options) may be sent to OpenAI&apos;s
+                  moderation service to enforce our Acceptable Use Policy.
                 </li>
                 <li>
                   <strong>Bachs</strong>, our payment processor, to process

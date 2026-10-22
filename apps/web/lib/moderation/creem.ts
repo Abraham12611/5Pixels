@@ -1,10 +1,13 @@
 /**
- * Creem Moderation API client (docs.creem.io/features/moderation).
+ * Creem Moderation API client (docs.creem.io/features/moderation) — the
+ * legacy text screen, paused with the Creem billing migration
+ * (`CREEM_MODERATION_ENABLED`, default off).
  *
- * Required for AI image/video generation products on Creem: every
- * user-supplied text input that will be routed to a generation model must be
- * screened through POST /v1/moderation/prompt BEFORE generation — before
- * queueing, billing, or the model call.
+ * The guarded opt-in user-prompt path (#183) no longer lives here — it was
+ * replaced by the OpenAI `omni-moderation-latest` screen in
+ * `./openai.ts`, which is fail-closed in every environment. This file
+ * keeps the legacy flag-gated screen for free-text option fields on
+ * prompt-less presets and the provider-agnostic `extractUserText`.
  *
  * Routing policy (per Creem guidance):
  * - "allow" → proceed.

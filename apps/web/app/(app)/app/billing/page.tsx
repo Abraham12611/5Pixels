@@ -13,6 +13,10 @@ import {
   getMyReferralCode,
   getReferralStats,
 } from "@/lib/referrals/rewards";
+import {
+  REFERRER_SIGNUP_BONUS,
+  REFEREE_SIGNUP_BONUS,
+} from "@/lib/referrals/reward-amounts";
 import { getSiteUrl } from "@/lib/auth/url";
 import { getMyProfile } from "@/lib/profile/actions";
 import { SettingsShell } from "@/components/consumer/settings-shell";
@@ -40,7 +44,11 @@ function formatDate(iso: string | null): string | null {
   }
 }
 
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -49,6 +57,10 @@ export default async function BillingPage() {
   if (!user) {
     redirect("/login?next=/app/billing");
   }
+
+  // Checkout/portal failures land here as ?error= — surface them or the
+  // user silently bounces back to billing with no explanation (#247).
+  const { error: checkoutError } = await searchParams;
 
   const [
     billing,
@@ -73,7 +85,7 @@ export default async function BillingPage() {
   ]);
 
   if (!billing) {
-    redirect("/login");
+    redirect(`/login?next=${encodeURIComponent("/app/billing")}`);
   }
 
   const name =
@@ -126,6 +138,15 @@ export default async function BillingPage() {
             Your plan, credits, and billing records.
           </p>
         </div>
+
+        {checkoutError && (
+          <p
+            role="alert"
+            className="border-warning/40 bg-warning/10 text-warning rounded-xl border px-4 py-3 text-sm"
+          >
+            {checkoutError}
+          </p>
+        )}
 
         {/* Balance hero */}
         <SettingCard className="relative overflow-hidden">
@@ -363,8 +384,8 @@ export default async function BillingPage() {
         <ReferralCard
           referralUrl={referralCode ? `${getSiteUrl()}/r/${referralCode}` : null}
           referralCode={referralCode}
-          refereeReward="25 credits + their first transformation, free"
-          referrerReward="50 credits + 30% of their first plan's credits"
+          refereeReward={`${REFEREE_SIGNUP_BONUS} credits + their first transformation, free`}
+          referrerReward={`${REFERRER_SIGNUP_BONUS} credits + 30% of their first plan's credits`}
           pendingCount={referralStats?.referredCount ?? 0}
         />
         {referralStats && referralStats.creditsEarned > 0 && (

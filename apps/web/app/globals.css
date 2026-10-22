@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* BlockNote shadcn components — required so Tailwind generates their classes */
+@source "../node_modules/@blocknote/shadcn";
+
 @theme inline {
   /* Brand palette from 02_UI_UX_BIBLE_AND_DESIGN_SYSTEM.md */
   --color-ink-950: #080a08;
@@ -122,6 +125,30 @@
   color-scheme: dark;
 }
 
+/* ---------------------------------------------------------------------------
+ * Article editor (BlockNote) — map the 5Pixels palette onto BlockNote's CSS
+ * variables so the dark theme matches ink/cream/lime instead of the default
+ * neutral dark. Applies to the editor and its portalled menus.
+ * ------------------------------------------------------------------------- */
+.article-editor .bn-container,
+.bn-container[data-bn-theme] {
+  --bn-colors-editor-text: var(--color-cream-50);
+  --bn-colors-editor-background: transparent;
+  --bn-colors-menu-text: var(--color-cream-50);
+  --bn-colors-menu-background: var(--color-charcoal-800);
+  --bn-colors-tooltip-text: var(--color-cream-100);
+  --bn-colors-tooltip-background: var(--color-charcoal-700);
+  --bn-colors-hovered-text: var(--color-cream-50);
+  --bn-colors-hovered-background: var(--color-charcoal-700);
+  --bn-colors-selected-text: var(--color-lime-300);
+  --bn-colors-selected-background: var(--color-charcoal-700);
+  --bn-colors-border: var(--color-charcoal-700);
+  --bn-colors-side-menu: var(--color-text-muted);
+  --bn-colors-highlights-gray-text: var(--color-text-secondary);
+  --bn-colors-highlights-gray-background: var(--color-charcoal-800);
+  --bn-font-family: var(--font-sans);
+}
+
 html {
   background-color: var(--color-ink-950);
   color: var(--color-text-primary);
@@ -133,8 +160,9 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Minimal accessibility helpers */
-:focus-visible {
+/* Minimal accessibility helpers. Form controls excluded — their caret/field
+   chrome is the focus affordance (e.g. the palette input was boxed in lime). */
+:focus-visible:not(input):not(textarea):not(select):not([contenteditable="true"]) {
   outline: 2px solid var(--color-lime-500);
   outline-offset: 2px;
 }

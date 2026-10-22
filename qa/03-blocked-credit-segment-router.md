@@ -1,5 +1,10 @@
 # QA: Blocked-Credit Segment Router
 
+> **Snapshot — provider names are stale.** Processor references
+> (Creem/Polar/Dodo) date from before the Bachs default; the entitlement
+> semantics described (`canPurchaseWeeklyPass` repurchase rule) are still
+> current.
+
 What changed: the generic "Not enough credits" dialog and the mobile paywall sheet are replaced by one
 `BlockedCreditSurface` (`apps/web/components/consumer/blocked-credit-surface.tsx`) that is routed by
 server-derived user segments (`apps/web/lib/billing/segments.ts`). Weekly passes are now repurchasable

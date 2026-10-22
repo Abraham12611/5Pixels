@@ -87,7 +87,7 @@ export default async function BillingHistoryPage() {
   ]);
 
   if (!billing) {
-    redirect("/login");
+    redirect(`/login?next=${encodeURIComponent("/app/billing/history")}`);
   }
 
   const name =

@@ -1,6 +1,9 @@
 # Credit Chip Visibility by Tier
 
-Status: **Proposal.** Implements the T0–T3 model from `00_MONETIZATION_OVERVIEW.md §2`.
+Status: **Design rationale — tier model shipped.** `getUserTier()` and the
+monotonic `hasEverPaid()` are implemented in
+`apps/web/lib/billing/entitlements.ts`; the component-level details below are
+the design record — consult the code for exact rendering.
 
 ---
 

@@ -78,6 +78,8 @@ Before generating every next visual, inspect the most recently approved 5Pixels 
 
 Numbers such as `248 credits`, `2 credits`, sample dates, plan names, and preset names in these prompts are **visual-design placeholders** unless the product owner has separately locked them. Use them for composition but do not treat them as final commercial policy.
 
+> **Credit-policy note (canonical):** credits never expire while the account is active, and balances accumulate past a single period's grant — see `18_BILLING_CREDITS_PLAN.md`, "Canonical credit policy". Mock copy must show raw balances (never `X of Y left` where Y is the period grant) and next-grant language (`Next grant …`), never `Resets …`.
+
 
 ## V078 — Account overview
 
@@ -272,8 +274,8 @@ Generate the paid-user version of Billing overview.
 
 Plan `Pro`
 `Renews Oct 1`
-Credits `248 of 300 credits left`
-`Resets Oct 1`
+Credits `248 credits`
+`Next grant Oct 1`
 buttons `Buy credits` and `Manage plan`.
 
 Usage summary:
@@ -337,8 +339,8 @@ Header:
 date range `This billing cycle`.
 
 Large balance card:
-`248 credits left`
-`Resets Oct 1`
+`248 credits`
+`Credits never expire`
 five-pixel meter
 `Buy credits`.
 
@@ -675,7 +677,7 @@ Input contains sample `PIXELS50`.
 Success card:
 `Code applied`
 `+50 credits added`
-small note if expiry/terms apply.
+small note if terms apply.
 button `Done`.
 
 Use success green sparingly plus the standard 5Pixels visual language. Do not rely on a toast alone.

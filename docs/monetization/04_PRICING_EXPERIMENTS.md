@@ -1,6 +1,10 @@
 # Pricing Experiments — Framework, Downsells, and the Annual Anchor
 
-Status: **Proposal.** Build last (`00 §6`) — see §6. **Web only** per owner decision (`00 §1`).
+Status: **Proposal — last open piece of the monetization stack.** Build last
+(`00 §6`) — see §6. **Web only** per owner decision (`00 §1`). Annual plans,
+the promo engine, and attribution metadata all shipped; what remains is the
+experiment framework itself. Processor references are genericized — the
+current provider is Bachs (`05` is historical).
 
 ---
 
@@ -77,7 +81,7 @@ The resolution: **a variant is an offer *ladder*, not a single price.** The sequ
 }
 ```
 
-Polar has native discount support (`discounts_create`), so the downsell can be a real, server-issued discount rather than a bespoke price — which keeps the price-shown-equals-price-charged invariant intact for free (§4).
+Where the active processor supports native discounts, a downsell should be a real, server-issued discount rather than bespoke price math — which keeps the price-shown-equals-price-charged invariant intact (§4). Note: Bachs (current default) does not expose a discounts API in our integration; discount steps are gated on provider capability (`08 §7`).
 
 Guardrails that *do* still apply to ladders:
 
@@ -92,15 +96,15 @@ Guardrails that *do* still apply to ladders:
 
 | Guardrail | Rule |
 |---|---|
-| **Price shown = price charged** | Variant resolves to Polar product/price ids **server-side**; the client never sends an amount. Discounts applied as Polar discount ids, not ad-hoc math. |
+| **Price shown = price charged** | Variant resolves to provider product ids **server-side**; the client never sends an amount. Discounts applied as provider discount ids where supported, not ad-hoc math. |
 | **Sticky variant** | Once exposed, the subject keeps their variant — including after the experiment concludes. No price changing under a mid-funnel user. |
 | **No cross-variant re-rolling** | §3. Ladders yes, re-bucketing no. |
 | **Grandfathering** | Existing subscribers keep their price. Experiments target new purchases. |
-| **Attribution** | Write `experiment_key` + `variant_key` + `ladder_stage` into the Polar checkout `metadata`, so it flows through the webhook into `invoices.metadata`. **This is the join key for all revenue analysis.** |
+| **Attribution** | Write `experiment_key` + `variant_key` + `ladder_stage` into the checkout `metadata`, so it flows through the webhook into `invoices.metadata`. **This is the join key for all revenue analysis.** |
 | **Kill switch** | Any experiment forced to `control` via config, no deploy. |
 | **Platform** | `platform='web'`; mobile clients never receive variant config. |
 | **Out-of-scope variants** | Fake urgency, fabricated social proof, hidden close buttons, pre-selected expensive options, obscured recurring terms. They may win short-term and cost the processor relationship (`02 §4`). |
-| **Protected classes** | Never segment on anything correlated with a protected characteristic. Geography is defensible for purchasing-power reasons but interacts with VAT — Polar is merchant-of-record, so confirm how presentment currency interacts before testing it. |
+| **Protected classes** | Never segment on anything correlated with a protected characteristic. Geography is defensible for purchasing-power reasons but interacts with tax/VAT — 5Pixels is seller of record under Bachs, so confirm how presentment currency interacts before testing it. |
 
 ---
 
@@ -125,11 +129,11 @@ Exact pricing, per-tier discount ceilings, and the mandatory credit-drip design 
 
 ### What the transcript's math doesn't cover for 5Pixels
 
-1. **Annual on a credit product is a 12-month COGS liability, not just cash** — and at a flat 50% it is *negative margin* on the upper tiers. Settled in `06`: tier-specific discounts, and credits **drip monthly** (mandatory — a single upfront grant on Agency Annual hands over ~$84.7k of provider cost on day one).
-2. **Refund/chargeback exposure scales with ticket size**, and the processor relationship is brand new with onboarding incomplete (`05 §1`). Watch the guardrail metrics from day one.
+1. **Annual on a credit product is a 12-month COGS liability, not just cash** — settled in `06` and shipped: tier-specific discounts (50/40/25/5%), and credits **drip monthly** so a year's provider-cost liability is never exposed on day one.
+2. **Refund/chargeback exposure scales with ticket size.** Watch the guardrail metrics from day one — the processor relationship (Bachs) is new.
 3. **The $100 CAC is his number, not yours.** The payback argument is only as good as the CAC, and there's no acquisition spend yet. Until then the case for annual is cash flow and commitment, not payback math.
 4. **"Trial only on annual" must be unambiguous.** Legitimate tactic; the adjacent pattern (trial toggles that flip products, large "Free" over small grey recurring terms) is a known rejection/chargeback generator. State the post-trial price and date next to the button.
-5. **No annual plan exists.** `plans` has `weekly_trial`, `monthly`, `extra_credit` only. This needs new rows *and* new Polar products (`05 §3`), plus the drip decision in (1). Real work, not a layout variant.
+5. ~~**No annual plan exists.**~~ **Shipped** — `annual-*` plan rows with `credit_drip_months=12` exist and Bachs products are provisioned (`18 §2.3`). The experiment needs ladder/variant wiring, not new plans.
 
 ---
 

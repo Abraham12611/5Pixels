@@ -7,7 +7,6 @@ export interface CheckoutAttribution {
   experimentKey?: string;
   variantKey?: string;
   ladderStage?: string;
-  growsurfParticipantId?: string;
   /** Promo-engine attribution — the offer step that sent this checkout. */
   campaignId?: string;
   campaignVariant?: string;
@@ -26,9 +25,6 @@ export function attributionMetadata(
   }
   if (attribution?.ladderStage) {
     metadata.ladder_stage = attribution.ladderStage;
-  }
-  if (attribution?.growsurfParticipantId) {
-    metadata.growsurf_participant_id = attribution.growsurfParticipantId;
   }
   if (attribution?.campaignId) {
     metadata.campaign_id = attribution.campaignId;

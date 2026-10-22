@@ -2,10 +2,22 @@ export interface ProviderSubmitInput {
   endpoint: string;
   prompt: string;
   negativePrompt?: string;
-  sourceImageUrl: string;
+  /**
+   * Ordered user-supplied input images — ordinal-1 first. Every URL here is
+   * a user photo that MUST be transmitted in its declared slot; callers are
+   * responsible for checking the endpoint's input budget (see
+   * `checkRouteInputBudget`) so no requested image is silently dropped.
+   */
+  inputImageUrls?: string[];
+  /**
+   * @deprecated Single-image alias for `inputImageUrls[0]` — kept for the
+   * legacy callers (admin lab, pre-#179 flows). New code passes
+   * `inputImageUrls`.
+   */
+  sourceImageUrl?: string;
   /** Private preset reference images — style/composition/layout guides the
-   *  model should adapt the source photo toward. Only endpoints that accept
-   *  multiple `image_urls` make use of them; others ignore the extras. */
+   *  model should adapt the source photo toward. Transmitted AFTER the user
+   *  inputs and counted against the endpoint's total input budget. */
   referenceImageUrls?: string[];
   options?: Record<string, unknown>;
   modelConfig?: Record<string, unknown>;
