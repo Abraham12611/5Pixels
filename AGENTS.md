@@ -123,6 +123,10 @@ WHOP_WEBHOOK_SECRET=
 CRON_SECRET=
 REFERRAL_PAYMENT_SHARE_HOLD_DAYS=14
 
+# Public prompt-recipe auto-generation — server-only key for the free-tier
+# model chain in lib/ai/openrouter.ts (cron sweep + on-save hooks).
+OPENROUTER_API_KEY=
+
 ```
 
 ## Migrations
