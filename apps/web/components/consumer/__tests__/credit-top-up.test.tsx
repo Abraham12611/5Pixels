@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CreditTopUp } from "../credit-top-up";
 
 const packs = [
@@ -24,27 +24,41 @@ describe("CreditTopUp", () => {
     render(<CreditTopUp {...props} />);
     expect(screen.getByText("606 credits")).toBeInTheDocument();
     expect(screen.getByText("6,060 credits")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /buy for \$50/i })
-    ).toBeInTheDocument();
     // $50 pack = 3,030 credits / 5 = 606 transformations
     expect(
       screen.getByText("≈ up to 606 transformations")
     ).toBeInTheDocument();
   });
 
+  it("selects a pack, then the CTA restates the deal", () => {
+    render(<CreditTopUp {...props} />);
+    const cta = screen.getByRole("button", { name: "Get credits" });
+    expect(cta).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("radio", { name: /3,030 credits/i }));
+    expect(
+      screen.getByRole("button", { name: /get 3,030 credits — \$50/i })
+    ).toBeEnabled();
+  });
+
   it("posts only the pack plan_id — no amount field exists", () => {
     const { container } = render(<CreditTopUp {...props} />);
     const forms = container.querySelectorAll("form");
-    expect(forms).toHaveLength(4);
-    for (const form of forms) {
-      expect(form.querySelector('input[name="amount"]')).toBeNull();
-      expect(
-        form.querySelector('input[name="plan_id"]')
-      ).toBeInTheDocument();
-    }
+    expect(forms).toHaveLength(1);
+    const form = forms[0]!;
+    expect(form.querySelector('input[name="amount"]')).toBeNull();
+    expect(form.querySelector('input[name="plan_id"]')).toBeInTheDocument();
     // No custom-amount input anywhere.
     expect(screen.queryByLabelText(/any amount/i)).toBeNull();
+  });
+
+  it("writes the selected pack's plan_id into the post", () => {
+    const { container } = render(<CreditTopUp {...props} />);
+    fireEvent.click(screen.getByRole("radio", { name: /606 credits/i }));
+    const input = container.querySelector<HTMLInputElement>(
+      'input[name="plan_id"]'
+    );
+    expect(input?.value).toBe("pack-1000");
   });
 
   it("omits the ≈N claim when nothing is quotable", () => {
@@ -60,8 +74,11 @@ describe("CreditTopUp", () => {
         packs={[{ ...packs[0], checkoutReady: false }]}
       />
     );
+    const card = screen.getByRole("radio", { name: /606 credits/i });
+    expect(card).toBeDisabled();
+    fireEvent.click(card);
     expect(
-      screen.getByRole("button", { name: /coming soon/i })
+      screen.getByRole("button", { name: "Get credits" })
     ).toBeDisabled();
   });
 

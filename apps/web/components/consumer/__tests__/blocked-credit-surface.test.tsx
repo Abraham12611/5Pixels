@@ -122,8 +122,12 @@ describe("BlockedCreditSurface", () => {
     renderSurface("subscriber", { activePlanName: "Creator" });
     expect(screen.getByText(/out of credits/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /buy for \$10/i })
+      screen.getByRole("radio", { name: /1,000 credits/i })
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /1,000 credits/i }));
+    expect(
+      screen.getByRole("button", { name: /get 1,000 credits — \$10/i })
+    ).toBeEnabled();
     expect(screen.queryByText("Starter")).not.toBeInTheDocument();
     expect(screen.queryByText("Choose a plan")).not.toBeInTheDocument();
   });
