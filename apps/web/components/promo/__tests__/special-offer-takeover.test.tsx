@@ -103,7 +103,8 @@ describe("SpecialOfferTakeover", () => {
     expect(dialog).toBeInTheDocument();
     // Compact card — not the old fixed inset-0 bg-ink-950 takeover.
     expect(dialog.className).toContain("max-w-[500px]");
-    expect(screen.getByText("Special offer")).toBeInTheDocument();
+    // "Special offer" appears twice — the sr-only accessible name + the badge.
+    expect(screen.getAllByText("Special offer").length).toBeGreaterThan(0);
     expect(screen.getByText("Start with a weekly pass")).toBeInTheDocument();
   });
 

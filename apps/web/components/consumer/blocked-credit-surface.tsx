@@ -16,7 +16,13 @@ import { Button } from "@/components/ui/button";
 import { PlanRow } from "@/components/promo/plan-row";
 import { SaveLine } from "@/components/promo/save-line";
 import { OfferBadge } from "@/components/promo/offer-badge";
-import { ReferralCard } from "@/components/promo/referral-card";
+import {
+  ExitStep,
+  PlansStep,
+  ReferralStep,
+  WeeklyPairStep,
+  type OfferDeadlineDisplay,
+} from "@/components/promo/offer-steps";
 import { CreditTopUp } from "@/components/consumer/credit-top-up";
 import type { CreditPack } from "@/lib/billing/credit-packs";
 import { recordOfferEvent } from "@/lib/offers/actions";
@@ -212,6 +218,23 @@ export function BlockedCreditSurface({
       })
     : null;
 
+  // Free-history CTA label — restates the selected deal honestly (per-month
+  // for subscriptions, the one-time price for weekly passes).
+  const freeSelected = [...weekly, ...(annual ? [annual] : []), ...monthly].find(
+    (p) => p.id === selectedPlanId
+  );
+  const freeContinueLabel = !freeSelected
+    ? "Choose a plan"
+    : `Continue — ${
+        freeSelected.type === "annual" || freeSelected.type === "monthly"
+          ? `${formatPrice(
+              freeSelected.type === "annual"
+                ? effectiveMonthlyCents
+                : freeSelected.price_cents
+            )}/mo`
+          : formatPrice(freeSelected.price_cents)
+      }`;
+
   const contextCard = (
     <div className="border-cream-100/10 bg-charcoal-800 flex items-center gap-3 rounded-lg border p-3">
       {presetThumbUrl ? (
@@ -257,17 +280,17 @@ export function BlockedCreditSurface({
             onClick={() => setSelectedPlanId(plan.id)}
             aria-pressed={selected}
             className={cn(
-              "relative rounded-xl p-4 text-left transition-colors",
+              "relative rounded-xl p-4 text-left transition-all",
               i === 1
-                ? "bg-lime-400 text-ink-950"
-                : "border-cream-100/10 bg-charcoal-850 text-cream-50 border",
-              selected && i !== 1 && "border-lime-400/70 ring-lime-400/40 ring-1",
-              selected && i === 1 && "ring-cream-50/70 ring-2"
+                ? "bg-lime-500 text-ink-950"
+                : "border-cream-100/10 bg-charcoal-800/60 text-cream-50 border",
+              selected && i !== 1 && "border-lime-500/60 ring-1 ring-lime-500/40",
+              selected && i === 1 && "ring-2 ring-cream-50/70"
             )}
           >
             {i === 1 && (
-              <span className="bg-ink-950 text-lime-400 absolute -top-2 right-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest">
-                Popular
+              <span className="bg-ink-950 text-lime-400 absolute right-3 top-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest">
+                Most picked
               </span>
             )}
             <p
@@ -327,7 +350,7 @@ export function BlockedCreditSurface({
       {segment === "subscriber" || segment === "canceling" ? (
         <div className="space-y-4">
           <div>
-            <h2 className="text-cream-50 text-lg font-semibold">
+            <h2 className="font-display text-cream-50 text-xl font-bold">
               You&rsquo;re out of credits
             </h2>
             <p className="text-text-secondary mt-1 text-sm">
@@ -363,7 +386,7 @@ export function BlockedCreditSurface({
       ) : segment === "lapsed" ? (
         <div className="space-y-4">
           <div>
-            <h2 className="text-cream-50 text-lg font-semibold">
+            <h2 className="font-display text-cream-50 text-xl font-bold">
               Pick up where you left off
             </h2>
             <p className="text-text-secondary mt-1 text-sm">
@@ -432,7 +455,7 @@ export function BlockedCreditSurface({
             <p className="text-promo text-[10px] font-bold uppercase tracking-[0.2em]">
               Weekly pass
             </p>
-            <h2 className="text-cream-50 mt-1 text-lg font-semibold">
+            <h2 className="font-display text-cream-50 mt-1.5 text-xl font-bold">
               Get another week
             </h2>
             <p className="text-text-secondary mt-1 text-sm">
@@ -465,7 +488,7 @@ export function BlockedCreditSurface({
         /* free_history — and new_user fallback when no campaign is live */
         <div className="space-y-4">
           <div>
-            <h2 className="text-cream-50 text-lg font-semibold">
+            <h2 className="font-display text-cream-50 text-xl font-bold">
               You need credits to generate
             </h2>
             <p className="text-text-secondary mt-1 text-sm">
@@ -530,13 +553,7 @@ export function BlockedCreditSurface({
             disabled={!selectedPlanId}
             onClick={() => selectedPlanId && void acceptPlan(selectedPlanId)}
           >
-            {selectedPlanId
-              ? `Continue — ${formatPrice(
-                  [...weekly, ...(annual ? [annual] : []), ...monthly].find(
-                    (p) => p.id === selectedPlanId
-                  )?.price_cents ?? 0
-                )}`
-              : "Choose a plan"}
+            {freeContinueLabel}
           </Button>
           <button
             type="button"
@@ -567,118 +584,40 @@ export function BlockedCreditSurface({
       <OfferBadge tone="promo">Special offer</OfferBadge>
       <div key={step?.position ?? 0} className="animate-fade-in mt-4">
         {step?.kind === "weekly_pair" && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-cream-50 text-lg font-semibold">
-                {(step.payload.headline as string) ?? "Start with a week"}
-              </h2>
-              <p className="text-text-secondary mt-1 text-sm">
-                One-time purchases — no subscription.
-              </p>
-            </div>
-            <div className="space-y-2.5">
-              {weekly.map((plan) => (
-                <button
-                  key={plan.id}
-                  type="button"
-                  onClick={() => void acceptPlan(plan.id)}
-                  className="border-cream-100/10 bg-charcoal-850 hover:border-lime-500/40 flex w-full items-center justify-between rounded-xl border p-4 text-left transition-colors"
-                >
-                  <span>
-                    <span className="text-cream-50 block text-sm font-semibold">
-                      {plan.name.replace("Weekly Trial — ", "")}
-                    </span>
-                    <span className="text-text-muted text-xs">
-                      {plan.credits_grant.toLocaleString()} credits · one week
-                    </span>
-                  </span>
-                  <span className="font-display text-cream-50 text-lg font-bold">
-                    {formatPrice(plan.price_cents)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <WeeklyPairStep
+            plans={weekly}
+            headline={(step.payload.headline as string) ?? "Start with a week"}
+            onAccept={(id) => void acceptPlan(id)}
+          />
         )}
         {(step?.kind === "plans" || step?.kind === "discount") && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-cream-50 text-lg font-semibold">
-                {(step.payload.headline as string) ?? "Unlock every look"}
-              </h2>
-              {step.kind === "discount" &&
-                typeof step.payload.ends_at === "string" && (
-                <p className="text-promo mt-1 text-xs font-semibold">
-                  Offer ends{" "}
-                  {new Date(step.payload.ends_at as string).toLocaleDateString(
-                    undefined,
-                    { month: "short", day: "numeric" }
-                  )}
-                </p>
-              )}
-            </div>
-            {annual && (
-              <div>
-                <PlanRow
-                  name={annual.name}
-                  cadence="per month, billed annually"
-                  priceCents={effectiveMonthlyCents}
-                  anchorCents={monthlyAnchor?.price_cents}
-                  priceCaption="per month"
-                  bullets={[
-                    {
-                      icon: "credits",
-                      text: `${annual.credits_grant.toLocaleString()} credits every month`,
-                    },
-                    { icon: "check", text: "Every preset and poster" },
-                  ]}
-                  headerTab="Best value"
-                  headerTone="promo"
-                  selected={selectedPlanId === annual.id}
-                  onSelect={() => setSelectedPlanId(annual.id)}
-                />
-              </div>
-            )}
-            {monthlyAnchor && (
-              <PlanRow
-                name={monthlyAnchor.name}
-                cadence="per month, billed monthly"
-                priceCents={monthlyAnchor.price_cents}
-                priceCaption="per month"
-                bullets={[
-                  {
-                    icon: "credits",
-                    text: `${monthlyAnchor.credits_grant.toLocaleString()} credits every month`,
-                    dimmed: true,
-                  },
-                ]}
-                selected={selectedPlanId === monthlyAnchor.id}
-                onSelect={() => setSelectedPlanId(monthlyAnchor.id)}
-                dimmed
-              />
-            )}
-            <Button
-              variant="brand"
-              size="lg"
-              className="w-full"
-              disabled={!selectedPlanId}
-              onClick={() => selectedPlanId && void acceptPlan(selectedPlanId)}
-            >
-              {selectedPlanId
-                ? `Continue — ${formatPrice(
-                    [...(annual ? [annual] : []), ...monthly].find(
-                      (p) => p.id === selectedPlanId
-                    )?.price_cents ?? 0
-                  )}`
-                : "Choose a plan"}
-            </Button>
-          </div>
+          <PlansStep
+            eyebrow={step.kind === "discount" ? "Limited time" : undefined}
+            headline={
+              (step.payload.headline as string) ??
+              (step.kind === "discount"
+                ? "Limited-time discount"
+                : "Unlock every look")
+            }
+            annual={annual}
+            monthly={monthly}
+            selected={selectedPlanId}
+            onSelect={setSelectedPlanId}
+            onAccept={(id) => void acceptPlan(id)}
+            deadlineDisplay={
+              step.kind === "discount" && step.payload.ends_at
+                ? ((step.payload.deadline_display as OfferDeadlineDisplay) ??
+                  "date")
+                : "none"
+            }
+            endsAt={(step.payload.ends_at as string) ?? null}
+          />
         )}
         {step?.kind === "topup" &&
           (topUp ? (
             <div className="space-y-4">
               <div>
-                <h2 className="text-cream-50 text-lg font-semibold">
+                <h2 className="font-display text-cream-50 text-xl font-bold">
                   Just this once
                 </h2>
                 <p className="text-text-secondary mt-1 text-sm">
@@ -692,42 +631,15 @@ export function BlockedCreditSurface({
             </div>
           ) : null)}
         {step?.kind === "referral" && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-cream-50 text-lg font-semibold">
-                Or get credits on us
-              </h2>
-              <p className="text-text-secondary mt-1 text-sm">
-                Refer a friend — this one&rsquo;s on us.
-              </p>
-            </div>
-            <ReferralCard
-              referralUrl={
-                referralCode
-                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/r/${referralCode}`
-                  : null
-              }
-              referralCode={referralCode}
-              refereeReward="their first result on us"
-              referrerReward="30% of their plan's credits when they subscribe"
-            />
-          </div>
+          <ReferralStep referralCode={referralCode} />
         )}
         {step?.kind === "exit" && (
-          <div className="py-8 text-center">
-            <h2 className="text-cream-50 text-lg font-semibold">No pressure</h2>
-            <p className="text-text-secondary mt-2 text-sm">
-              Your photo and settings are saved — pick a plan whenever
-              you&rsquo;re ready.
-            </p>
-            <Button
-              variant="secondary"
-              className="mt-5"
-              onClick={close}
-            >
-              Back to your look
-            </Button>
-          </div>
+          <ExitStep
+            title="No pressure"
+            description="Your photo and settings are saved — pick a plan whenever you're ready."
+            buttonLabel="Back to your look"
+            onDismiss={close}
+          />
         )}
       </div>
       {step?.kind !== "exit" && (
@@ -747,7 +659,9 @@ export function BlockedCreditSurface({
   const topupBody = (
     <div className="space-y-4">
       <div>
-        <h2 className="text-cream-50 text-lg font-semibold">Buy credits</h2>
+        <h2 className="font-display text-cream-50 text-xl font-bold">
+          Buy credits
+        </h2>
         <p className="text-text-secondary mt-1 text-sm">
           One-time packs — credits never expire.
         </p>
@@ -774,15 +688,14 @@ export function BlockedCreditSurface({
 
   const footer =
     view === "main" ? (
-      <div className="mt-5 space-y-2">
-        <Button
+      <div className="mt-5 space-y-2.5">
+        <button
           type="button"
-          variant="ghost"
-          className="w-full"
           onClick={cancelMain}
+          className="text-text-muted hover:text-cream-100 block w-full text-center text-sm transition-colors"
         >
           Not now
-        </Button>
+        </button>
         <p className="text-text-muted flex items-center justify-center gap-1.5 text-[11px]">
           <LockSimple size={12} weight="bold" />
           Secure checkout · weekly passes are one-time purchases

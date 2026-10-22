@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, CaretDown } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import type { OfferBadgeTone } from "./offer-badge";
+import { OfferBadge, type OfferBadgeTone } from "./offer-badge";
 import { PriceChip } from "./price-chip";
 
 export interface PlanRowBullet {
@@ -26,8 +26,9 @@ const BULLET_ICONS: Record<
 /**
  * Radio-selectable plan row — the ladder unit used in the Special Offer
  * takeover and BlockedCreditSurface. One plan per row: name + cadence line left,
- * PriceChip right, radio far-left. Selected = accent border + filled radio +
- * tinted surface. Deeper detail behind `Learn more`.
+ * PriceChip right, radio far-left. Selected = lime ring + filled radio +
+ * elevated surface. A `headerTab` rides the top-right corner as an
+ * overlapping chip (Opal/Revolut pattern). Deeper detail behind `Learn more`.
  */
 export function PlanRow({
   name,
@@ -63,24 +64,16 @@ export function PlanRow({
   return (
     <div
       className={cn(
-        "relative rounded-2xl transition-all",
-        headerTab && "pt-5",
-        dimmed && "opacity-75"
+        "relative transition-all",
+        headerTab && "mt-3",
+        dimmed && "opacity-70"
       )}
     >
       {headerTab && (
-        <span className="absolute inset-x-0 top-0 z-10 flex justify-center">
-          <span
-            className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-t-2xl py-1.5 text-[11px] font-bold uppercase tracking-wide",
-              headerTone === "promo" && "bg-promo text-cream-50",
-              headerTone === "lime" && "bg-lime-500 text-ink-950",
-              headerTone === "neutral" &&
-                "bg-charcoal-700 text-cream-100"
-            )}
-          >
+        <span className="absolute -top-2.5 right-4 z-10">
+          <OfferBadge tone={headerTone} className="shadow-md">
             {headerTab}
-          </span>
+          </OfferBadge>
         </span>
       )}
       <button
@@ -88,12 +81,10 @@ export function PlanRow({
         onClick={onSelect}
         aria-pressed={selected}
         className={cn(
-          "flex w-full items-start gap-3 border p-4 text-left transition-colors",
-          headerTab ? "rounded-b-2xl rounded-t-none" : "rounded-2xl",
+          "flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-all",
           selected
-            ? "border-promo bg-charcoal-850"
-            : "border-cream-100/10 bg-charcoal-850/60 hover:border-cream-100/25",
-          dimmed && "bg-charcoal-850/40"
+            ? "border-lime-500/60 bg-charcoal-800 ring-1 ring-lime-500/30"
+            : "border-cream-100/10 bg-charcoal-800/60 hover:border-cream-100/25"
         )}
       >
         <span
@@ -113,11 +104,6 @@ export function PlanRow({
             <span className="text-cream-50 font-display text-lg font-bold leading-tight">
               {name}
             </span>
-            {anchorCents !== undefined && anchorCents > priceCents && (
-              <span className="text-text-muted text-xs line-through">
-                ${(anchorCents / 100).toFixed(0)}
-              </span>
-            )}
           </span>
           <span className="text-text-secondary mt-0.5 block text-xs">
             {cadence}
@@ -173,6 +159,7 @@ export function PlanRow({
           anchorCents={anchorCents}
           caption={priceCaption}
           selected={selected}
+          tone="lime"
           className="shrink-0"
         />
       </button>
