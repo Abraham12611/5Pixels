@@ -18,6 +18,7 @@ import {
   Tag,
   PiggyBank,
   Article,
+  Stack,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -61,6 +62,7 @@ const NAV_GROUPS: AdminNavGroup[] = [
       { label: "Categories", href: "/admin/categories", icon: Folder },
       { label: "Lab", href: "/admin/lab", icon: Flask },
       { label: "Articles", href: "/admin/articles", icon: Article },
+      { label: "Popups", href: "/admin/popups", icon: Stack },
     ],
   },
   {

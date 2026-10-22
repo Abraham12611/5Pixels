@@ -12,6 +12,7 @@ import {
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useIsNarrow } from "@/lib/ui/use-media-query";
+import { useUiReview } from "@/lib/ui-review/context";
 import {
   markAllNotificationsRead,
   markNotificationRead,
@@ -39,6 +40,7 @@ export function NotificationRow({
   onRead: (id: string) => void;
 }) {
   const router = useRouter();
+  const uiReview = useUiReview();
   const [, startTransition] = useTransition();
   const Icon = TYPE_ICON[n.type] ?? WarningCircle;
   const unread = !n.read_at;
@@ -46,11 +48,14 @@ export function NotificationRow({
   const activate = () => {
     if (unread) {
       onRead(n.id);
-      startTransition(() => {
-        void markNotificationRead(n.id);
-      });
+      if (!uiReview) {
+        // Inspector mounts must not mark the admin's real inbox read.
+        startTransition(() => {
+          void markNotificationRead(n.id);
+        });
+      }
     }
-    if (n.link) router.push(n.link);
+    if (n.link && !uiReview) router.push(n.link);
   };
 
   return (
@@ -191,10 +196,13 @@ export function NotificationDropdown({
 
   const badge = unreadBadgeLabel(unread);
 
+  const uiReview = useUiReview();
+
   const markAll = () => {
     const stamp = new Date().toISOString();
     setItems((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? stamp })));
     setUnread(0);
+    if (uiReview) return;
     startTransition(() => {
       void markAllNotificationsRead();
     });

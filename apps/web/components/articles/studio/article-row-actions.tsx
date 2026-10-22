@@ -11,6 +11,7 @@ import {
   unpublishArticleAction,
 } from "@/lib/articles/actions";
 import type { StaffArticle } from "@/lib/articles/types";
+import { useUiReview } from "@/lib/ui-review/context";
 import { stashDuplicateWarning } from "@/lib/articles/duplicate-flash";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,8 +43,15 @@ export function ArticleRowActions({ article }: { article: StaffArticle }) {
   const [error, setError] = useState<string>();
   const [busy, startTransition] = useTransition();
 
+  const uiReview = useUiReview();
+
   const run = (kind: Exclude<PendingAction, null>) => {
     setError(undefined);
+    if (uiReview) {
+      // Inspector mount — lifecycle actions must not run against a fixture.
+      setPending(null);
+      return;
+    }
     startTransition(async () => {
       const result =
         kind === "publish"
