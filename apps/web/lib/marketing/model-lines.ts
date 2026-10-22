@@ -12,8 +12,28 @@ import type { PublicProductSummary } from "@/types/catalog";
  *   3. Sections render only when at least one slug resolves to a live public
  *      product, so a line with no live presets stays invisible automatically.
  */
+export interface ModelPageFeature {
+  title: string;
+  body: string;
+  /** Preset whose image illustrates the block. */
+  presetSlug: string;
+}
+
+export interface ModelPageFaq {
+  q: string;
+  a: string;
+}
+
+export interface ModelPageContent {
+  /** Preset supplying the hero media (defaults to ctaPresetSlug). */
+  heroPresetSlug?: string;
+  /** Alternating feature blocks — keep to 2-4. */
+  features: ModelPageFeature[];
+  faq: ModelPageFaq[];
+}
+
 export interface ModelLine {
-  /** URL slug — also the future /models/[slug] route. */
+  /** URL slug — also the /models/[slug] route. */
   slug: string;
   /** Public marketing name. */
   name: string;
@@ -27,11 +47,12 @@ export interface ModelLine {
   /** Preset the "Try it" / "Start creating" CTAs point at. Must be one of
    *  presetSlugs. */
   ctaPresetSlug: string;
-  /** Where "View all" links until /models/[slug]/presets ships (PR 2 flips
-   *  these to the dedicated community-style page). */
+  /** Full listing of the line's presets. */
   presetsHref: string;
-  /** Where the model page will live once /models/[slug] ships. */
+  /** The model's showcase page. */
   pageHref: string;
+  /** /models/[slug] page content. */
+  page: ModelPageContent;
 }
 
 export const MODEL_LINES: ModelLine[] = [
@@ -53,10 +74,45 @@ export const MODEL_LINES: ModelLine[] = [
       "studio-standard",
     ],
     ctaPresetSlug: "cover-star",
-    // TODO(#PR2): "/models/nano-banana-2/presets" once the community page ships.
-    presetsHref: "/explore",
-    // TODO(#PR2): "/models/nano-banana-2" once the model page ships.
-    pageHref: "/explore",
+    presetsHref: "/models/nano-banana-2/presets",
+    pageHref: "/models/nano-banana-2",
+    page: {
+      features: [
+        {
+          title: "Likeness that actually holds",
+          body: "Skin texture, lighting, and facial identity survive the transformation. Portraits come back looking like you — restyled, not replaced.",
+          presetSlug: "founder-portrait",
+        },
+        {
+          title: "Real text, rendered into the image",
+          body: "Poster presets bake headlines and names into the artwork itself — release covers, event drops, and title cards that read like they were designed, not captioned.",
+          presetSlug: "loud-yellow",
+        },
+        {
+          title: "Controls instead of prompts",
+          body: "Every preset exposes a few schema-driven controls — intensity, layout, palette. You tune sliders; the recipe stays private and consistent.",
+          presetSlug: "editorial-profile",
+        },
+      ],
+      faq: [
+        {
+          q: "What is Nano Banana 2?",
+          a: "It's the engine behind most of the 5Pixels catalog — our current flagship for likeness-preserving photo transformation. You never write prompts; each preset packages a tuned recipe for it.",
+        },
+        {
+          q: "Which presets run on Nano Banana 2?",
+          a: "Most of the catalog — portrait, editorial, manga, and poster presets. Every card in the grid on this page is powered by it.",
+        },
+        {
+          q: "How do I try it?",
+          a: "Pick any preset, upload one photo, adjust the controls if you like, and generate. Each preset shows its credit cost before you confirm.",
+        },
+        {
+          q: "How is it different from Nano Banana?",
+          a: "Nano Banana leans into bold, stylized redraws. Nano Banana 2 favors fidelity — sharper detail and truer likeness across dramatic restyles, plus poster presets with rendered text.",
+        },
+      ],
+    },
   },
   {
     slug: "nano-banana",
@@ -66,10 +122,36 @@ export const MODEL_LINES: ModelLine[] = [
       "Nano Banana is where 5Pixels started. It leans into stylization: ink, manga, and cinematic looks that redraw your photo rather than retouch it.",
     presetSlugs: ["cinematic-still", "retro-slam-manga"],
     ctaPresetSlug: "cinematic-still",
-    // TODO(#PR2): "/models/nano-banana/presets".
-    presetsHref: "/explore",
-    // TODO(#PR2): "/models/nano-banana".
-    pageHref: "/explore",
+    presetsHref: "/models/nano-banana/presets",
+    pageHref: "/models/nano-banana",
+    page: {
+      features: [
+        {
+          title: "Stylization-first",
+          body: "Nano Banana redraws rather than retouches — ink linework, halftone, and manga framing that commit to a look instead of hedging toward realism.",
+          presetSlug: "retro-slam-manga",
+        },
+        {
+          title: "Cinematic color and light",
+          body: "Film-stock grades, motivated lighting, and frame-worthy composition. Stills that look pulled from a sequence, not filtered after the fact.",
+          presetSlug: "cinematic-still",
+        },
+      ],
+      faq: [
+        {
+          q: "What is Nano Banana?",
+          a: "The original 5Pixels engine — tuned for bold, stylized transformations like manga cutouts and cinematic stills.",
+        },
+        {
+          q: "Which presets run on Nano Banana?",
+          a: "The stylized classics in the grid on this page — cinematic and manga looks that redraw your photo.",
+        },
+        {
+          q: "How do I try it?",
+          a: "Pick a preset, upload one photo, and generate. Each preset shows its credit cost before you confirm.",
+        },
+      ],
+    },
   },
 ];
 

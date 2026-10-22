@@ -11,6 +11,7 @@ import { CtaGrid } from "../cta-grid";
 import { PresetShelf } from "../preset-shelf";
 import { PromoBanner } from "../promo-banner";
 import { BrowseGrid } from "../browse-grid";
+import { CompactFooter } from "../compact-footer";
 import { LANDING_TILES, BROWSE_LINKS } from "@/lib/marketing/landing-content";
 import type { PublicProductSummary } from "@/types/catalog";
 
@@ -220,5 +221,22 @@ describe("BrowseGrid", () => {
         screen.getByRole("link", { name: new RegExp(link.label, "i") })
       ).toHaveAttribute("href", link.href);
     }
+  });
+});
+
+describe("CompactFooter", () => {
+  it("renders the slim nav and accepts a hiding className", () => {
+    const { container } = render(<CompactFooter className="max-md:hidden" />);
+    expect(screen.getByRole("link", { name: "Presets" })).toHaveAttribute(
+      "href",
+      "/explore"
+    );
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute(
+      "href",
+      "/terms"
+    );
+    expect(container.querySelector("footer")?.className).toContain(
+      "max-md:hidden"
+    );
   });
 });

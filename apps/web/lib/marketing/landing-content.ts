@@ -3,8 +3,8 @@
  * and the browse-everything link grid. All imagery resolves from live product
  * assets via `presetSlug` until dedicated Flora artwork replaces it.
  *
- * `href` values that point at /models/* are placeholders until the model
- * pages ship (PR 2); keep them on real routes in the meantime.
+ * `href` values that point at /models/* resolve to the showcase pages
+ * shipped in the model-pages PR.
  */
 
 export interface LaunchCard {
@@ -24,7 +24,7 @@ export const LAUNCH_CARDS: LaunchCard[] = [
     eyebrow: "FLAGSHIP ENGINE",
     title: "Nano Banana 2",
     tagline: "Sharper detail. Truer likeness. Magazine-grade transformations.",
-    href: "/explore",
+    href: "/models/nano-banana-2",
     presetSlug: "cover-star",
   },
   {
@@ -77,7 +77,7 @@ export const LANDING_TILES: LandingTile[] = [
     id: "tile-nb2",
     title: "Nano Banana 2",
     description: "Flagship presets with uncanny likeness.",
-    href: "/explore",
+    href: "/models/nano-banana-2",
     badge: "NEW",
     icon: "sparkle",
   },
@@ -107,7 +107,7 @@ export const LANDING_TILES: LandingTile[] = [
     id: "tile-nb",
     title: "Nano Banana",
     description: "Bold, stylized looks from the original engine.",
-    href: "/explore",
+    href: "/models/nano-banana",
     icon: "sparkle",
   },
   {
