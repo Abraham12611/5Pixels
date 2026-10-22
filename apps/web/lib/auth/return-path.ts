@@ -24,15 +24,28 @@ export function buildAuthHref(
   base: "/login" | "/signup",
   currentPath: string | null | undefined
 ): string {
-  if (!currentPath || !isRelativePath(currentPath)) return base;
+  const next = buildAuthNext(currentPath);
+  return next === null ? base : `${base}?next=${encodeURIComponent(next)}`;
+}
+
+/**
+ * The `next` value an auth entry should carry — the current path + query —
+ * or null when it isn't a meaningful return target (landing page, auth
+ * surfaces, non-relative paths). AuthModalLink consumes this directly since
+ * the modal carries `next` as a prop rather than a query param.
+ */
+export function buildAuthNext(
+  currentPath: string | null | undefined
+): string | null {
+  if (!currentPath || !isRelativePath(currentPath)) return null;
   const pathname = currentPath.split("?")[0];
-  if (pathname === "/") return base;
+  if (pathname === "/") return null;
   if (
     NON_RETURN_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
     )
   ) {
-    return base;
+    return null;
   }
-  return `${base}?next=${encodeURIComponent(currentPath)}`;
+  return currentPath;
 }

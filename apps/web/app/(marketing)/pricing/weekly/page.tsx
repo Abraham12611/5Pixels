@@ -10,6 +10,7 @@ import {
 } from "@/lib/billing/entitlements";
 import { formatPrice } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 
 export const dynamic = "force-dynamic";
 
@@ -201,7 +202,9 @@ export default async function WeeklyPassPage() {
                         : "brand"
                     }
                   >
-                    <Link href="/signup?next=/pricing/weekly">Get a week</Link>
+                    <AuthModalLink tab="signup" next="/pricing/weekly">
+                      Get a week
+                    </AuthModalLink>
                   </Button>
                 )}
               </div>

@@ -274,16 +274,15 @@ export function UserDropdown({
 
         <DropdownMenuSeparator className="bg-cream-100/10 my-2" />
 
-        <DropdownMenuItem asChild variant="destructive">
-          <form action={signOut} className="w-full">
-            <button
-              type="submit"
-              className={cn(ITEM_CLASS, "w-full")}
-            >
-              <SignOut size={16} weight="bold" />
-              Sign out
-            </button>
-          </form>
+        <DropdownMenuItem
+          variant="destructive"
+          className={cn(ITEM_CLASS, "w-full")}
+          onSelect={() => {
+            void signOut();
+          }}
+        >
+          <SignOut size={16} weight="bold" />
+          Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

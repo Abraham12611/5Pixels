@@ -13,6 +13,7 @@ import {
 } from "@/lib/billing/recommend";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { SaveLine } from "@/components/promo/save-line";
 import { formatPrice } from "@/lib/format";
 import { trackEvent } from "@/lib/analytics/track";
@@ -396,8 +397,9 @@ export function PlanFinder({ plans, costs, isAuthenticated }: PlanFinderProps) {
                 </form>
               ) : (
                 <Button asChild className="mt-6 w-full">
-                  <a
-                    href="/signup?next=/pricing"
+                  <AuthModalLink
+                    tab="signup"
+                    next="/pricing"
                     onClick={() =>
                       trackEvent({
                         event: "plan_finder_cta",
@@ -406,7 +408,7 @@ export function PlanFinder({ plans, costs, isAuthenticated }: PlanFinderProps) {
                     }
                   >
                     Choose {rec.plan.name}
-                  </a>
+                  </AuthModalLink>
                 </Button>
               )}
 

@@ -8,6 +8,12 @@ vi.mock("@/app/actions/auth", () => ({
   signInWithGoogle: vi.fn(),
 }));
 
+vi.mock("@/lib/referrals/actions", () => ({
+  captureReferral: vi.fn(async () => {}),
+}));
+
+import { captureReferral } from "@/lib/referrals/actions";
+
 const preset = { name: "Cyber Punk", thumbUrl: "https://x.test/t.jpg" };
 
 describe("AuthModal", () => {
@@ -96,5 +102,12 @@ describe("AuthModal", () => {
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     fireEvent.click(tabs[2]);
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("drops the referral attribution cookie when opened with a referrerId", () => {
+    render(
+      <AuthModal open onOpenChange={vi.fn()} next="/app" referrerId="ref-1" />
+    );
+    expect(captureReferral).toHaveBeenCalledWith("ref-1");
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { PlanForPurchase } from "@/lib/db/plans";
 
 const getUser = vi.fn();
@@ -12,6 +12,19 @@ const redirect = vi.fn((url: string) => {
 
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => redirect(url),
+  usePathname: () => "/pricing/weekly",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("@/app/actions/auth", () => ({
+  signIn: vi.fn(),
+  signUp: vi.fn(),
+  signInWithGoogle: vi.fn(),
+}));
+
+vi.mock("@/lib/referrals/actions", () => ({
+  captureReferral: vi.fn(async () => {}),
+  recordReferralWelcomeEvent: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -127,16 +140,18 @@ describe("WeeklyPassPage", () => {
     expect(screen.getByText(/From \$5/)).toBeInTheDocument();
   });
 
-  it("links anonymous users to signup with the weekly page as return target", async () => {
+  it("opens the signup modal for anonymous users with the weekly page as return target", async () => {
     signedOut();
     await renderPage();
-    const links = screen
-      .getAllByRole("link")
-      .filter((a) => a.getAttribute("href")?.startsWith("/signup"));
-    expect(links.length).toBeGreaterThan(0);
-    for (const link of links) {
-      expect(link.getAttribute("href")).toBe("/signup?next=/pricing/weekly");
-    }
+    const triggers = screen
+      .getAllByRole("button")
+      .filter((b) => b.getAttribute("aria-haspopup") === "dialog");
+    expect(triggers.length).toBeGreaterThan(0);
+    fireEvent.click(triggers[0]);
+    const nextInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="next"]')
+    ).map((input) => input.value);
+    expect(nextInputs).toContain("/pricing/weekly");
   });
 
   it("submits eligible signed-in users straight to checkout", async () => {

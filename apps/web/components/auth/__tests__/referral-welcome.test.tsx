@@ -4,10 +4,20 @@ import {
   ReferralClaimLink,
   ReferralWelcomeTracker,
 } from "../referral-welcome";
-import { recordReferralWelcomeEvent } from "@/lib/referrals/actions";
+import {
+  captureReferral,
+  recordReferralWelcomeEvent,
+} from "@/lib/referrals/actions";
 
 vi.mock("@/lib/referrals/actions", () => ({
   recordReferralWelcomeEvent: vi.fn(async () => {}),
+  captureReferral: vi.fn(async () => {}),
+}));
+
+vi.mock("@/app/actions/auth", () => ({
+  signIn: vi.fn(),
+  signUp: vi.fn(),
+  signInWithGoogle: vi.fn(),
 }));
 
 const REF = "11111111-2222-3333-4444-555555555555";
@@ -26,14 +36,14 @@ describe("referral welcome", () => {
     );
   });
 
-  it("claim CTA preserves ?ref= and records the claimed event", () => {
+  it("claim CTA opens the signup modal, records accept, and captures the referral", () => {
     render(<ReferralClaimLink referrerId={REF} />);
-    const link = screen.getByRole("link", { name: "Claim your gift" });
-    expect(link).toHaveAttribute(
-      "href",
-      `/signup?ref=${encodeURIComponent(REF)}`
-    );
-    fireEvent.click(link);
+    fireEvent.click(screen.getByRole("button", { name: "Claim your gift" }));
     expect(recordReferralWelcomeEvent).toHaveBeenCalledWith("accept", REF);
+    // Modal opens on the signup tab with the attribution cookie drop.
+    expect(
+      screen.getByRole("dialog", { name: /create your account/i })
+    ).toBeInTheDocument();
+    expect(captureReferral).toHaveBeenCalledWith(REF);
   });
 });

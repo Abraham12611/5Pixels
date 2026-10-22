@@ -12,6 +12,7 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { InAppBrowserNotice } from "@/components/auth/in-app-browser-notice";
 import { AuthSlideshow } from "@/components/auth/auth-slideshow";
 import { LegalConsentCheckbox } from "@/components/auth/legal-consent-checkbox";
+import { ReferralCapture } from "@/components/auth/referral-capture";
 import {
   signIn,
   signUp,
@@ -41,12 +42,16 @@ export function AuthModal({
   next,
   preset,
   initialTab = "login",
+  referrerId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   next: string;
   preset?: AuthModalPreset | null;
   initialTab?: "login" | "signup";
+  /** Referral attribution — drops the same cookie the /signup page's
+   *  ReferralCapture drops when arriving via ?ref=. */
+  referrerId?: string;
 }) {
   const [tab, setTab] = useState<"login" | "signup">(initialTab);
   const [prevOpen, setPrevOpen] = useState(open);
@@ -72,6 +77,7 @@ export function AuthModal({
       className="sm:h-[min(92dvh,660px)] sm:max-w-4xl"
     >
       <div className="sm:grid sm:h-full sm:grid-cols-2">
+        {referrerId && <ReferralCapture referrerId={referrerId} />}
         <AuthSlideshow />
 
         <div className="px-5 pb-6 pt-14 sm:flex sm:min-h-0 sm:flex-col sm:overflow-y-auto sm:px-9 sm:py-8">

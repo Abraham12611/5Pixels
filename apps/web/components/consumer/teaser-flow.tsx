@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Link from "next/link";
 import { SpinnerGap, UploadSimple } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { BlurredResultStage } from "@/components/promo/blurred-result-stage";
 import {
   createPendingGeneration,
@@ -100,16 +100,19 @@ export function TeaserFlow({
             Sign up to reveal it — your photo and settings are saved.
           </p>
           <Button asChild variant="brand" size="lg" className="mt-6 w-full max-w-xs">
-            <Link href="/signup?next=%2Fapp">Sign up</Link>
+            <AuthModalLink tab="signup" next="/app">
+              Sign up
+            </AuthModalLink>
           </Button>
           <p className="text-text-muted mt-4 text-sm">
             Already have an account?{" "}
-            <Link
-              href="/login?next=%2Fapp"
+            <AuthModalLink
+              tab="login"
+              next="/app"
               className="text-cream-100 underline underline-offset-4"
             >
               Sign in
-            </Link>
+            </AuthModalLink>
           </p>
         </BlurredResultStage>
       </div>
@@ -201,12 +204,13 @@ export function TeaserFlow({
 
       <p className="text-text-muted mt-3 text-center text-sm">
         Already have an account?{" "}
-        <Link
-          href="/login?next=%2Fapp"
+        <AuthModalLink
+          tab="login"
+          next="/app"
           className="text-lime-400 hover:underline"
         >
           Log in
-        </Link>
+        </AuthModalLink>
       </p>
     </div>
   );

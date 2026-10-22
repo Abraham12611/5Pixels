@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { UserDropdown } from "../user-dropdown";
+import { signOut } from "@/app/actions/auth";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -25,8 +26,18 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
     <div role="menu">{children}</div>
   ),
-  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => (
-    <div role="menuitem">{children}</div>
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+  }: {
+    children: React.ReactNode;
+    onSelect?: (event: Event) => void;
+  }) => (
+    // Radix fires onSelect for click + keyboard; forward it so tests can
+    // exercise the sign-out action the way the real menu does.
+    <div role="menuitem" onClick={(e) => onSelect?.(e.nativeEvent)}>
+      {children}
+    </div>
   ),
   DropdownMenuSeparator: () => <hr />,
 }));
@@ -67,6 +78,12 @@ describe("UserDropdown — Articles entries (#132)", () => {
     expect(
       screen.queryByRole("link", { name: /admin console/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("invokes the signOut server action when Sign out is selected", () => {
+    render(<UserDropdown {...BASE} isAdmin={false} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
+    expect(signOut).toHaveBeenCalledTimes(1);
   });
 
   it("shows Manage articles for admin/owner only", () => {

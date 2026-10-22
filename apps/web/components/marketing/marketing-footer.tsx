@@ -7,7 +7,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react/dist/ssr";
 import { LogoMark } from "@/components/logo-mark";
-import { AuthReturnLink } from "@/components/auth/auth-return-link";
+import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { CookieSettingsButton } from "@/components/consent/cookie-settings-button";
 import { SOCIAL_LINKS, SUPPORT_EMAIL } from "@/lib/constants";
 
@@ -68,18 +68,18 @@ export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
               {!isAuthenticated && (
                 <>
-                  <AuthReturnLink
-                    href="/signup"
+                  <AuthModalLink
+                    tab="signup"
                     className="inline-flex items-center justify-center rounded-full bg-ink-950 px-5 py-2.5 text-sm font-semibold text-lime-400 hover:bg-ink-900"
                   >
                     Sign up
-                  </AuthReturnLink>
-                  <AuthReturnLink
-                    href="/login"
+                  </AuthModalLink>
+                  <AuthModalLink
+                    tab="login"
                     className="text-ink-950 text-sm font-medium hover:underline"
                   >
                     Log in
-                  </AuthReturnLink>
+                  </AuthModalLink>
                 </>
               )}
             </div>
