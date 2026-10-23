@@ -12,9 +12,13 @@
  *
  *   1. A write tool called without a token asks A's `stageWriteIntent`
  *      (bearer context) to stage a pending intent — SQL fingerprints the
- *      exact canonical payload — and refuses with `approval_required`.
+ *      exact canonical payload AND derives the owner preview from the
+ *      payload itself — and refuses with `approval_required`.
  *   2. The owner opens `/admin/preset-factory/approve?intent=<id>` —
- *      `getWriteIntent` shows the stored preview; `approveWriteIntent`
+ *      `getWriteIntent` shows the SQL-derived preview; the action first
+ *      verifies a strong signing secret is configured (fail closed —
+ *      approving before that check would consume the pending intent
+ *      without producing a usable token), then `approveWriteIntent`
  *      performs the atomic pending→approved transition (OAuth callers are
  *      refused inside the RPC, so approval can only come from the cookie
  *      session). Only after `status='approved'` does the action mint a
@@ -36,7 +40,6 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import type { PresetDraftItem } from "@/lib/preset-factory/contract";
 
 export const APPROVAL_TTL_SECONDS = 600;
 const TOKEN_VERSION = "pfa2";
@@ -72,12 +75,20 @@ export function payloadDigest(payload: unknown): string {
 
 function approvalSecret(): string {
   const secret = process.env.PRESET_FACTORY_APPROVAL_SECRET;
-  if (!secret) {
+  if (!secret || secret.length < 32) {
     throw new Error(
-      "PRESET_FACTORY_APPROVAL_SECRET is not configured — write approvals are disabled."
+      "PRESET_FACTORY_APPROVAL_SECRET is not configured or too short (≥32 chars required) — write approvals are disabled."
     );
   }
   return secret;
+}
+
+/** Fail-closed gate used by the approval action BEFORE approving the
+ *  intent — if the secret is missing/weak we must never reach the atomic
+ *  pending→approved transition, or the approval would be consumed without
+ *  producing a usable token. */
+export function assertApprovalSecretConfigured(): void {
+  approvalSecret();
 }
 
 function sign(body: string): string {
@@ -197,131 +208,65 @@ export function approvalRequired(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Owner-facing preview — sanitized summary stored as the intent's `preview`.
-// Identity + visibility/safety/composition settings only; the stage RPC
-// additionally rejects recipe-field names as defense-in-depth.
+// Owner-facing preview — TYPES ONLY. The preview object itself is derived
+// inside `admin_stage_write_intent` from the staged payload (callers can no
+// longer supply one), selecting only safe identity/settings fields — recipe
+// text is never stored. Fields are typed nullable because the SQL
+// projection emits null for absent values.
 // ---------------------------------------------------------------------------
 
-/** Safe preview of a draft item — NEVER private recipe text (instruction
- * templates, negative prompts, model_config internals, field copy, asset
- * payloads). */
+/** A's SQL-derived safe projection of one staged draft item — NEVER
+ * private recipe text (instruction templates, negative prompts,
+ * model_config internals, field copy, asset payloads). */
 export interface IntentItemPreview {
-  client_item_id: string;
-  name: string;
-  slug: string;
-  type: string;
-  short_description: string | null;
-  category_id: string | null;
-  parent_preset_id: string | null;
-  variant_display_name: string | null;
-  visibility: string;
-  standalone_discoverable: boolean;
-  featured_rank: number | null;
+  name?: string | null;
+  slug?: string | null;
+  type?: string | null;
+  short_description?: string | null;
+  category_id?: string | null;
+  parent_preset_id?: string | null;
+  variant_display_name?: string | null;
+  visibility?: string | null;
+  standalone_discoverable?: boolean | null;
+  featured_rank?: number | null;
   /** Composition hints — safe scalars, not recipe text. */
-  style_archetype: string | null;
-  identity_preservation: string | null;
-  layout_template: string | null;
-  provider: string;
-  model: string;
-  input_mode: string | null;
-  input_image_range: string | null;
-  safety: {
-    allowed_nsfw: boolean | null;
-    block_public_figures: boolean | null;
-    block_minors: boolean | null;
-    policy_version: string | null;
-  };
-  post_process: {
-    format: string | null;
-    quality: number | null;
-    crop: boolean | null;
-  };
-  credit_cost: number | null;
-  output_sizes: { width: number; height: number }[];
-  field_count: number;
-  asset_link_count: number;
+  style_archetype?: string | null;
+  identity_preservation?: string | null;
+  layout_template?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  input_mode?: string | null;
+  input_image_range?: string | null;
+  safety?: {
+    allowed_nsfw?: boolean | null;
+    block_public_figures?: boolean | null;
+    block_minors?: boolean | null;
+    policy_version?: string | null;
+  } | null;
+  post_process?: {
+    format?: string | null;
+    quality?: number | null;
+    crop?: boolean | null;
+  } | null;
+  credit_cost?: number | null;
+  output_sizes?: { width?: number | null; height?: number | null }[] | null;
+  field_count?: number | null;
+  asset_link_count?: number | null;
 }
 
 export interface IntentCategoryPreview {
-  name: string;
-  slug: string;
-  description: string | null;
-  sort_order: number;
+  name?: string | null;
+  slug?: string | null;
+  description?: string | null;
+  sort_order?: number | null;
 }
 
+/** A's SQL-derived preview envelope — `{operation, total_items, items}` for
+ * draft batches or `{operation, total_items, categories}` for category
+ * writes. */
 export interface IntentSummary {
   operation: ApprovableOperation;
   items?: IntentItemPreview[];
   categories?: IntentCategoryPreview[];
-  total_items: number;
-}
-
-/** Build the owner-facing preview from the canonical payload — the same
- * normalized items the stage RPC fingerprints, so the preview the owner
- * sees always describes the payload the approval binds. */
-export function buildIntentSummary(
-  operation: ApprovableOperation,
-  canonical: unknown
-): IntentSummary {
-  if (operation === "create_draft_batch") {
-    const items = ((canonical as { items?: PresetDraftItem[] }).items ?? []).map(
-      (i): IntentItemPreview => {
-        const cap = i.version?.input_capability;
-        return {
-          client_item_id: i.client_item_id,
-          name: i.product?.name ?? "?",
-          slug: i.product?.slug ?? "?",
-          type: i.product?.type ?? "?",
-          short_description: i.product?.short_description ?? null,
-          category_id: i.product?.category_id ?? null,
-          parent_preset_id: i.product?.parent_preset_id ?? null,
-          variant_display_name: i.product?.variant_display_name ?? null,
-          visibility: i.product?.visibility ?? "public",
-          standalone_discoverable: i.product?.standalone_discoverable ?? false,
-          featured_rank: i.product?.featured_rank ?? null,
-          style_archetype: i.product?.filter_config?.style_archetype ?? null,
-          identity_preservation:
-            i.product?.filter_config?.identity_preservation ?? null,
-          layout_template: i.product?.poster_config?.layout_template ?? null,
-          provider: i.version?.provider_strategy?.primary_provider ?? "?",
-          model: i.version?.provider_strategy?.primary_model ?? "?",
-          input_mode: cap?.input_mode ?? null,
-          input_image_range:
-            cap != null ? `${cap.input_min_images}–${cap.input_max_images}` : null,
-          safety: {
-            allowed_nsfw: i.version?.safety_config?.allowed_nsfw ?? null,
-            block_public_figures:
-              i.version?.safety_config?.block_public_figures ?? null,
-            block_minors: i.version?.safety_config?.block_minors ?? null,
-            policy_version: i.version?.safety_config?.policy_version ?? null,
-          },
-          post_process: {
-            format: i.version?.post_process_config?.format ?? null,
-            quality: i.version?.post_process_config?.quality ?? null,
-            crop: i.version?.post_process_config?.crop ?? null,
-          },
-          credit_cost: i.version?.credit_cost ?? null,
-          output_sizes: (i.version?.output_sizes ?? []).map((s) => ({
-            width: s.width,
-            height: s.height,
-          })),
-          field_count: i.fields?.length ?? 0,
-          asset_link_count: i.asset_links?.length ?? 0,
-        };
-      }
-    );
-    return { operation, items, total_items: items.length };
-  }
-  const categories = (
-    (canonical as { categories?: { name: string; slug: string; description?: string; sort_order: number }[] })
-      .categories ?? []
-  ).map(
-    (c): IntentCategoryPreview => ({
-      name: c.name,
-      slug: c.slug,
-      description: c.description ?? null,
-      sort_order: c.sort_order ?? 0,
-    })
-  );
-  return { operation, categories, total_items: categories.length };
+  total_items?: number;
 }

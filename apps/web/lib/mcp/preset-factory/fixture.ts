@@ -59,6 +59,9 @@ const SIM_WARNING = {
 
 export function fixtureBackend(): PresetFactoryBackend {
   const created = new Map<string, { product_id: string; client_item_id: string; slug: string }>();
+  /** Last staged intent — lets the simulated getWriteIntent return a
+   *  preview derived from the same payload, mirroring A's SQL. */
+  let lastStaged: StageWriteIntentRequest | null = null;
 
   const ok = <T>(data: T): FactoryResult<T> => ({ ok: true, data });
   const simulated = <T extends object>(data: T) => ({ ...data, simulated: true as const });
@@ -129,20 +132,77 @@ export function fixtureBackend(): PresetFactoryBackend {
       return ok(simulated(result));
     },
     async stageWriteIntent(request: StageWriteIntentRequest) {
+      lastStaged = request;
       const unitCount =
         request.operation === "create_draft_batch"
           ? request.items.length
           : request.categories.length;
+      const preview =
+        request.operation === "create_draft_batch"
+          ? {
+              operation: request.operation,
+              total_items: unitCount,
+              items: request.items.map((i) => ({
+                slug: i.product?.slug ?? null,
+                name: i.product?.name ?? null,
+                type: i.product?.type ?? null,
+              })),
+            }
+          : {
+              operation: request.operation,
+              total_items: unitCount,
+              categories: request.categories.map((c) => ({
+                name: c.name,
+                slug: c.slug,
+                description: c.description ?? null,
+                sort_order: c.sort_order,
+              })),
+            };
       return ok(
         simulated({
           intent_id: SIM("f1"),
           status: "pending" as const,
           digest: "sim-digest-not-real",
+          preview,
           item_fingerprints: Array.from(
             { length: unitCount },
             (_, i) => `sim-fp-${i + 1}`
           ),
           expires_at: new Date(Date.now() + 900_000).toISOString(),
+        })
+      );
+    },
+    async getWriteIntent(query) {
+      const staged = lastStaged;
+      if (!staged) {
+        return {
+          ok: false as const,
+          error: { code: "approval_invalid" as const, message: "SIMULATED — no staged intent." },
+        };
+      }
+      return ok(
+        simulated({
+          intent: {
+            intent_id: query.intent_id,
+            operation: staged.operation,
+            status: "approved" as const,
+            payload_digest: "sim-digest-not-real",
+            preview:
+              staged.operation === "create_categories"
+                ? {
+                    operation: staged.operation,
+                    total_items: staged.categories.length,
+                    categories: staged.categories.map((c) => ({
+                      name: c.name,
+                      slug: c.slug,
+                      description: c.description ?? null,
+                      sort_order: c.sort_order,
+                    })),
+                  }
+                : { operation: staged.operation, total_items: staged.items.length, items: [] },
+            expires_at: new Date(Date.now() + 900_000).toISOString(),
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
         })
       );
     },

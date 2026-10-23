@@ -26,12 +26,14 @@ import type {
   CreateCategoryRequest,
   CreateCategoryResult,
   FactoryResult,
+  IntentIdQuery,
   ModelOption,
   PresetBatchResult,
   ReviewLinkEntry,
   ReviewLinksQuery,
   StageWriteIntentRequest,
   StageWriteIntentResult,
+  WriteIntentSummary,
 } from "@/lib/preset-factory/contract";
 import {
   consumeWriteIntent,
@@ -39,6 +41,7 @@ import {
   createPresetDrafts,
   getPresetBatchStatus,
   getPresetReviewLinks,
+  getWriteIntent,
   listCompatibleModelOptions,
   listPresetCatalog,
   listPresetCategories,
@@ -83,8 +86,15 @@ export interface PresetFactoryBackend {
     request: StageWriteIntentRequest
   ): Promise<FactoryResult<StageWriteIntentResult>>;
 
+  /** Caller-bound read of a staged intent — used to bind each requested
+   *  category payload to the SQL-derived staged units before consuming. */
+  getWriteIntent(
+    query: IntentIdQuery
+  ): Promise<FactoryResult<{ intent: WriteIntentSummary }>>;
+
   /** Tool-level per-fingerprint consumption for writes the DB can't gate
-   *  (categories). Called by the adapter after each successful create. */
+   *  (categories). Called BEFORE each insert, after the payload has been
+   *  matched against the staged preview. */
   consumeWriteIntent(
     request: ConsumeWriteIntentRequest
   ): Promise<FactoryResult<ConsumeWriteIntentResult>>;
@@ -113,6 +123,7 @@ export function directPresetFactoryBackend(
     createCategory: (input) => createPresetCategory(ctx, input),
     createPresetDrafts: (batch) => createPresetDrafts(ctx, batch),
     stageWriteIntent: (request) => stageWriteIntent(ctx, request),
+    getWriteIntent: (query) => getWriteIntent(ctx, query),
     consumeWriteIntent: (request) => consumeWriteIntent(ctx, request),
     getBatchStatus: (query) => getPresetBatchStatus(ctx, query),
     getReviewLinks: (query) => getPresetReviewLinks(ctx, query),

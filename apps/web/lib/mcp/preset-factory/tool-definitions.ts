@@ -233,7 +233,7 @@ export const TOOL_DEFS: ToolDef[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "The item_fingerprints array echoed verbatim from the staged approval response (index-aligned with categories). Required when approval_token is supplied — the adapter consumes each created category's approved fingerprint; SQL rejects fingerprints the intent does not cover.",
+            "The item_fingerprints array echoed verbatim from the staged approval response (index-aligned with categories). Required when approval_token is supplied — the adapter matches each requested category against the SQL-derived staged preview and consumes that unit's fingerprint BEFORE inserting; staged-payload mismatches and already-consumed fingerprints fail closed in SQL.",
         },
       },
       additionalProperties: false,

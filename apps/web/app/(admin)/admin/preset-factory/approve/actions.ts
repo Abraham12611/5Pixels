@@ -6,7 +6,10 @@ import {
   createPresetFactoryContext,
   getWriteIntent,
 } from "@/lib/preset-factory/service";
-import { mintApprovalToken } from "@/lib/mcp/preset-factory/approval";
+import {
+  assertApprovalSecretConfigured,
+  mintApprovalToken,
+} from "@/lib/mcp/preset-factory/approval";
 import type { ApprovableOperation } from "@/lib/preset-factory/contract";
 
 /**
@@ -30,6 +33,21 @@ export async function mintWriteApproval(opts: {
   const ctxRes = await createPresetFactoryContext(supabase);
   if (!ctxRes.ok) return { error: ctxRes.error.message };
   const ctx = ctxRes.data;
+
+  // Fail closed BEFORE touching the intent: if no strong signing secret is
+  // configured, minting would fail — and since pending→approved is a
+  // one-way atomic transition, approving first would consume the approval
+  // opportunity without producing a usable token.
+  try {
+    assertApprovalSecretConfigured();
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error
+          ? err.message
+          : "Approval signing is not configured. Set PRESET_FACTORY_APPROVAL_SECRET.",
+    };
+  }
 
   // Caller-bound read: establishes the operation + SQL-computed digest the
   // token will bind, and surfaces a clear error for missing/foreign intents

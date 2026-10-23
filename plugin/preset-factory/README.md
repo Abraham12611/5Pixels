@@ -39,9 +39,15 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   touched; `is_admin()/is_owner()` re-checked inside the RPCs).
 - **Owner-bound, DB-enforced writes** — a `confirm` flag is *not* enough
   (the model can set it). A refused write STAGES a pending intent via A's
-  `stageWriteIntent` — SQL fingerprints the exact canonical items and
-  computes `payload_digest`. `/admin/preset-factory/approve?intent=…` reads
-  `getWriteIntent` (caller-bound) to display the REAL staged preview, then
+  `stageWriteIntent` — inside SQL (`admin_stage_write_intent`) the canonical
+  items are SHA-256 fingerprinted per write-unit, `payload_digest` is
+  computed, AND the owner-facing preview is derived from the payload itself
+  (callers can no longer supply a preview — a request can never describe one
+  payload and stage another). `/admin/preset-factory/approve?intent=…` reads
+  `getWriteIntent` (caller-bound) to display that staged preview. The
+  action first verifies `PRESET_FACTORY_APPROVAL_SECRET` is configured and
+  ≥32 chars — an unconfigured secret must never reach the transition, or
+  the approval would be consumed without producing a token — then
   `approveWriteIntent` performs the atomic `pending→approved` transition —
   refused inside the RPC for OAuth callers, non-owners, expired or
   non-pending intents. Only then is an HMAC `approval_token` minted,
@@ -49,12 +55,19 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   - **Drafts**: the adapter forwards `approval_intent_id` into
     `createPresetDrafts` — A's draft RPC is **database-gated**: OAuth-issued
     JWTs (client_id claim) are rejected `approval_required` unless the
-    intent covers each item's server-computed fingerprint, and it consumes
-    them internally. Web/session JWTs are unaffected (unchanged admin UI).
+    intent covers each item's server-computed SHA-256 fingerprint, and it
+    consumes them internally. Web/session JWTs are unaffected (unchanged
+    admin UI).
   - **Categories**: can't be DB-gated (`categories_admin` policy allows
-    direct admin inserts) — the adapter consumes each created category's
-    approved fingerprint via `consumeWriteIntent`; SQL rejects fingerprints
-    the intent doesn't cover.
+    direct admin inserts) — the adapter instead binds each requested
+    category to the approval rigorously: it reads the staged intent back,
+    matches the category's {name, slug, description, sort_order} against the
+    SQL-derived staged units, then calls `consumeWriteIntent` **before**
+    inserting. A token approved for categories {A,B} can never create a
+    different category C — C matches no staged unit and the consume RPC
+    additionally rejects any fingerprint the intent doesn't cover, already
+    consumed, or staged under a different OAuth client_id. Payload
+    mismatch = fail closed, no write.
 - **Audit** — every tool call writes `mcp.{tool}.{outcome}` to
   `admin_audit_logs` with the verified `admin_user_id`.
 - **Rate limits** — soft per-user buckets (120 reads, 20 writes per window;
@@ -103,8 +116,11 @@ credit-spending tool. Do not add them without explicit owner authorization.
 2. Enable the **Supabase OAuth server** on the project
    (Authentication → OAuth 2.1 Server) and set its **authorization/consent
    URL** to `https://<site>/oauth/consent`.
-3. Set `PRESET_FACTORY_APPROVAL_SECRET` (openssl rand -hex 32) — without it
-   reads work but every write refuses.
+3. Set `PRESET_FACTORY_APPROVAL_SECRET` to a strong secret
+   (`openssl rand -hex 32` — ≥32 chars enforced) — without it reads work
+   but every write refuses, and approval is blocked BEFORE the
+   pending→approved transition so a missing secret can't consume an
+   approval without yielding a token.
 4. **Deploy Engineer A's `preset_factory_write_intents` migration**
    (`20261109000001`) — the stage/approve/consume RPCs + OAuth draft gate
    the approval flow depends on. Until it lands every write fails closed
@@ -127,7 +143,7 @@ credit-spending tool. Do not add them without explicit owner authorization.
 | Var | Default | Purpose |
 |---|---|---|
 | `PRESET_FACTORY_BACKEND` | `direct` | `direct` = A's service in-process; `fixture` = simulated dev responses (refused outside development) |
-| `PRESET_FACTORY_APPROVAL_SECRET` | — | HMAC key for owner write approvals; unset = writes fail closed |
+| `PRESET_FACTORY_APPROVAL_SECRET` | — | HMAC key for owner write approvals; unset or <32 chars = writes fail closed |
 | `PRESET_FACTORY_MCP_CLIENT_IDS` | — | **Required in production** — OAuth client-id allowlist for bearer tokens |
 | `PRESET_FACTORY_MCP_ALLOWED_ORIGINS` | — | Optional extra Origins allowed to POST (same-origin always OK) |
 

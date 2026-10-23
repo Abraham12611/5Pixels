@@ -11,28 +11,33 @@ import { mintWriteApproval } from "./actions";
 
 function ItemRow({ it }: { it: IntentItemPreview }) {
   const safetyBits = [
-    it.safety.allowed_nsfw != null &&
+    it.safety?.allowed_nsfw != null &&
       `nsfw:${it.safety.allowed_nsfw ? "allowed" : "blocked"}`,
-    it.safety.block_public_figures != null &&
+    it.safety?.block_public_figures != null &&
       `public-figures:${it.safety.block_public_figures ? "blocked" : "allowed"}`,
-    it.safety.block_minors != null &&
+    it.safety?.block_minors != null &&
       `minors:${it.safety.block_minors ? "blocked" : "allowed"}`,
-    it.safety.policy_version && `policy:${it.safety.policy_version}`,
+    it.safety?.policy_version && `policy:${it.safety.policy_version}`,
   ].filter(Boolean);
+  const sizes = (it.output_sizes ?? []).filter(
+    (s) => s?.width != null && s?.height != null
+  );
 
   return (
     <li className="px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-3">
-        <span className="text-cream-50 text-sm font-medium">{it.name}</span>
-        <span className="text-text-secondary font-mono text-xs">{it.slug}</span>
-        <span className="text-text-secondary text-xs uppercase">{it.type}</span>
-        <span className="text-text-secondary text-xs">{it.visibility}</span>
+        <span className="text-cream-50 text-sm font-medium">{it.name ?? "(unnamed)"}</span>
+        <span className="text-text-secondary font-mono text-xs">{it.slug ?? "—"}</span>
+        <span className="text-text-secondary text-xs uppercase">{it.type ?? "—"}</span>
+        <span className="text-text-secondary text-xs">{it.visibility ?? "—"}</span>
       </div>
       {it.short_description && (
         <p className="text-text-secondary mt-1 text-xs">{it.short_description}</p>
       )}
       <div className="text-text-secondary mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
-        <span>model: {it.provider}/{it.model}</span>
+        <span>
+          model: {it.provider ?? "?"}/{it.model ?? "?"}
+        </span>
         <span>category: {it.category_id ?? "none"}</span>
         {it.parent_preset_id && (
           <span>
@@ -51,20 +56,20 @@ function ItemRow({ it }: { it: IntentItemPreview }) {
         {it.input_image_range && <span>images: {it.input_image_range}</span>}
         {it.credit_cost != null && <span>credits: {it.credit_cost}</span>}
         {safetyBits.length > 0 && <span>safety: {safetyBits.join(", ")}</span>}
-        {it.post_process.format && (
+        {it.post_process?.format && (
           <span>
             output: {it.post_process.format}
             {it.post_process.quality != null && ` q${it.post_process.quality}`}
             {it.post_process.crop ? " cropped" : ""}
           </span>
         )}
-        {it.output_sizes.length > 0 && (
+        {sizes.length > 0 && (
           <span>
-            sizes: {it.output_sizes.map((s) => `${s.width}x${s.height}`).join(", ")}
+            sizes: {sizes.map((s) => `${s.width}x${s.height}`).join(", ")}
           </span>
         )}
-        <span>{it.field_count} fields</span>
-        <span>{it.asset_link_count} linked assets</span>
+        <span>{it.field_count ?? 0} fields</span>
+        <span>{it.asset_link_count ?? 0} linked assets</span>
       </div>
     </li>
   );
@@ -144,20 +149,22 @@ export function ApprovalForm({ intent }: { intent: WriteIntentSummary }) {
 
       {items.length > 0 && (
         <ul className="divide-cream-100/10 border-cream-100/10 mt-5 divide-y rounded-xl border">
-          {items.map((it) => (
-            <ItemRow key={it.client_item_id} it={it} />
+          {items.map((it, idx) => (
+            // The SQL-derived preview has no per-item client id — slug +
+            // position is the stable key.
+            <ItemRow key={`${it.slug ?? "item"}-${idx}`} it={it} />
           ))}
         </ul>
       )}
 
       {categories.length > 0 && (
         <ul className="divide-cream-100/10 border-cream-100/10 mt-5 divide-y rounded-xl border">
-          {categories.map((c) => (
-            <li key={c.slug} className="px-4 py-3">
+          {categories.map((c, idx) => (
+            <li key={`${c.slug ?? "category"}-${idx}`} className="px-4 py-3">
               <div className="flex flex-wrap items-baseline gap-x-3">
-                <span className="text-cream-50 text-sm font-medium">{c.name}</span>
-                <span className="text-text-secondary font-mono text-xs">{c.slug}</span>
-                <span className="text-text-secondary text-xs">sort {c.sort_order}</span>
+                <span className="text-cream-50 text-sm font-medium">{c.name ?? "(unnamed)"}</span>
+                <span className="text-text-secondary font-mono text-xs">{c.slug ?? "—"}</span>
+                <span className="text-text-secondary text-xs">sort {c.sort_order ?? 0}</span>
               </div>
               {c.description && (
                 <p className="text-text-secondary mt-1 text-xs">{c.description}</p>
