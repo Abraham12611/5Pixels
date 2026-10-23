@@ -1,20 +1,21 @@
 import { requireAdmin } from "@/lib/db/admin";
 import { createClient } from "@/lib/supabase/server";
-import { createPresetFactoryContext } from "@/lib/preset-factory/service";
-import { listPendingWriteIntents } from "@/lib/mcp/preset-factory/approval";
+import {
+  createPresetFactoryContext,
+  listWriteIntents,
+} from "@/lib/preset-factory/service";
 import { InboxForm } from "./inbox-form";
 
 /**
  * Owner approvals inbox (#272) — every pending write intent the connector
  * has staged, across ALL requesting admins, in one review queue.
  *
- * Visibility is governed by the table's RLS policy: once A's owner
- * cross-admin SELECT ships, the owner sees every admin's staged requests;
- * until then the query is requester-bound (owner sees only own intents).
- * Approval itself is owner-only in SQL (`admin_approve_write_intent`),
- * and every intent the owner approves still carries its SQL-computed
- * payload fingerprints — bulk approving here can never authorize a
- * payload other than the one the owner inspected.
+ * `admin_list_write_intents` is owner-only inside the RPC and lazily
+ * materializes stale open intents as `expired`. Approving is owner-only
+ * in SQL (`admin_approve_write_intent`: is_owner + non-OAuth session),
+ * and every approved intent still carries its SQL-computed payload
+ * fingerprints — bulk approving here can never authorize a payload other
+ * than the one the owner inspected.
  */
 export default async function PresetFactoryApprovalsPage() {
   await requireAdmin();
@@ -37,7 +38,8 @@ export default async function PresetFactoryApprovalsPage() {
     );
   }
 
-  const intents = await listPendingWriteIntents(supabase);
+  const inbox = await listWriteIntents(ctxRes.data, { statuses: ["pending"] });
+  const intents = inbox.ok ? inbox.data.intents : [];
 
   return (
     <>
@@ -50,6 +52,12 @@ export default async function PresetFactoryApprovalsPage() {
         time). Previews are limited summaries: private recipe text is never
         shown or independently verified.
       </p>
+      {!inbox.ok && (
+        <div className="border-cream-100/10 bg-charcoal-850 mt-8 max-w-2xl rounded-2xl border p-6">
+          <p className="text-cream-50 text-sm font-medium">Inbox unavailable</p>
+          <p className="text-text-secondary mt-1 text-sm">{inbox.error.message}</p>
+        </div>
+      )}
       <InboxForm intents={intents} />
     </>
   );

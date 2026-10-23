@@ -291,14 +291,15 @@ therefore enforced **at the database layer**, keyed on the token itself:
   be consumed by a token carrying the same claim — one connector cannot
   spend another connector's approval. Web-staged intents (no `client_id`)
   carry no such restriction.
-- **Approver role — owner-only with requester/approver separation**
-  (owner decision, #271 kickoff 2026-10-23). Approval requires
-  `is_owner()` — an admin who staged a request can never approve it —
-  and the approving owner must be a **different user** than the
-  requester. An owner-staged intent therefore needs a second owner;
-  with a single owner account, owner-staged intents are un-approvable
-  by design. OAuth tokens are refused regardless of owner status.
-  The approver is recorded in `approved_by`.
+- **Approver role — owner-only** (owner decision, 2026-10-24). Approval
+  requires `is_owner()` — an admin can never approve any intent — and
+  OAuth tokens are refused regardless of owner status. The owner MAY
+  approve their own staged intents: production has a single owner
+  account and the connector stages under that identity, so
+  requester≠approver would deadlock. Separation remains where it
+  matters — the approving session is a distinct authenticated web
+  session and consume stays requester + client-bound. The approver is
+  recorded in `approved_by`.
 - **Owner inbox.** The SELECT policy lets `is_owner()` read every intent
   (admins still see only their own), and `admin_list_write_intents`
   returns a bounded (latest 100) summary while lazily flipping stale
@@ -320,7 +321,7 @@ are revoked.
 | RPC                                                                            | Role                                                                                                                                                   |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `admin_stage_write_intent(operation, items, ttl)`                              | OAuth or UI caller (admin or owner); computes SHA-256 fingerprints + digest AND derives the preview in SQL, records `pending`                          |
-| `admin_approve_write_intent(intent_id)`                                        | **Non-OAuth `is_owner()` session only, and ≠ requester** — atomic `pending→approved` claim, records `approved_by`                                      |
+| `admin_approve_write_intent(intent_id)`                                        | **Non-OAuth `is_owner()` session only** — atomic `pending→approved` claim, records `approved_by`; self-approval allowed (single-owner)                 |
 | `admin_list_write_intents(statuses?)`                                          | **Owner only** — inbox across requesters; lazily materializes `expired`, returns latest-100 summaries                                                  |
 | `admin_consume_write_intent(intent_id, operation, fingerprint)`                | Called internally by the draft + category RPCs. Atomic single-fingerprint claim + `client_id` binding; intent flips `consumed` when all units are used |
 | `admin_create_preset_category(name, slug, description, sort_order, intent_id)` | Atomic consume-then-insert for intent-gated category writes; OAuth callers require an approved intent covering the real payload                        |

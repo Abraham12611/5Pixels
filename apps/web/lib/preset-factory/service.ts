@@ -1319,9 +1319,9 @@ export async function getPresetReviewLinks(
 // itself. (Direct categories table inserts bypass intents via the
 // categories_admin policy — a documented residual boundary.)
 //
-// Approval is owner-only with requester/approver separation: an admin
-// requester cannot approve, an owner-staged intent needs a second owner,
-// and OAuth tokens can never approve. Owners read every intent via the
+// Approval is owner-only: ordinary admins can never approve, OAuth
+// tokens can never approve, and the owner MAY approve their own staged
+// intents (single-owner deployment). Owners read every intent via the
 // inbox (listWriteIntents); requesters read only their own.
 // ---------------------------------------------------------------------------
 
@@ -1477,10 +1477,10 @@ function mapWriteIntentRow(row: Record<string, unknown>): WriteIntentSummary {
 }
 
 /**
- * pending → approved, atomically. Owner-only with requester/approver
- * separation enforced inside the RPC — an admin requester can never
- * approve, and an owner-staged intent needs a second owner. OAuth tokens
- * are refused: approval must come from a non-connector session.
+ * pending → approved, atomically. Owner-only inside the RPC — an admin
+ * can never approve; OAuth tokens are refused: approval must come from a
+ * non-connector session. The owner MAY approve their own staged intents
+ * (single-owner deployment).
  */
 export async function approveWriteIntent(
   ctx: PresetFactoryContext,

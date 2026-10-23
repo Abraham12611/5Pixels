@@ -19,10 +19,10 @@
 -- categories_admin FOR ALL is_admin() policy — a documented residual
 -- boundary.
 --
--- Approver policy (owner decision, #271 kickoff 2026-10-23): approval is
--- OWNER-ONLY with requester/approver separation — only a non-OAuth
--- is_owner() session may approve, and the approver must be a different
--- user than the requester who staged the intent. Intents have bounded
+-- Approver policy (owner decision, #271 2026-10-24): approval is
+-- OWNER-ONLY — only a non-OAuth is_owner() session may approve; ordinary
+-- admins can never approve. The owner MAY approve their own staged
+-- intents (single-owner deployment). Intents have bounded
 -- lifetimes (TTL clamped to 60..3600s, enforced by a CHECK constraint)
 -- and owners get inbox read access to every intent via RLS +
 -- admin_list_write_intents.
@@ -37,8 +37,8 @@
 CREATE TABLE IF NOT EXISTS public.preset_factory_write_intents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   -- The requester: the admin who staged the request. Only they may
-  -- consume the intent; approval is reserved to a DIFFERENT is_owner()
-  -- session (requester/approver separation).
+  -- consume the intent; approval is reserved to an is_owner() session
+  -- (which may be the same user — single-owner deployment).
   admin_user_id UUID NOT NULL REFERENCES public.profiles(id),
   operation TEXT NOT NULL CHECK (
     operation IN ('create_draft_batch', 'create_categories')
@@ -70,8 +70,8 @@ CREATE TABLE IF NOT EXISTS public.preset_factory_write_intents (
   expires_at TIMESTAMPTZ NOT NULL
     CHECK (expires_at > created_at AND expires_at <= created_at + INTERVAL '1 hour'),
   approved_at TIMESTAMPTZ,
-  -- The owner who approved — always a different user than admin_user_id
-  -- (enforced by admin_approve_write_intent).
+  -- The owner who approved (may equal admin_user_id — single-owner
+  -- deployment).
   approved_by UUID REFERENCES public.profiles(id),
   consumed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -311,18 +311,16 @@ GRANT EXECUTE ON FUNCTION public.admin_stage_write_intent(
 
 -- ---------------------------------------------------------------------------
 -- 3. Approve — pending → approved, atomically. Approver policy (owner
---    decision, #271 kickoff 2026-10-23):
---      * OWNER-ONLY — the caller must satisfy is_owner(), not merely
---        is_admin(). An admin who staged a request cannot approve it.
---      * REQUESTER/APPROVER SEPARATION — the approving owner must be a
---        different user than admin_user_id (the requester). An
---        owner-staged intent therefore requires a second owner to
---        approve; with a single owner account, owner-staged intents are
---        un-approvable by design.
---      * NON-CONNECTOR SESSION — OAuth-issued tokens (client_id claim)
---        are refused regardless of owner status: approval must come from
---        the admin UI, so a stolen connector token can never authorize
---        writes.
+--    decision, #271 2026-10-24): OWNER-ONLY — the caller must satisfy
+--    is_owner(), never merely is_admin(), and OAuth-issued tokens
+--    (client_id claim) are refused regardless of owner status: approval
+--    must come from the admin UI, so a stolen connector token can never
+--    authorize writes. The owner MAY approve their own staged intents —
+--    production has a single owner account, and the connector stages
+--    under that same identity, so requester≠approver would deadlock.
+--    Separation remains where it matters: the approving session is a
+--    distinct authenticated web session, and consume stays bound to the
+--    requester + staging OAuth client.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.admin_approve_write_intent(
@@ -348,26 +346,22 @@ BEGIN
   END IF;
 
   -- Reason-mapped pre-check: owner inbox visibility means any intent id
-  -- resolves here; separation is reported distinctly from "not found".
+  -- resolves here.
   SELECT * INTO v_intent
   FROM public.preset_factory_write_intents
   WHERE id = p_intent_id;
   IF v_intent.id IS NULL THEN
     RAISE EXCEPTION 'PF_APPROVAL_INVALID: intent not found';
   END IF;
-  IF v_intent.admin_user_id = v_user_id THEN
-    RAISE EXCEPTION
-      'PF_APPROVAL_INVALID: requester/approver separation — the requester cannot approve their own intent';
-  END IF;
 
   -- Atomic transition: one pending → approved claim. Not caller-bound —
-  -- the owner approves OTHER requesters' intents.
+  -- the owner approves any requester's intents, including their own
+  -- (single-owner deployment; see header comment).
   UPDATE public.preset_factory_write_intents
   SET status = 'approved', approved_at = NOW(), approved_by = v_user_id
   WHERE id = p_intent_id
     AND status = 'pending'
     AND expires_at > NOW()
-    AND admin_user_id <> v_user_id
   RETURNING * INTO v_intent;
 
   IF NOT FOUND THEN
@@ -471,8 +465,8 @@ GRANT EXECUTE ON FUNCTION public.admin_list_write_intents(TEXT[])
 --    a partially-consumed batch intent stays usable for its remaining
 --    items. Called INTERNALLY by the draft and category RPCs — both write
 --    paths consume inside their own atomic transactions. Requester-bound:
---    only admin_user_id may consume, which under requester/approver
---    separation is always a different user than the approver.
+--    only admin_user_id may consume, and OAuth-staged intents are bound
+--    to their staging client_id.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.admin_consume_write_intent(

@@ -4,18 +4,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import type { WriteIntentRow } from "@/lib/mcp/preset-factory/approval";
+import type { WriteIntentSummary } from "@/lib/preset-factory/contract";
 import type { IntentSummary } from "@/lib/mcp/preset-factory/approval";
 import { bulkApproveWriteIntents, type BulkApproveResult } from "./actions";
 
 /**
- * Owner bulk-review inbox (#272). Lists pending intents (RLS-governed —
- * all admins' once A's owner policy ships), lets the owner inspect each
- * via the detail page and approve any subset. Approving only flips the
- * intent's server-side status — the connector retries and the database
- * re-verifies every payload fingerprint at write time.
+ * Owner bulk-review inbox (#272). Lists pending intents across all
+ * requesters (A's owner-only `admin_list_write_intents`), lets the owner
+ * inspect each via the detail page and approve any subset. Approving
+ * only flips the intent's server-side status — the connector retries and
+ * the database re-verifies every payload fingerprint at write time.
  */
-export function InboxForm({ intents }: { intents: WriteIntentRow[] }) {
+export function InboxForm({ intents }: { intents: WriteIntentSummary[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<Map<string, BulkApproveResult>>(new Map());
@@ -59,7 +59,7 @@ export function InboxForm({ intents }: { intents: WriteIntentRow[] }) {
         {live.map((intent) => {
           const summary = (intent.preview ?? {}) as unknown as IntentSummary;
           const total =
-            summary.total_items ??
+            intent.total_items ||
             (summary.items?.length ?? 0) + (summary.categories?.length ?? 0);
           const res = results.get(intent.intent_id);
           const opLabel =
@@ -89,13 +89,8 @@ export function InboxForm({ intents }: { intents: WriteIntentRow[] }) {
                 <div className="text-text-secondary mt-1 flex flex-wrap gap-x-4 text-xs">
                   <span>
                     requested by{" "}
-                    <span className="font-mono">{intent.admin_user_id.slice(0, 8)}…</span>
+                    <span className="font-mono">{intent.requested_by.slice(0, 8)}…</span>
                   </span>
-                  {intent.client_id && (
-                    <span>
-                      connector <span className="font-mono">{intent.client_id}</span>
-                    </span>
-                  )}
                   <span>staged {new Date(intent.created_at).toLocaleString()}</span>
                   <span>expires {new Date(intent.expires_at).toLocaleString()}</span>
                 </div>

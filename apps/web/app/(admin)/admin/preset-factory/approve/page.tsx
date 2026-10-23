@@ -1,7 +1,9 @@
 import { requireAdmin } from "@/lib/db/admin";
 import { createClient } from "@/lib/supabase/server";
-import { createPresetFactoryContext } from "@/lib/preset-factory/service";
-import { readWriteIntentById } from "@/lib/mcp/preset-factory/approval";
+import {
+  createPresetFactoryContext,
+  getWriteIntent,
+} from "@/lib/preset-factory/service";
 import { ApprovalForm } from "./approval-form";
 
 /**
@@ -40,11 +42,11 @@ export default async function PresetFactoryApprovePage({
 
   const supabase = await createClient();
   const ctxRes = await createPresetFactoryContext(supabase);
-  // RLS-governed read: owner can open another admin's staged intent once
-  // A's cross-admin policy ships; requester-bound until then.
+  // A's getWriteIntent is RLS-bound: admins see their own intents; the
+  // owner sees every intent (cross-admin approval inbox support).
   const loaded = ctxRes.ok
-    ? await readWriteIntentById(supabase, intentId)
-    : { error: ctxRes.error.message };
+    ? await getWriteIntent(ctxRes.data, { intent_id: intentId })
+    : { ok: false as const, error: ctxRes.error };
 
   return (
     <>
@@ -56,13 +58,13 @@ export default async function PresetFactoryApprovePage({
         ChatGPT-layer token for this intent only, valid for 10 minutes.
       </p>
 
-      {"error" in loaded ? (
+      {!loaded.ok ? (
         <div className="border-cream-100/10 bg-charcoal-850 mt-8 max-w-2xl rounded-2xl border p-6">
           <p className="text-cream-50 text-sm font-medium">Cannot approve this request</p>
-          <p className="text-text-secondary mt-1 text-sm">{loaded.error}</p>
+          <p className="text-text-secondary mt-1 text-sm">{loaded.error.message}</p>
         </div>
       ) : (
-        <ApprovalForm intent={loaded.intent} />
+        <ApprovalForm intent={loaded.data.intent} />
       )}
     </>
   );

@@ -173,10 +173,14 @@ export function fixtureBackend(): PresetFactoryBackend {
         simulated({
           intent: {
             intent_id: query.intent_id,
+            requested_by: SIM("aa"),
+            approved_by: SIM("aa"),
             operation: "create_draft_batch" as const,
             status: "approved" as const,
             payload_digest: "sim-digest-not-real",
             preview: { operation: "create_draft_batch", total_items: 0, items: [] },
+            total_items: 1,
+            consumed_items: 0,
             expires_at: new Date(Date.now() + 900_000).toISOString(),
             created_at: "2026-01-01T00:00:00.000Z",
           },

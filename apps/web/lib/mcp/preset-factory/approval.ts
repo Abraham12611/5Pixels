@@ -40,8 +40,6 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { WriteIntentSummary } from "@/lib/preset-factory/contract";
 
 export const APPROVAL_TTL_SECONDS = 600;
 const TOKEN_VERSION = "pfa2";
@@ -272,62 +270,4 @@ export interface IntentSummary {
   items?: IntentItemPreview[];
   categories?: IntentCategoryPreview[];
   total_items?: number;
-}
-
-// ---------------------------------------------------------------------------
-// RLS-governed intent reads for the admin UI (#272 owner inbox).
-//
-// Unlike A's requester-bound service `getWriteIntent`, these select the
-// table directly so the RLS POLICY decides visibility: owner cross-admin
-// reads become available the moment A's policy ships, and everything stays
-// requester-bound (fail closed) until then.
-// ---------------------------------------------------------------------------
-
-export interface WriteIntentRow extends WriteIntentSummary {
-  admin_user_id: string;
-  client_id: string | null;
-}
-
-const INTENT_COLUMNS =
-  "id, admin_user_id, operation, status, payload_digest, preview, client_id, expires_at, created_at";
-
-function rowToIntent(row: Record<string, unknown>): WriteIntentRow {
-  return {
-    intent_id: row.id as string,
-    admin_user_id: row.admin_user_id as string,
-    operation: row.operation as ApprovableOperation,
-    status: row.status as WriteIntentSummary["status"],
-    payload_digest: row.payload_digest as string,
-    preview: (row.preview as Record<string, unknown>) ?? {},
-    client_id: (row.client_id as string | null) ?? null,
-    expires_at: row.expires_at as string,
-    created_at: row.created_at as string,
-  };
-}
-
-/** Single intent by id — whatever the caller's RLS policy permits. */
-export async function readWriteIntentById(
-  supabase: SupabaseClient,
-  intentId: string
-): Promise<{ intent: WriteIntentRow } | { error: string }> {
-  const { data, error } = await supabase
-    .from("preset_factory_write_intents")
-    .select(INTENT_COLUMNS)
-    .eq("id", intentId)
-    .single();
-  if (error || !data) return { error: "Write intent not found." };
-  return { intent: rowToIntent(data as Record<string, unknown>) };
-}
-
-/** Inbox listing — pending intents the caller may see, oldest first. */
-export async function listPendingWriteIntents(
-  supabase: SupabaseClient
-): Promise<WriteIntentRow[]> {
-  const { data, error } = await supabase
-    .from("preset_factory_write_intents")
-    .select(INTENT_COLUMNS)
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
-  if (error || !data) return [];
-  return (data as Record<string, unknown>[]).map(rowToIntent);
 }

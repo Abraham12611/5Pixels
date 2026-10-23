@@ -4,12 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import {
   approveWriteIntent,
   createPresetFactoryContext,
+  getWriteIntent,
 } from "@/lib/preset-factory/service";
 import {
   APPROVAL_TTL_SECONDS,
   assertApprovalSecretConfigured,
   mintApprovalToken,
-  readWriteIntentById,
 } from "@/lib/mcp/preset-factory/approval";
 import type { ApprovableOperation } from "@/lib/preset-factory/contract";
 
@@ -50,12 +50,11 @@ export async function mintWriteApproval(opts: {
     };
   }
 
-  // RLS-governed read (owner cross-admin visibility once A's policy ships):
-  // establishes the operation + SQL-computed digest the token will bind,
-  // and surfaces a clear error for missing/foreign intents before the
-  // state transition is attempted.
-  const intent = await readWriteIntentById(supabase, opts.intentId);
-  if ("error" in intent) return { error: intent.error };
+  // RLS-bound read (owner sees all intents): establishes the operation +
+  // SQL-computed digest the token will bind, and surfaces a clear error
+  // for missing/foreign intents before the state transition is attempted.
+  const intent = await getWriteIntent(ctx, { intent_id: opts.intentId });
+  if (!intent.ok) return { error: intent.error.message };
 
   // Atomic pending → approved transition (server-enforced; refused for
   // OAuth callers, non-owners, expired or non-pending intents).
@@ -68,16 +67,16 @@ export async function mintWriteApproval(opts: {
   try {
     // Clamp the token to the intent's real expiry — the signed credential
     // must never outlive the approval it points at.
-    const intentExpiresMs = new Date(intent.intent.expires_at).getTime();
+    const intentExpiresMs = new Date(intent.data.intent.expires_at).getTime();
     const remainingSeconds = Math.floor((intentExpiresMs - Date.now()) / 1000);
     if (!Number.isFinite(remainingSeconds) || remainingSeconds <= 0) {
       return { error: "This approval intent has already expired — stage a new request." };
     }
     const { token, expires_at } = mintApprovalToken({
       userId: ctx.userId,
-      operation: intent.intent.operation as ApprovableOperation,
+      operation: intent.data.intent.operation as ApprovableOperation,
       intentId: opts.intentId,
-      digest: intent.intent.payload_digest,
+      digest: intent.data.intent.payload_digest,
       ttlSeconds: Math.min(APPROVAL_TTL_SECONDS, remainingSeconds),
     });
     return { token, expires_at };

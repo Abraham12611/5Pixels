@@ -45,12 +45,16 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   (callers can no longer supply a preview — a request can never describe one
   payload and stage another). `/admin/preset-factory/approve?intent=…` reads
   `getWriteIntent` (caller-bound) to display that staged preview.
-  **Approver role:** approval is **owner-only** (pending A's approver
-  change — an admin requests, the product owner approves; cross-admin
-  requester/approver by design). The owner reviews either at
-  `/admin/preset-factory/approve?intent=…` (single intent + optional token
-  mint) or in the **approvals inbox** `/admin/preset-factory/approvals`
-  (owner-only page: every admin's pending intents, bulk approve). The
+  **Approver role:** approval is **owner-only** — `admin_approve_write_intent`
+  requires `is_owner()` and a non-OAuth session. The owner may approve
+  intents they staged themselves (single-owner deployment: the connector
+  stages under the owner's OAuth identity, the web session approves —
+  requester/approver are the same user on different channels; the channel
+  separation is what blocks a stolen connector token). The owner reviews
+  either at `/admin/preset-factory/approve?intent=…` (single intent +
+  optional token mint) or in the **approvals inbox**
+  `/admin/preset-factory/approvals` (owner-only `admin_list_write_intents`:
+  every requester's pending intents, lazy expiry, bulk approve). The
   action first verifies `PRESET_FACTORY_APPROVAL_SECRET` is configured and
   ≥32 chars — an unconfigured secret must never reach the transition, or
   the approval would be consumed without producing a token — then

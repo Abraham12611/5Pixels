@@ -334,10 +334,11 @@ export const createCategoryRequestSchema = z.strictObject({
 // narrower policy could prevent without changing existing admin RLS.
 //
 // Approver policy (owner decision): only a non-OAuth is_owner() session
-// may approve, and the approver must differ from the requester. Owners
-// can read every intent (the approval inbox); requesters see only their
-// own. Intent lifetimes are bounded — 60..3600s TTL enforced by a DB
-// CHECK, with 'expired' materialized lazily by the owner inbox sweep.
+// may approve — ordinary admins never can — and the owner MAY approve
+// their own staged intents (single-owner deployment). Owners can read
+// every intent (the approval inbox); requesters see only their own.
+// Intent lifetimes are bounded — 60..3600s TTL enforced by a DB CHECK,
+// with 'expired' materialized lazily by the owner inbox sweep.
 // ---------------------------------------------------------------------------
 
 export const APPROVABLE_OPERATIONS = [
@@ -410,10 +411,10 @@ export type ConsumeWriteIntentRequest = z.infer<
 
 export interface WriteIntentSummary {
   intent_id: string;
-  /** The requester (staging admin). The approver must be a different
-   *  user — requester/approver separation is enforced in SQL. */
+  /** The requester (staging admin/owner). */
   requested_by: string;
-  /** The owner who approved, once status is approved/consumed. */
+  /** The owner who approved, once status is approved/consumed (may equal
+   *  requested_by — single-owner deployment). */
   approved_by: string | null;
   operation: ApprovableOperation;
   status: WriteIntentStatus;
@@ -446,8 +447,8 @@ export interface StageWriteIntentResult {
 export interface ApproveWriteIntentResult {
   intent_id: string;
   status: "approved";
-  /** The owner who approved — always a different user than the
-   *  requester (SQL-enforced separation). */
+  /** The owner who approved (may equal the requester — single-owner
+   *  deployment). */
   approved_by: string;
   expires_at: string;
 }
