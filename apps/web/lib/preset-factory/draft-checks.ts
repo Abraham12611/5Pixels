@@ -12,16 +12,16 @@ import {
   type ParentCandidate,
 } from "@/lib/validation/preset-family";
 import type { RouteCapability } from "@/lib/ai/route-capabilities";
-import type { FactoryError, PresetDraftItem } from "./contract";
+import {
+  REFERENCE_ASSET_ROLES,
+  type FactoryError,
+  type PresetDraftItem,
+} from "./contract";
 
 /** product_assets role → the media kind the linked asset must have. */
 export type AssetMediaKind = "image" | "gif" | "video";
 
-const REFERENCE_ROLES = new Set([
-  "style_reference",
-  "composition_reference",
-  "layout_reference",
-]);
+const REFERENCE_ROLES = new Set<string>(REFERENCE_ASSET_ROLES);
 
 const IMAGE_ROLES = new Set([
   "hero",
@@ -39,9 +39,9 @@ export function mediaKindForRole(role: string): AssetMediaKind | null {
 }
 
 /**
- * Whether a role's link is private recipe material by default. Reference
- * images feed the hidden instruction path, so they are internal-only unless
- * the admin deliberately exposes them.
+ * Whether a role's link is private recipe material. Reference images feed
+ * the hidden instruction path, so they are always internal_only — this is
+ * enforced by the contract schema and the RPC, not merely defaulted.
  */
 export function defaultInternalOnly(role: string): boolean {
   return REFERENCE_ROLES.has(role);

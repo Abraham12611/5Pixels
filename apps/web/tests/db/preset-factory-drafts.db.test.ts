@@ -85,6 +85,7 @@ interface DraftCallOpts {
   batchId?: string;
   clientItemId?: string;
   idempotencyKey?: string;
+  requestFingerprint?: string;
 }
 
 function draftParams(slug: string, opts: DraftCallOpts = {}): unknown[] {
@@ -117,6 +118,9 @@ function draftParams(slug: string, opts: DraftCallOpts = {}): unknown[] {
     opts.batchId ?? `batch-${randomUUID().slice(0, 8)}`,
     opts.clientItemId ?? "item-1",
     opts.idempotencyKey ?? `idem-${randomUUID()}`,
+    // Caller-asserted marker — required non-empty; the RPC stores its own
+    // canonical payload hash, so this value is never trusted.
+    opts.requestFingerprint ?? `fp-${randomUUID()}`,
   ];
 }
 
@@ -128,7 +132,7 @@ async function callCreateDraft(
   return asUser(client, userId, async () => {
     const res = await client.query(
       `SELECT public.admin_create_preset_draft(
-         $1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8
+         $1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9
        ) AS result`,
       params
     );
@@ -167,7 +171,14 @@ describe("admin_create_preset_draft", () => {
             },
           ],
           assetLinks: [
-            { asset_id: assetId, role: "style_reference", sort_order: 0 },
+            // internal_only:false must be ignored — reference roles are
+            // private recipe material and the RPC forces internal_only.
+            {
+              asset_id: assetId,
+              role: "style_reference",
+              sort_order: 0,
+              internal_only: false,
+            },
           ],
         })
       );
@@ -303,6 +314,49 @@ describe("admin_create_preset_draft", () => {
     });
   });
 
+  it("fails a key replayed with a different payload (canonical fingerprint)", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const key = `idem-${randomUUID()}`;
+      const batchId = `batch-${randomUUID().slice(0, 8)}`;
+
+      const first = await callCreateDraft(
+        client,
+        staffId,
+        draftParams(`dbtest-f-${randomUUID().slice(0, 8)}`, {
+          batchId,
+          idempotencyKey: key,
+        })
+      );
+      expect(first.reused).toBe(false);
+
+      // Same key, different payload — even if the caller *claims* the same
+      // fingerprint, the server-computed canonical hash disagrees.
+      await expect(
+        callCreateDraft(
+          client,
+          staffId,
+          draftParams(`dbtest-f-${randomUUID().slice(0, 8)}`, {
+            batchId,
+            idempotencyKey: key,
+            requestFingerprint: "forged-same-fingerprint",
+          })
+        )
+      ).rejects.toThrow(/PF_IDEMPOTENCY_CONFLICT/i);
+
+      // And an empty fingerprint is rejected outright.
+      await expect(
+        callCreateDraft(
+          client,
+          staffId,
+          draftParams(`dbtest-f-${randomUUID().slice(0, 8)}`, {
+            requestFingerprint: "",
+          })
+        )
+      ).rejects.toThrow(/PF_BAD_REQUEST/i);
+    });
+  });
+
   it("rejects non-admin and anonymous callers", async () => {
     await withDb(async (client) => {
       const { userId } = await makeUser(client);
@@ -316,7 +370,7 @@ describe("admin_create_preset_draft", () => {
           await client.query(
             `SELECT public.admin_create_preset_draft(
                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb,
-               '[]'::jsonb, '[]'::jsonb, 'b', 'i', 'k0123456789abcdef'
+               '[]'::jsonb, '[]'::jsonb, 'b', 'i', 'k0123456789abcdef', 'fp'
              )`
           );
         })
@@ -484,6 +538,19 @@ describe("admin_create_preset_draft", () => {
         return res.rows[0].n;
       });
       expect(userRows).toBe(0); // RLS hides ledger rows from non-admins
+
+      // Caller-bound: a *different* admin cannot read another admin's
+      // operation rows either.
+      const otherStaffId = await makeStaff(client);
+      const otherRows = await asUser(client, otherStaffId, async () => {
+        const res = await client.query(
+          `SELECT COUNT(*)::int AS n FROM public.preset_factory_operations
+           WHERE batch_id = $1`,
+          [batchId]
+        );
+        return res.rows[0].n;
+      });
+      expect(otherRows).toBe(0);
     });
   });
 });

@@ -212,16 +212,41 @@ export const presetDraftVersionSchema = z
     }
   );
 
-export const presetAssetLinkSchema = z.strictObject({
-  asset_id: z.string().uuid(),
-  role: z.enum(ASSET_ROLES),
-  /**
-   * Defaults server-side: true for *_reference roles (private recipe
-   * material), false for example/media roles.
-   */
-  internal_only: z.boolean().optional(),
-  sort_order: z.number().int().nonnegative().default(0),
-});
+/**
+ * Roles whose linked assets are private recipe material: they bind to the
+ * version (consuming route input slots) and are always `internal_only` —
+ * the public product_assets SELECT policy would otherwise expose them once
+ * the product goes active.
+ */
+export const REFERENCE_ASSET_ROLES = [
+  "style_reference",
+  "composition_reference",
+  "layout_reference",
+] as const;
+
+export const presetAssetLinkSchema = z
+  .strictObject({
+    asset_id: z.string().uuid(),
+    role: z.enum(ASSET_ROLES),
+    /**
+     * Defaults server-side: always true for *_reference roles (enforced,
+     * not just defaulted), false for example/media roles.
+     */
+    internal_only: z.boolean().optional(),
+    sort_order: z.number().int().nonnegative().default(0),
+  })
+  .refine(
+    (link) =>
+      !(
+        (REFERENCE_ASSET_ROLES as readonly string[]).includes(link.role) &&
+        link.internal_only === false
+      ),
+    {
+      message:
+        "*_reference links are private recipe material and must be internal_only",
+      path: ["internal_only"],
+    }
+  );
 
 export const presetDraftItemSchema = z.strictObject({
   /** Stable caller-side identifier echoed back in results. */

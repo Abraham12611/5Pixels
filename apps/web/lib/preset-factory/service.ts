@@ -22,10 +22,13 @@
  */
 import { createHash } from "node:crypto";
 
-import type { ProductType } from "@5pixels/shared";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
+import {
+  createClient as createSupabaseClient,
+  type SupabaseClient,
+} from "@supabase/supabase-js";
 import {
   getProviderEndpoint,
   type ProviderStrategy,
@@ -60,7 +63,6 @@ import {
 } from "./contract";
 import {
   checkDraftItem,
-  defaultInternalOnly,
   isVersionBoundRole,
   type DraftItemContext,
   type LinkedAssetShape,
@@ -96,14 +98,34 @@ function zodIssuesToErrors(
  * Verify the caller behind an existing user-scoped client is admin/owner.
  * Returns a context only for privileged callers — everyone else gets a
  * structured `forbidden`/`unauthorized` result. Never redirects.
+ *
+ * Role model (per coordinator review): the gate is `is_admin OR is_owner`,
+ * matching `requireAdmin` and the admin_* RPCs. Effective RLS on
+ * products/categories/audit reads is `is_admin()`-only, so an owner-only
+ * caller (is_owner=true, is_admin=false) passes context creation and RPC
+ * authz but fails closed on RLS-bound lookups — safe, never silently
+ * privileged. Owners are expected to hold `is_admin` per app convention.
+ *
+ * Transports:
+ *  - Cookie session (server actions / same-origin routes): pass a client
+ *    from `@/lib/supabase/server` and no options — `getUser()` reads the
+ *    established session.
+ *  - Bearer token (MCP/CLI): `getUser()` alone fails because no session is
+ *    persisted. Either pass `{ bearerToken }` (validated against the GoTrue
+ *    API) or use {@link createBearerPresetFactoryContext}, which builds a
+ *    correctly-scoped client. A caller-supplied uid is never trusted — the
+ *    JWT is validated server-side and the RPC re-checks auth.uid().
  */
 export async function createPresetFactoryContext(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  options: { bearerToken?: string } = {}
 ): Promise<FactoryResult<PresetFactoryContext>> {
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser();
+  } = options.bearerToken
+    ? await supabase.auth.getUser(options.bearerToken)
+    : await supabase.auth.getUser();
   if (authError || !user) {
     return fail({
       code: "unauthorized",
@@ -129,10 +151,37 @@ export async function createPresetFactoryContext(
 }
 
 /**
+ * Bearer-token transport for the MCP adapter (#272). Builds a user-scoped
+ * client carrying the end user's JWT in `Authorization` — PostgREST RLS and
+ * `auth.uid()` inside SECURITY DEFINER RPCs therefore resolve to the real
+ * caller — then validates the JWT with `auth.getUser(jwt)`. Use this instead
+ * of a cookie client whenever the caller presents a Supabase access token.
+ */
+export async function createBearerPresetFactoryContext(
+  bearerToken: string
+): Promise<FactoryResult<PresetFactoryContext>> {
+  const token = bearerToken.trim();
+  if (!token) {
+    return fail({
+      code: "unauthorized",
+      message: "A Supabase access token is required.",
+    });
+  }
+  const supabase = createSupabaseClient(supabaseUrl(), supabaseAnonKey(), {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+  return createPresetFactoryContext(supabase, { bearerToken: token });
+}
+
+/**
  * Convenience wrapper for the cookie-session transport (server actions /
- * same-origin route handlers). The MCP transport should build its own
- * user-scoped client from its verified token and call
- * createPresetFactoryContext directly.
+ * same-origin route handlers). The MCP transport should use
+ * createBearerPresetFactoryContext with the caller's verified token.
  */
 export async function createSessionPresetFactoryContext(): Promise<
   FactoryResult<PresetFactoryContext>
@@ -493,9 +542,7 @@ function itemContext(
  * problems (oversized batch, duplicate keys) fail the whole request; item
  * schema failures land on that item only.
  */
-function parseBatch(
-  raw: unknown
-): FactoryResult<{
+function parseBatch(raw: unknown): FactoryResult<{
   batchId: string;
   items: PresetDraftItem[];
   itemErrors: Map<number, FactoryError[]>;
@@ -769,6 +816,7 @@ export async function createPresetCategory(
 // ---------------------------------------------------------------------------
 
 const RPC_ERROR_MAP: Array<[RegExp, FactoryError["code"]]> = [
+  [/PF_BAD_REQUEST/i, "validation_failed"],
   [/PF_SLUG_CONFLICT/i, "slug_conflict"],
   [/PF_INVALID_CATEGORY/i, "category_not_found"],
   [/PF_INVALID_PARENT/i, "parent_invalid"],
@@ -827,46 +875,21 @@ export async function createPresetDrafts(
   const lookups = await resolveBatchLookups(ctx, items);
   if (!lookups.ok) return lookups;
 
-  // Ledger short-circuit: items whose idempotency key already committed a
-  // product must report `reused` without re-running validation — the slug
-  // they created is legitimately "conflicting" now. A key replayed with a
-  // *different* payload is a deterministic conflict.
-  const priorOps = new Map<
-    string,
-    {
-      product_id: string;
-      version_id: string | null;
-      request_fingerprint: string | null;
-      product_type: ProductType | null;
-    }
-  >();
+  // Ledger pre-check (caller-bound): items whose idempotency key already
+  // committed a product skip re-validation — the slug they created is
+  // legitimately "conflicting" now — and go straight to the RPC, whose
+  // server-computed payload fingerprint authoritatively decides `reused`
+  // vs `idempotency_conflict`.
+  const priorKeys = new Set<string>();
   const uniqueKeys = [...new Set(items.map((item) => item.idempotency_key))];
   if (uniqueKeys.length > 0) {
     const { data: opRows } = await ctx.supabase
       .from("preset_factory_operations")
-      .select(
-        "idempotency_key, product_id, version_id, request_fingerprint, products(type)"
-      )
+      .select("idempotency_key")
       .eq("admin_user_id", ctx.userId)
       .in("idempotency_key", uniqueKeys);
-    for (const row of (opRows ?? []) as Array<{
-      idempotency_key: string;
-      product_id: string | null;
-      version_id: string | null;
-      request_fingerprint: string | null;
-      products: { type: ProductType }[] | { type: ProductType } | null;
-    }>) {
-      const product = Array.isArray(row.products)
-        ? row.products[0]
-        : row.products;
-      if (row.product_id) {
-        priorOps.set(row.idempotency_key, {
-          product_id: row.product_id,
-          version_id: row.version_id,
-          request_fingerprint: row.request_fingerprint,
-          product_type: product?.type ?? null,
-        });
-      }
+    for (const row of (opRows ?? []) as Array<{ idempotency_key: string }>) {
+      priorKeys.add(row.idempotency_key);
     }
   }
 
@@ -908,49 +931,22 @@ export async function createPresetDrafts(
       )
       .digest("hex");
 
-    const prior = priorOps.get(item.idempotency_key);
-    if (prior) {
-      results.push(
-        prior.request_fingerprint && prior.request_fingerprint !== fingerprint
-          ? {
-              client_item_id: item.client_item_id,
-              status: "failed",
-              errors: [
-                {
-                  code: "idempotency_conflict" as const,
-                  message: `Idempotency key was already used for a different payload (product ${prior.product_id}).`,
-                  field: "idempotency_key",
-                },
-              ],
-              warnings: [],
-            }
-          : {
-              client_item_id: item.client_item_id,
-              status: "reused",
-              product_id: prior.product_id,
-              version_id: prior.version_id ?? undefined,
-              review_path: prior.product_type
-                ? adminReviewPath(prior.product_type, prior.product_id)
-                : undefined,
-              errors: [],
-              warnings: [],
-            }
-      );
-      continue;
-    }
-
-    const { errors, warnings } = checkDraftItem(
-      item,
-      itemContext(item, lookups.data)
-    );
-    if (errors.length > 0) {
-      results.push({
-        client_item_id: item.client_item_id,
-        status: "failed",
-        errors,
-        warnings,
-      });
-      continue;
+    // Prior ledger hit → straight to the RPC: its server-computed canonical
+    // fingerprint decides `reused` vs PF_IDEMPOTENCY_CONFLICT before any
+    // validation or insert runs. Local fingerprint stays caller-asserted.
+    let warnings: FactoryError[] = [];
+    if (!priorKeys.has(item.idempotency_key)) {
+      const check = checkDraftItem(item, itemContext(item, lookups.data));
+      if (check.errors.length > 0) {
+        results.push({
+          client_item_id: item.client_item_id,
+          status: "failed",
+          errors: check.errors,
+          warnings: check.warnings,
+        });
+        continue;
+      }
+      warnings = check.warnings;
     }
 
     const { product, version } = item;
@@ -1015,7 +1011,11 @@ export async function createPresetDrafts(
         p_asset_links: item.asset_links.map((l) => ({
           asset_id: l.asset_id,
           role: l.role,
-          internal_only: l.internal_only ?? defaultInternalOnly(l.role),
+          // *_reference links are private recipe material — forced, not
+          // defaulted (schema refine + RPC CASE both enforce this).
+          internal_only: isVersionBoundRole(l.role)
+            ? true
+            : (l.internal_only ?? false),
           sort_order: l.sort_order,
           bind_to_version: isVersionBoundRole(l.role),
         })),
@@ -1093,6 +1093,9 @@ export async function getPresetBatchStatus(
       "client_item_id, idempotency_key, status, product_id, version_id, created_at, products(slug, type)"
     )
     .eq("batch_id", parsed.data.batch_id)
+    // Caller-bound: the ledger policy only exposes an admin's own rows,
+    // and this filter keeps the query honest even for direct clients.
+    .eq("admin_user_id", ctx.userId)
     .order("created_at", { ascending: true });
   if (error) {
     return fail({
