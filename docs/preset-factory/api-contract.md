@@ -291,6 +291,13 @@ therefore enforced **at the database layer**, keyed on the token itself:
   be consumed by a token carrying the same claim — one connector cannot
   spend another connector's approval. Web-staged intents (no `client_id`)
   carry no such restriction.
+- **Approver role — flagged for product-owner decision.** Approval
+  currently accepts `is_admin() OR is_owner()` (the same gate as every
+  other admin RPC): an admin may approve an intent they themselves staged
+  — "self-approval" — bound only by caller identity and the
+  non-OAuth-session rule. Restricting approval to owner-only is a
+  deliberate product decision and is **not** implemented pending explicit
+  owner sign-off.
 
 ### `preset_factory_write_intents`
 

@@ -216,8 +216,17 @@ BEGIN
     ) INTO v_preview
     FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(e, ord);
   ELSE
+    -- Canonicalize first: '' → NULL description and default sort_order —
+    -- the fingerprint must match admin_create_preset_category's for the
+    -- same logical payload regardless of the caller's literal input.
     SELECT array_agg(
-      encode(extensions.digest(e::text::bytea, 'sha256'), 'hex')
+      encode(extensions.digest(
+        jsonb_build_object(
+          'name', e->>'name',
+          'slug', e->>'slug',
+          'description', NULLIF(e->>'description', ''),
+          'sort_order', COALESCE((e->>'sort_order')::INT, 0)
+        )::text::bytea, 'sha256'), 'hex')
       ORDER BY ord
     ) INTO v_fingerprints
     FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(e, ord);
@@ -229,7 +238,7 @@ BEGIN
         jsonb_build_object(
           'name', e->>'name',
           'slug', e->>'slug',
-          'description', e->>'description',
+          'description', NULLIF(e->>'description', ''),
           'sort_order', COALESCE((e->>'sort_order')::INT, 0)
         )
         ORDER BY ord
@@ -287,6 +296,14 @@ GRANT EXECUTE ON FUNCTION public.admin_stage_write_intent(
 -- 3. Approve — pending → approved, atomically. OAuth-issued tokens are
 --    refused: approval must come from a non-connector session (the admin
 --    UI). Otherwise a stolen connector token could self-approve.
+--
+--    PRODUCT-OWNER DECISION FLAGGED (#271 review): approval currently
+--    accepts is_admin() OR is_owner() — the same gate as every other
+--    admin RPC — meaning an admin may stage AND approve their own intent
+--    ("self-approval"), only bound by caller identity and the
+--    non-OAuth-session rule. Tightening to owner-only approval is a
+--    one-word change below but alters who can authorize writes; left
+--    unchanged pending explicit product-owner sign-off.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.admin_approve_write_intent(
@@ -841,13 +858,14 @@ DECLARE
   v_user_id UUID := (SELECT auth.uid());
   -- Identical canonical expression to admin_stage_write_intent's
   -- create_categories branch: SHA-256 over the normalized jsonb text of
-  -- {name, slug, description, sort_order}.
+  -- {name, slug, description, sort_order}. '' normalizes to NULL so an
+  -- empty-string description fingerprints identically to a null one.
   v_fingerprint CONSTANT TEXT := encode(
     extensions.digest(
       jsonb_build_object(
         'name', p_name,
         'slug', p_slug,
-        'description', p_description,
+        'description', NULLIF(p_description, ''),
         'sort_order', COALESCE(p_sort_order, 0)
       )::text::bytea,
       'sha256'
@@ -884,7 +902,8 @@ BEGIN
     INSERT INTO public.categories (
       name, slug, description, sort_order, is_active
     ) VALUES (
-      p_name, p_slug, p_description, COALESCE(p_sort_order, 0), TRUE
+      p_name, p_slug, NULLIF(p_description, ''),
+      COALESCE(p_sort_order, 0), TRUE
     )
     RETURNING * INTO v_new;
   EXCEPTION
