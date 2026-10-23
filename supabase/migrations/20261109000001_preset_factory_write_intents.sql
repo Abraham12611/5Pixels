@@ -193,12 +193,23 @@ BEGIN
             'crop', e->'version'->'post_process_config'->'crop'
           ),
           'credit_cost', NULLIF(e->'version'->>'credit_cost', '')::INT,
-          'output_sizes',
-            COALESCE(e->'version'->'output_sizes', '[]'::jsonb),
-          'field_count',
-            jsonb_array_length(COALESCE(e->'fields', '[]'::jsonb)),
-          'asset_link_count',
-            jsonb_array_length(COALESCE(e->'asset_links', '[]'::jsonb))
+          -- JSON null is not SQL NULL — COALESCE alone would emit 'null'.
+          -- The approval UI assumes an array; normalize anything else.
+          'output_sizes', CASE
+            WHEN jsonb_typeof(e->'version'->'output_sizes') = 'array'
+            THEN e->'version'->'output_sizes'
+            ELSE '[]'::jsonb
+          END,
+          'field_count', CASE
+            WHEN jsonb_typeof(e->'fields') = 'array'
+            THEN jsonb_array_length(e->'fields')
+            ELSE 0
+          END,
+          'asset_link_count', CASE
+            WHEN jsonb_typeof(e->'asset_links') = 'array'
+            THEN jsonb_array_length(e->'asset_links')
+            ELSE 0
+          END
         )
         ORDER BY ord
       )
@@ -795,4 +806,117 @@ REVOKE ALL ON FUNCTION public.admin_create_preset_draft(
 ) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_create_preset_draft(
   JSONB, JSONB, JSONB, JSONB, JSONB, TEXT, TEXT, TEXT, TEXT, UUID
+) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 6. Atomic category create-and-consume — the canonical category write path
+--    for intent-gated (OAuth) callers. The fingerprint is computed HERE from
+--    the real payload — identical expression to admin_stage_write_intent's
+--    per-category fingerprint — then claimed in the same transaction as the
+--    insert, so a category can never be written before its approval is
+--    spent, and a spent approval rolls back if the insert fails.
+--
+--    OAuth-issued tokens (client_id claim) MUST supply an approved intent
+--    covering this exact {name, slug, description, sort_order} payload.
+--    Web/session callers keep the existing behaviour (no intent needed) —
+--    note the underlying categories table is still directly writable under
+--    categories_admin FOR ALL is_admin(), which is why category approval
+--    was never claimed to be a hard DB boundary; this RPC makes the MCP
+--    tool path atomic and fingerprint-bound, not the table itself.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.admin_create_preset_category(
+  p_name TEXT,
+  p_slug TEXT,
+  p_description TEXT,
+  p_sort_order INT,
+  p_approval_intent_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_user_id UUID := (SELECT auth.uid());
+  -- Identical canonical expression to admin_stage_write_intent's
+  -- create_categories branch: SHA-256 over the normalized jsonb text of
+  -- {name, slug, description, sort_order}.
+  v_fingerprint CONSTANT TEXT := encode(
+    extensions.digest(
+      jsonb_build_object(
+        'name', p_name,
+        'slug', p_slug,
+        'description', p_description,
+        'sort_order', COALESCE(p_sort_order, 0)
+      )::text::bytea,
+      'sha256'
+    ),
+    'hex'
+  );
+  v_existing public.categories;
+  v_new public.categories;
+BEGIN
+  IF v_user_id IS NULL OR NOT (public.is_admin() OR public.is_owner()) THEN
+    RAISE EXCEPTION 'Forbidden: admin or owner required';
+  END IF;
+
+  -- OAuth-origin calls require an approved intent covering THIS payload.
+  IF (SELECT auth.jwt() ->> 'client_id') IS NOT NULL THEN
+    IF p_approval_intent_id IS NULL THEN
+      RAISE EXCEPTION
+        'PF_APPROVAL_REQUIRED: OAuth-issued tokens must carry an approved write intent';
+    END IF;
+  END IF;
+
+  BEGIN
+    -- The claim must live INSIDE this exception-protected block: a caught
+    -- unique_violation rolls back to the block's savepoint, un-spending
+    -- the fingerprint so a reused/conflicting slug can never burn the
+    -- approval. Consume-then-insert keeps the ordering atomic — a denied
+    -- intent can never follow a write, and PF_* errors propagate.
+    IF (SELECT auth.jwt() ->> 'client_id') IS NOT NULL THEN
+      PERFORM public.admin_consume_write_intent(
+        p_approval_intent_id, 'create_categories', v_fingerprint
+      );
+    END IF;
+
+    INSERT INTO public.categories (
+      name, slug, description, sort_order, is_active
+    ) VALUES (
+      p_name, p_slug, p_description, COALESCE(p_sort_order, 0), TRUE
+    )
+    RETURNING * INTO v_new;
+  EXCEPTION
+    WHEN unique_violation THEN
+      -- Concurrent/existing slug holder: same semantics as the service —
+      -- reuse only when the name matches (case/whitespace-insensitive),
+      -- otherwise report a real conflict.
+      SELECT * INTO v_existing
+      FROM public.categories WHERE slug = p_slug;
+      IF v_existing.id IS NOT NULL
+         AND lower(btrim(v_existing.name)) = lower(btrim(p_name)) THEN
+        RETURN jsonb_build_object(
+          'status', 'reused',
+          'category', to_jsonb(v_existing)
+        );
+      END IF;
+      RETURN jsonb_build_object(
+        'status', 'conflict',
+        'existing', to_jsonb(v_existing)
+      );
+  END;
+
+  RETURN jsonb_build_object(
+    'status', 'created',
+    'category', to_jsonb(v_new)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_create_preset_category(
+  TEXT, TEXT, TEXT, INT, UUID
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_create_preset_category(
+  TEXT, TEXT, TEXT, INT, UUID
 ) TO authenticated;

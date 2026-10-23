@@ -155,7 +155,8 @@ Item statuses: `validated` | `failed`. Warnings flag publish blockers
 ### `create_category` → `createPresetCategory(ctx, request)`
 
 ```ts
-// request: { name, slug, description?, sort_order? = 0, idempotency_key }
+// request: { name, slug, description?, sort_order? = 0, idempotency_key,
+//            approval_intent_id? }
 // → { status: 'created'|'reused', category: { id, slug, name, description,
 //     sort_order, is_active }, warnings }
 ```
@@ -173,6 +174,11 @@ Item statuses: `validated` | `failed`. Warnings flag publish blockers
   replay safety relies on slug/name semantics alone. `idempotency_key` is
   still required in the request schema for envelope uniformity, but retries
   are deduplicated purely by the slug-unique constraint + name match above.
+- **Approval path:** when `approval_intent_id` is supplied the write goes
+  through `admin_create_preset_category`, which atomically consumes the
+  intent's fingerprint for this exact `{name, slug, description,
+sort_order}` payload inside the insert transaction. OAuth-issued callers
+  are refused without one; the adapter does not consume separately.
 
 ### `create_preset_drafts` → `createPresetDrafts(ctx, batch)` → `PresetBatchResult`
 
@@ -270,14 +276,16 @@ therefore enforced **at the database layer**, keyed on the token itself:
   caller-asserted hash.
 - Web/session tokens skip the gate entirely: ordinary admin UI creation is
   unchanged.
-- Categories are **not** DB-gated: the existing `categories_admin FOR ALL`
-  `is_admin()` policy permits direct inserts by any admin JWT, so a DB
-  gate on our path would not actually restrict OAuth writes. Category
-  intents use the same store but are consumed at the tool layer by the
-  adapter — **consume before writing** (mirroring the draft path's
-  atomicity): a failed category write burns the fingerprint and needs a
-  re-staged intent, the conservative failure mode versus writing first
-  and discovering the approval was unclaimable.
+- Categories get an atomic gate via `admin_create_preset_category`
+  (below): for OAuth-issued callers it consumes the intent fingerprint
+  computed from the **real** `{name, slug, description, sort_order}`
+  payload and inserts in the same transaction — the approval can never be
+  spent on a different category, and a failed insert rolls the
+  consumption back so the fingerprint stays spendable on retry. Direct
+  `categories` table inserts remain possible under the existing
+  `categories_admin FOR ALL is_admin()` policy — the boundary is the
+  canonical tool path, not the table itself; web/session callers keep the
+  existing ungated service path.
 - Replaying a `reused` item needs no approval — no write occurs.
 - **Client binding.** An intent staged under an OAuth `client_id` can only
   be consumed by a token carrying the same claim — one connector cannot
@@ -291,11 +299,12 @@ Caller-bound SELECT-only RLS (an admin sees only their own intents); all
 mutations go through `SECURITY DEFINER` RPCs — no insert/update/delete
 policy exists for any role, and direct table writes are revoked.
 
-| RPC                                                             | Role                                                                                                                                                                       |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admin_stage_write_intent(operation, items, ttl)`               | OAuth or UI caller; computes SHA-256 fingerprints + digest AND derives the preview in SQL, records `pending`                                                               |
-| `admin_approve_write_intent(intent_id)`                         | **UI session only** — OAuth tokens refused; atomic `pending→approved` claim                                                                                                |
-| `admin_consume_write_intent(intent_id, operation, fingerprint)` | Called internally by the draft RPC; also tool-level for categories. Atomic single-fingerprint claim + `client_id` binding; intent flips `consumed` when all units are used |
+| RPC                                                                            | Role                                                                                                                                                   |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `admin_stage_write_intent(operation, items, ttl)`                              | OAuth or UI caller; computes SHA-256 fingerprints + digest AND derives the preview in SQL, records `pending`                                           |
+| `admin_approve_write_intent(intent_id)`                                        | **UI session only** — OAuth tokens refused; atomic `pending→approved` claim                                                                            |
+| `admin_consume_write_intent(intent_id, operation, fingerprint)`                | Called internally by the draft + category RPCs. Atomic single-fingerprint claim + `client_id` binding; intent flips `consumed` when all units are used |
+| `admin_create_preset_category(name, slug, description, sort_order, intent_id)` | Atomic consume-then-insert for intent-gated category writes; OAuth callers require an approved intent covering the real payload                        |
 
 Server-derived preview: `admin_stage_write_intent` takes **no** preview
 parameter — it projects a safe identity/settings summary (slugs, names,
@@ -326,8 +335,10 @@ admin UI, and the write proceeds with `approval_intent_id` on the batch.
 approval page. `approveWriteIntent(ctx, { intent_id })` → `{ intent_id,
 status:'approved', expires_at }`; refused for OAuth callers.
 `consumeWriteIntent(ctx, { intent_id, operation, request_fingerprint })` →
-`{ consumed, total, status }`; used by the adapter for tool-gated
-operations only (the draft RPC consumes internally).
+`{ consumed, total, status }`; raw single-claim primitive — drafts and
+categories are consumed **inside** their own atomic RPCs
+(`admin_create_preset_draft`, `admin_create_preset_category`), so the
+adapter normally never calls this.
 
 Errors: `approval_required`, `approval_expired`,
 `approval_payload_mismatch`, `approval_invalid`.
