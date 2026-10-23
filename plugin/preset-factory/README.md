@@ -44,7 +44,13 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   computed, AND the owner-facing preview is derived from the payload itself
   (callers can no longer supply a preview — a request can never describe one
   payload and stage another). `/admin/preset-factory/approve?intent=…` reads
-  `getWriteIntent` (caller-bound) to display that staged preview. The
+  `getWriteIntent` (caller-bound) to display that staged preview.
+  **Approver role (explicit product decision pending):** approval accepts
+  `is_admin() OR is_owner()` — the same gate as every other admin RPC — so
+  an admin may approve an intent they staged themselves ("self-approval").
+  Owner-only restriction is deliberately NOT implemented pending owner
+  sign-off; if required it is a one-line predicate change in
+  `admin_approve_write_intent`. The
   action first verifies `PRESET_FACTORY_APPROVAL_SECRET` is configured and
   ≥32 chars — an unconfigured secret must never reach the transition, or
   the approval would be consumed without producing a token — then

@@ -202,7 +202,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_categories",
     description:
-      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the intent and receive the approval link; on the approved re-call just pass the SAME categories — the database verifies each category's exact payload fingerprint against the approved intent, consumes it and inserts atomically. A category that was not staged is refused. Slug collisions return a conflict with the existing category for reuse (no approval is spent).",
+      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the intent and receive the approval link; on the approved re-call just pass the SAME categories — the database verifies each category's exact payload fingerprint against the approved intent, consumes it and inserts atomically. A category that was not staged is refused. Slug collisions return a conflict with the existing category for reuse (no approval is spent). NOT retry-safe after success: once a category's approval unit is consumed, repeating the same approved call is rejected — check list_preset_categories instead of re-calling.",
     inputSchema: {
       type: "object",
       required: ["categories"],
@@ -232,7 +232,10 @@ export const TOOL_DEFS: ToolDef[] = [
       },
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    // idempotentHint: false — a repeated approved call is rejected once the
+    // payload's approval unit is consumed (the consume precedes the insert;
+    // unlike drafts there is no ledger replay that bypasses it).
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     isWrite: true,
     auditEntity: "category",
   },

@@ -7,6 +7,7 @@ import {
   getWriteIntent,
 } from "@/lib/preset-factory/service";
 import {
+  APPROVAL_TTL_SECONDS,
   assertApprovalSecretConfigured,
   mintApprovalToken,
 } from "@/lib/mcp/preset-factory/approval";
@@ -64,11 +65,19 @@ export async function mintWriteApproval(opts: {
   }
 
   try {
+    // Clamp the token to the intent's real expiry — the signed credential
+    // must never outlive the approval it points at.
+    const intentExpiresMs = new Date(intent.data.intent.expires_at).getTime();
+    const remainingSeconds = Math.floor((intentExpiresMs - Date.now()) / 1000);
+    if (!Number.isFinite(remainingSeconds) || remainingSeconds <= 0) {
+      return { error: "This approval intent has already expired — stage a new request." };
+    }
     const { token, expires_at } = mintApprovalToken({
       userId: ctx.userId,
       operation: intent.data.intent.operation as ApprovableOperation,
       intentId: opts.intentId,
       digest: intent.data.intent.payload_digest,
+      ttlSeconds: Math.min(APPROVAL_TTL_SECONDS, remainingSeconds),
     });
     return { token, expires_at };
   } catch (err) {
