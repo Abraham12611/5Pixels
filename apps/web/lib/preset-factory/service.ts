@@ -47,6 +47,7 @@ import {
   consumeWriteIntentSchema,
   createCategoryRequestSchema,
   intentIdQuerySchema,
+  listWriteIntentsQuerySchema,
   presetDraftBatchSchema,
   presetDraftItemSchema,
   reviewLinksQuerySchema,
@@ -1309,7 +1310,7 @@ export async function getPresetReviewLinks(
 }
 
 // ---------------------------------------------------------------------------
-// Write-approval intents (coordinator rev3 / #272)
+// Write-approval intents (coordinator rev4 / #272)
 //
 // OAuth-issued JWTs (client_id claim present) are refused by the draft
 // and category RPCs unless an approved intent covers the payload's
@@ -1317,6 +1318,11 @@ export async function getPresetReviewLinks(
 // consume the fingerprint internally — the adapter never consumes
 // itself. (Direct categories table inserts bypass intents via the
 // categories_admin policy — a documented residual boundary.)
+//
+// Approval is owner-only: ordinary admins can never approve, OAuth
+// tokens can never approve, and the owner MAY approve their own staged
+// intents (single-owner deployment). Owners read every intent via the
+// inbox (listWriteIntents); requesters read only their own.
 // ---------------------------------------------------------------------------
 
 export async function stageWriteIntent(
@@ -1376,7 +1382,13 @@ export async function stageWriteIntent(
   });
 }
 
-/** Caller-bound intent read — drives the approval page's staged preview. */
+/**
+ * Single intent read — drives the approval page's staged preview. RLS is
+ * the authority: an admin sees only their own intents; an is_owner()
+ * session sees every intent (the approval inbox). A stale open intent is
+ * reported as 'expired' for display — the same lazily-materialized status
+ * the owner inbox sweep persists.
+ */
 export async function getWriteIntent(
   ctx: PresetFactoryContext,
   rawQuery: unknown
@@ -1391,10 +1403,9 @@ export async function getWriteIntent(
   const { data, error } = await ctx.supabase
     .from("preset_factory_write_intents")
     .select(
-      "id, operation, status, payload_digest, preview, expires_at, created_at"
+      "id, admin_user_id, approved_by, operation, status, payload_digest, preview, item_fingerprints, consumed_fingerprints, expires_at, created_at"
     )
     .eq("id", parsed.data.intent_id)
-    .eq("admin_user_id", ctx.userId)
     .single();
   if (error || !data) {
     return fail({
@@ -1402,23 +1413,74 @@ export async function getWriteIntent(
       message: "Write intent not found.",
     });
   }
-  const row = data as Record<string, unknown>;
-  return ok({
-    intent: {
-      intent_id: row.id as string,
-      operation: row.operation as WriteIntentSummary["operation"],
-      status: row.status as WriteIntentSummary["status"],
-      payload_digest: row.payload_digest as string,
-      preview: (row.preview as Record<string, unknown>) ?? {},
-      expires_at: row.expires_at as string,
-      created_at: row.created_at as string,
-    },
-  });
+  return ok({ intent: mapWriteIntentRow(data as Record<string, unknown>) });
 }
 
 /**
- * pending → approved, atomically. OAuth-issued tokens are refused inside
- * the RPC — approval must come from a non-connector session (the admin UI).
+ * Owner approval inbox — every intent across requesters, latest 100. The
+ * RPC is owner-only and lazily flips stale open intents to 'expired'.
+ */
+export async function listWriteIntents(
+  ctx: PresetFactoryContext,
+  rawQuery: unknown
+): Promise<FactoryResult<{ intents: WriteIntentSummary[] }>> {
+  const parsed = listWriteIntentsQuerySchema.safeParse(rawQuery ?? {});
+  if (!parsed.success) {
+    return fail({
+      code: "validation_failed",
+      message: parsed.error.issues[0]?.message ?? "Invalid inbox query.",
+    });
+  }
+  const { data, error } = await ctx.supabase.rpc("admin_list_write_intents", {
+    p_statuses: parsed.data.statuses ?? null,
+  });
+  if (error) {
+    return fail(mapRpcError(error));
+  }
+  const rows = (data as { intents?: Record<string, unknown>[] } | null)
+    ?.intents;
+  return ok({
+    intents: (rows ?? []).map((r) =>
+      mapWriteIntentRow({ ...r, id: r.intent_id })
+    ),
+  });
+}
+
+function mapWriteIntentRow(row: Record<string, unknown>): WriteIntentSummary {
+  const status = row.status as WriteIntentSummary["status"];
+  const expiresAt = row.expires_at as string;
+  return {
+    intent_id: (row.id ?? row.intent_id) as string,
+    requested_by: (row.requested_by ?? row.admin_user_id) as string,
+    approved_by: (row.approved_by as string) ?? null,
+    operation: row.operation as WriteIntentSummary["operation"],
+    // Display-derived expiry — the persisted status flips when the owner
+    // inbox sweep (or a gate) next touches the row.
+    status:
+      (status === "pending" || status === "approved") &&
+      new Date(expiresAt).getTime() <= Date.now()
+        ? "expired"
+        : status,
+    payload_digest: row.payload_digest as string,
+    preview: (row.preview as Record<string, unknown>) ?? {},
+    total_items:
+      (row.total_items as number) ??
+      (row.item_fingerprints as unknown[] | null)?.length ??
+      0,
+    consumed_items:
+      (row.consumed_items as number) ??
+      (row.consumed_fingerprints as unknown[] | null)?.length ??
+      0,
+    expires_at: expiresAt,
+    created_at: row.created_at as string,
+  };
+}
+
+/**
+ * pending → approved, atomically. Owner-only inside the RPC — an admin
+ * can never approve; OAuth tokens are refused: approval must come from a
+ * non-connector session. The owner MAY approve their own staged intents
+ * (single-owner deployment).
  */
 export async function approveWriteIntent(
   ctx: PresetFactoryContext,
@@ -1440,11 +1502,13 @@ export async function approveWriteIntent(
   const approved = data as {
     intent_id?: string;
     status?: string;
+    approved_by?: string;
     expires_at?: string;
   } | null;
   return ok({
     intent_id: approved?.intent_id ?? parsed.data.intent_id,
     status: "approved",
+    approved_by: approved?.approved_by ?? "",
     expires_at: approved?.expires_at ?? "",
   });
 }

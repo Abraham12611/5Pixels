@@ -13,11 +13,19 @@
 -- not. admin_create_preset_draft therefore requires an approved write
 -- intent whenever the calling JWT is OAuth-issued — i.e. every connector
 -- write — while the web admin path (no client_id claim) is unchanged and
--- ordinary admin creation is not affected. Categories are NOT DB-gated:
--- the existing categories_admin FOR ALL is_admin() policy already permits
--- direct inserts by any admin, so gating our path would not actually
--- restrict OAuth writes there; category approval stays a tool-level gate
--- (same intent store, consumed by B's adapter).
+-- ordinary admin creation is not affected. Categories are gated the same
+-- way through admin_create_preset_category (atomic consume + insert);
+-- direct categories table inserts still bypass intents via the
+-- categories_admin FOR ALL is_admin() policy — a documented residual
+-- boundary.
+--
+-- Approver policy (owner decision, #271 2026-10-24): approval is
+-- OWNER-ONLY — only a non-OAuth is_owner() session may approve; ordinary
+-- admins can never approve. The owner MAY approve their own staged
+-- intents (single-owner deployment). Intents have bounded
+-- lifetimes (TTL clamped to 60..3600s, enforced by a CHECK constraint)
+-- and owners get inbox read access to every intent via RLS +
+-- admin_list_write_intents.
 --
 -- Repo-only per the manual-testing policy — not applied to hosted Supabase.
 -- ============================================================================
@@ -28,8 +36,9 @@
 
 CREATE TABLE IF NOT EXISTS public.preset_factory_write_intents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  -- The admin who staged the request AND the only identity allowed to
-  -- approve or consume it.
+  -- The requester: the admin who staged the request. Only they may
+  -- consume the intent; approval is reserved to an is_owner() session
+  -- (which may be the same user — single-owner deployment).
   admin_user_id UUID NOT NULL REFERENCES public.profiles(id),
   operation TEXT NOT NULL CHECK (
     operation IN ('create_draft_batch', 'create_categories')
@@ -55,8 +64,15 @@ CREATE TABLE IF NOT EXISTS public.preset_factory_write_intents (
   -- binds it: an intent staged under one client_id can only be consumed
   -- by a token carrying the same claim.
   client_id TEXT,
-  expires_at TIMESTAMPTZ NOT NULL,
+  -- Bounded lifetime: the TTL is clamped to 60..3600s at stage time and
+  -- the CHECK below makes the bound structural — no code path can store
+  -- an unbounded intent.
+  expires_at TIMESTAMPTZ NOT NULL
+    CHECK (expires_at > created_at AND expires_at <= created_at + INTERVAL '1 hour'),
   approved_at TIMESTAMPTZ,
+  -- The owner who approved (may equal admin_user_id — single-owner
+  -- deployment).
+  approved_by UUID REFERENCES public.profiles(id),
   consumed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -66,15 +82,16 @@ CREATE INDEX IF NOT EXISTS idx_write_intents_admin_status
 
 ALTER TABLE public.preset_factory_write_intents ENABLE ROW LEVEL SECURITY;
 
--- Caller-bound read only: an admin sees their own intents (needed by the
--- MCP adapter to return the approval URL and by the approval page to
--- render the staged preview). ALL writes go through the definer RPCs —
--- there is deliberately no insert/update/delete policy for any role.
+-- Read policy: an admin sees only their own staged intents (needed by
+-- the MCP adapter to return the approval URL), while an is_owner()
+-- session sees EVERY intent — the owner approval inbox. ALL writes go
+-- through the definer RPCs — there is deliberately no insert/update/
+-- delete policy for any role.
 CREATE POLICY "preset_factory_write_intents_owner_select"
   ON public.preset_factory_write_intents
   FOR SELECT USING (
-    admin_user_id = auth.uid()
-    AND (public.is_admin() OR public.is_owner())
+    public.is_owner()
+    OR (admin_user_id = auth.uid() AND public.is_admin())
   );
 
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
@@ -293,17 +310,17 @@ GRANT EXECUTE ON FUNCTION public.admin_stage_write_intent(
 ) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 3. Approve — pending → approved, atomically. OAuth-issued tokens are
---    refused: approval must come from a non-connector session (the admin
---    UI). Otherwise a stolen connector token could self-approve.
---
---    PRODUCT-OWNER DECISION FLAGGED (#271 review): approval currently
---    accepts is_admin() OR is_owner() — the same gate as every other
---    admin RPC — meaning an admin may stage AND approve their own intent
---    ("self-approval"), only bound by caller identity and the
---    non-OAuth-session rule. Tightening to owner-only approval is a
---    one-word change below but alters who can authorize writes; left
---    unchanged pending explicit product-owner sign-off.
+-- 3. Approve — pending → approved, atomically. Approver policy (owner
+--    decision, #271 2026-10-24): OWNER-ONLY — the caller must satisfy
+--    is_owner(), never merely is_admin(), and OAuth-issued tokens
+--    (client_id claim) are refused regardless of owner status: approval
+--    must come from the admin UI, so a stolen connector token can never
+--    authorize writes. The owner MAY approve their own staged intents —
+--    production has a single owner account, and the connector stages
+--    under that same identity, so requester≠approver would deadlock.
+--    Separation remains where it matters: the approving session is a
+--    distinct authenticated web session, and consume stays bound to the
+--    requester + staging OAuth client.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.admin_approve_write_intent(
@@ -318,31 +335,38 @@ DECLARE
   v_user_id UUID := (SELECT auth.uid());
   v_intent public.preset_factory_write_intents;
 BEGIN
-  IF v_user_id IS NULL OR NOT (public.is_admin() OR public.is_owner()) THEN
-    RAISE EXCEPTION 'Forbidden: admin or owner required';
-  END IF;
-  -- Approval must originate outside the connector channel.
+  -- Approval must originate outside the connector channel — checked
+  -- first so a connector token gets a clear refusal regardless of role.
   IF (SELECT auth.jwt() ->> 'client_id') IS NOT NULL THEN
     RAISE EXCEPTION
       'PF_APPROVAL_INVALID: write intents must be approved from the admin UI, not an OAuth client token';
   END IF;
+  IF v_user_id IS NULL OR NOT public.is_owner() THEN
+    RAISE EXCEPTION 'Forbidden: owner required to approve write intents';
+  END IF;
 
-  -- Atomic transition: one pending → approved claim, caller-bound.
+  -- Reason-mapped pre-check: owner inbox visibility means any intent id
+  -- resolves here.
+  SELECT * INTO v_intent
+  FROM public.preset_factory_write_intents
+  WHERE id = p_intent_id;
+  IF v_intent.id IS NULL THEN
+    RAISE EXCEPTION 'PF_APPROVAL_INVALID: intent not found';
+  END IF;
+
+  -- Atomic transition: one pending → approved claim. Not caller-bound —
+  -- the owner approves any requester's intents, including their own
+  -- (single-owner deployment; see header comment).
   UPDATE public.preset_factory_write_intents
-  SET status = 'approved', approved_at = NOW()
+  SET status = 'approved', approved_at = NOW(), approved_by = v_user_id
   WHERE id = p_intent_id
-    AND admin_user_id = v_user_id
     AND status = 'pending'
     AND expires_at > NOW()
   RETURNING * INTO v_intent;
 
   IF NOT FOUND THEN
-    SELECT * INTO v_intent
-    FROM public.preset_factory_write_intents
-    WHERE id = p_intent_id AND admin_user_id = v_user_id;
-    IF v_intent.id IS NULL THEN
-      RAISE EXCEPTION 'PF_APPROVAL_INVALID: intent not found';
-    ELSIF v_intent.expires_at <= NOW() THEN
+    -- v_intent already holds the row from the pre-check.
+    IF v_intent.expires_at <= NOW() THEN
       RAISE EXCEPTION 'PF_APPROVAL_EXPIRED: intent expired before approval';
     ELSE
       RAISE EXCEPTION
@@ -353,6 +377,7 @@ BEGIN
   RETURN jsonb_build_object(
     'intent_id', v_intent.id,
     'status', v_intent.status,
+    'approved_by', v_intent.approved_by,
     'expires_at', v_intent.expires_at
   );
 END;
@@ -364,11 +389,84 @@ GRANT EXECUTE ON FUNCTION public.admin_approve_write_intent(UUID)
   TO authenticated;
 
 -- ---------------------------------------------------------------------------
+-- 3b. Owner inbox — list intents across requesters. The RLS SELECT policy
+--     already grants owners read access to every row; this definer RPC
+--     adds the lazy expiry sweep (pending/approved past expires_at flip
+--     to 'expired', which no erroring path can persist since an UPDATE
+--     followed by RAISE rolls back) and a bounded, ordered summary for
+--     the approval UI.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.admin_list_write_intents(
+  p_statuses TEXT[] DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  IF (SELECT auth.uid()) IS NULL OR NOT public.is_owner() THEN
+    RAISE EXCEPTION 'Forbidden: owner required to list write intents';
+  END IF;
+  IF p_statuses IS NOT NULL AND EXISTS (
+    SELECT 1 FROM unnest(p_statuses) AS s
+    WHERE s NOT IN ('pending', 'approved', 'consumed', 'cancelled', 'expired')
+  ) THEN
+    RAISE EXCEPTION 'PF_BAD_REQUEST: unknown intent status filter';
+  END IF;
+
+  -- Materialize 'expired' for stale open intents. Bounded lifetimes make
+  -- this sweep cheap; enforcement never depended on it (every gate also
+  -- checks expires_at > NOW()).
+  UPDATE public.preset_factory_write_intents
+  SET status = 'expired'
+  WHERE status IN ('pending', 'approved')
+    AND expires_at <= NOW();
+
+  RETURN jsonb_build_object(
+    'intents', COALESCE((
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'intent_id', i.id,
+          'requested_by', i.admin_user_id,
+          'approved_by', i.approved_by,
+          'operation', i.operation,
+          'status', i.status,
+          'payload_digest', i.payload_digest,
+          'preview', i.preview,
+          'total_items', cardinality(i.item_fingerprints),
+          'consumed_items', cardinality(i.consumed_fingerprints),
+          'expires_at', i.expires_at,
+          'approved_at', i.approved_at,
+          'created_at', i.created_at
+        )
+        ORDER BY i.created_at DESC
+      )
+      FROM (
+        SELECT * FROM public.preset_factory_write_intents
+        WHERE p_statuses IS NULL OR status = ANY(p_statuses)
+        ORDER BY created_at DESC
+        LIMIT 100
+      ) AS i
+    ), '[]'::jsonb)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_list_write_intents(TEXT[])
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_list_write_intents(TEXT[])
+  TO authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 4. Consume — atomically claim one item fingerprint from an approved
 --    intent. Status flips to 'consumed' when the last fingerprint is used;
 --    a partially-consumed batch intent stays usable for its remaining
---    items. Called by the draft RPC internally AND exposed to the service
---    for tool-gated writes (categories).
+--    items. Called INTERNALLY by the draft and category RPCs — both write
+--    paths consume inside their own atomic transactions. Requester-bound:
+--    only admin_user_id may consume, and OAuth-staged intents are bound
+--    to their staging client_id.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.admin_consume_write_intent(

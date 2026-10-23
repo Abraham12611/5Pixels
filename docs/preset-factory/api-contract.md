@@ -291,25 +291,38 @@ therefore enforced **at the database layer**, keyed on the token itself:
   be consumed by a token carrying the same claim — one connector cannot
   spend another connector's approval. Web-staged intents (no `client_id`)
   carry no such restriction.
-- **Approver role — flagged for product-owner decision.** Approval
-  currently accepts `is_admin() OR is_owner()` (the same gate as every
-  other admin RPC): an admin may approve an intent they themselves staged
-  — "self-approval" — bound only by caller identity and the
-  non-OAuth-session rule. Restricting approval to owner-only is a
-  deliberate product decision and is **not** implemented pending explicit
-  owner sign-off.
+- **Approver role — owner-only** (owner decision, 2026-10-24). Approval
+  requires `is_owner()` — an admin can never approve any intent — and
+  OAuth tokens are refused regardless of owner status. The owner MAY
+  approve their own staged intents: production has a single owner
+  account and the connector stages under that identity, so
+  requester≠approver would deadlock. Separation remains where it
+  matters — the approving session is a distinct authenticated web
+  session and consume stays requester + client-bound. The approver is
+  recorded in `approved_by`.
+- **Owner inbox.** The SELECT policy lets `is_owner()` read every intent
+  (admins still see only their own), and `admin_list_write_intents`
+  returns a bounded (latest 100) summary while lazily flipping stale
+  `pending`/`approved` intents to `expired`.
+- **Bounded lifetimes.** Stage clamps TTL to 60–3600s (default 900), and
+  a table CHECK makes the bound structural (`expires_at` must fall within
+  `created_at` + 1h). `expired` is materialized lazily by the inbox
+  sweep — enforcement never depended on it, since every gate also checks
+  `expires_at > NOW()`.
 
 ### `preset_factory_write_intents`
 
 `pending → approved → consumed` (+ terminal `expired` / `cancelled`).
-Caller-bound SELECT-only RLS (an admin sees only their own intents); all
-mutations go through `SECURITY DEFINER` RPCs — no insert/update/delete
-policy exists for any role, and direct table writes are revoked.
+SELECT-only RLS — an admin sees only their own intents; `is_owner()`
+sees all. All mutations go through `SECURITY DEFINER` RPCs — no
+insert/update/delete policy exists for any role, and direct table writes
+are revoked.
 
 | RPC                                                                            | Role                                                                                                                                                   |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `admin_stage_write_intent(operation, items, ttl)`                              | OAuth or UI caller; computes SHA-256 fingerprints + digest AND derives the preview in SQL, records `pending`                                           |
-| `admin_approve_write_intent(intent_id)`                                        | **UI session only** — OAuth tokens refused; atomic `pending→approved` claim                                                                            |
+| `admin_stage_write_intent(operation, items, ttl)`                              | OAuth or UI caller (admin or owner); computes SHA-256 fingerprints + digest AND derives the preview in SQL, records `pending`                          |
+| `admin_approve_write_intent(intent_id)`                                        | **Non-OAuth `is_owner()` session only** — atomic `pending→approved` claim, records `approved_by`; self-approval allowed (single-owner)                 |
+| `admin_list_write_intents(statuses?)`                                          | **Owner only** — inbox across requesters; lazily materializes `expired`, returns latest-100 summaries                                                  |
 | `admin_consume_write_intent(intent_id, operation, fingerprint)`                | Called internally by the draft + category RPCs. Atomic single-fingerprint claim + `client_id` binding; intent flips `consumed` when all units are used |
 | `admin_create_preset_category(name, slug, description, sort_order, intent_id)` | Atomic consume-then-insert for intent-gated category writes; OAuth callers require an approved intent covering the real payload                        |
 
@@ -336,11 +349,17 @@ uses, so stage-time and write-time fingerprints match by construction. The
 adapter then shows the owner an approval URL; the owner approves in the
 admin UI, and the write proceeds with `approval_intent_id` on the batch.
 
-### `get_write_intent` / `approve_write_intent` / `consume_write_intent`
+### `get_write_intent` / `list_write_intents` / `approve_write_intent` / `consume_write_intent`
 
-`getWriteIntent(ctx, { intent_id })` → caller-bound intent summary for the
-approval page. `approveWriteIntent(ctx, { intent_id })` → `{ intent_id,
-status:'approved', expires_at }`; refused for OAuth callers.
+`getWriteIntent(ctx, { intent_id })` → intent summary for the approval
+page (RLS-bound: own intents for admins, all for owners; a stale open
+intent reports `expired`).
+`listWriteIntents(ctx, { statuses? })` → `{ intents[] }` — the owner
+inbox across requesters (`requested_by`, `approved_by`, item counts,
+digest, preview); owner-only.
+`approveWriteIntent(ctx, { intent_id })` → `{ intent_id,
+status:'approved', approved_by, expires_at }`; owner-only, refuses OAuth
+callers and the requester.
 `consumeWriteIntent(ctx, { intent_id, operation, request_fingerprint })` →
 `{ consumed, total, status }`; raw single-claim primitive — drafts and
 categories are consumed **inside** their own atomic RPCs
