@@ -160,11 +160,19 @@ Item statuses: `validated` | `failed`. Warnings flag publish blockers
 //     sort_order, is_active }, warnings }
 ```
 
-- Slug exists with the same name → `reused` + warning (safe replay).
-- Slug exists with a different name → `category_conflict` error; `details.existing`
-  carries the conflicting category so B can offer `category_id` reuse.
+- Slug exists with the same name (case/whitespace-insensitive) → `reused` +
+  warning (safe replay).
+- Slug exists with a different name → `category_conflict` error;
+  `details.existing` carries the conflicting category so B can offer
+  `category_id` reuse. The same name check applies to the concurrent-race
+  recovery path — `reused` is never returned for a slug that names a
+  different category.
 - Concurrent creation races resolve deterministically via the unique slug
   constraint. Audited as `preset_factory.category_create`.
+- **Retry semantics:** categories have no separate idempotency ledger —
+  replay safety relies on slug/name semantics alone. `idempotency_key` is
+  still required in the request schema for envelope uniformity, but retries
+  are deduplicated purely by the slug-unique constraint + name match above.
 
 ### `create_preset_drafts` → `createPresetDrafts(ctx, batch)` → `PresetBatchResult`
 
