@@ -41,16 +41,19 @@ CREATE TABLE IF NOT EXISTS public.preset_factory_write_intents (
   -- admin_stage_write_intent — shown to the approver for cross-checking.
   payload_digest TEXT NOT NULL,
   -- Per-write-unit fingerprints, also SQL-computed at stage time. For
-  -- create_draft_batch each element is the same canonical md5
+  -- create_draft_batch each element is the same canonical SHA-256
   -- admin_create_preset_draft derives from its five jsonb arguments, so an
   -- approved fingerprint can only ever be claimed by that exact payload.
   item_fingerprints TEXT[] NOT NULL DEFAULT '{}',
   consumed_fingerprints TEXT[] NOT NULL DEFAULT '{}',
-  -- SAFE owner-facing summary only (names/slugs/models/counts). Recipe
-  -- fields are rejected at stage time — this table never holds private
-  -- instruction templates.
+  -- Owner-facing summary DERIVED at stage time from p_items (safe
+  -- identity/settings projection only) — the approver sees a projection
+  -- of the exact payload the fingerprints cover, never a caller-written
+  -- description, and private recipe text is never stored here.
   preview JSONB NOT NULL DEFAULT '{}'::jsonb,
-  -- OAuth client that staged the intent (informational binding).
+  -- OAuth client that staged the intent. admin_consume_write_intent
+  -- binds it: an intent staged under one client_id can only be consumed
+  -- by a token carrying the same claim.
   client_id TEXT,
   expires_at TIMESTAMPTZ NOT NULL,
   approved_at TIMESTAMPTZ,
@@ -82,17 +85,19 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 --    whole point of the connector flow).
 -- ---------------------------------------------------------------------------
 
--- p_items: one canonical payload object per write unit. For
--- create_draft_batch each element is {product, metadata, version, fields,
--- asset_links} — the same flattened objects the service passes as the
--- draft RPC's five jsonb arguments, fingerprinted here with the identical
--- canonical md5 expression. For create_categories each element is
--- {name, slug, description, sort_order}. Fingerprints are never taken
--- from the caller.
+-- p_items: one canonical payload object per write unit (1..25, ≤256 KiB).
+-- For create_draft_batch each element is {product, metadata, version,
+-- fields, asset_links} — the same flattened objects the service passes as
+-- the draft RPC's five jsonb arguments, fingerprinted here with the
+-- identical canonical SHA-256 expression. For create_categories each
+-- element is {name, slug, description, sort_order}.
+--
+-- The owner-visible preview is DERIVED HERE from p_items — a caller can
+-- never describe one payload and stage another. Fingerprints and digest
+-- are likewise computed in SQL, never taken from the caller.
 CREATE OR REPLACE FUNCTION public.admin_stage_write_intent(
   p_operation TEXT,
   p_items JSONB,
-  p_preview JSONB,
   p_ttl_seconds INT DEFAULT 900
 )
 RETURNS JSONB
@@ -106,6 +111,7 @@ DECLARE
   v_expires TIMESTAMPTZ;
   v_fingerprints TEXT[];
   v_digest TEXT;
+  v_preview JSONB;
 BEGIN
   IF v_user_id IS NULL OR NOT (public.is_admin() OR public.is_owner()) THEN
     RAISE EXCEPTION 'Forbidden: admin or owner required';
@@ -118,32 +124,120 @@ BEGIN
      OR jsonb_array_length(p_items) = 0 THEN
     RAISE EXCEPTION 'PF_BAD_REQUEST: intent must cover at least one item';
   END IF;
-  -- Defense in depth: the preview is what the owner sees — it must never
-  -- carry recipe fields even if a caller sneaks them past the service.
-  IF COALESCE(p_preview, '{}'::jsonb)::text ~*
-       'private_instruction_template|private_negative_instruction' THEN
-    RAISE EXCEPTION 'PF_BAD_REQUEST: preview may not contain recipe fields';
+  -- Same ceiling as a batch write, and a hard byte cap so a direct-RPC
+  -- caller cannot store unbounded intents.
+  IF jsonb_array_length(p_items) > 25 THEN
+    RAISE EXCEPTION 'PF_BAD_REQUEST: intent may cover at most 25 items';
+  END IF;
+  IF octet_length(p_items::text) > 262144 THEN
+    RAISE EXCEPTION 'PF_BAD_REQUEST: staged payload exceeds the 256 KiB limit';
   END IF;
 
   IF p_operation = 'create_draft_batch' THEN
-    -- Identical to v_fingerprint in admin_create_preset_draft: md5 over
-    -- the five jsonb arguments' normalized text, chr(31)-separated.
+    -- Identical to v_fingerprint in admin_create_preset_draft: SHA-256
+    -- over the five jsonb arguments' normalized text, chr(31)-separated.
     SELECT array_agg(
-      md5(concat_ws(chr(31),
-        (e->'product')::text,
-        COALESCE(e->'metadata', '{}'::jsonb)::text,
-        (e->'version')::text,
-        COALESCE(e->'fields', '[]'::jsonb)::text,
-        COALESCE(e->'asset_links', '[]'::jsonb)::text
-      ))
+      encode(extensions.digest(
+        concat_ws(chr(31),
+          (e->'product')::text,
+          COALESCE(e->'metadata', '{}'::jsonb)::text,
+          (e->'version')::text,
+          COALESCE(e->'fields', '[]'::jsonb)::text,
+          COALESCE(e->'asset_links', '[]'::jsonb)::text
+        )::bytea, 'sha256'), 'hex')
       ORDER BY ord
     ) INTO v_fingerprints
     FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(e, ord);
+
+    -- Safe identity/settings projection only — recipe fields
+    -- (private_instruction_template, private_negative_instruction,
+    -- model_config, field copy, asset payloads) are never selected.
+    SELECT jsonb_build_object(
+      'operation', p_operation,
+      'total_items', count(*),
+      'items', jsonb_agg(
+        jsonb_build_object(
+          'slug', e->'product'->>'slug',
+          'name', e->'product'->>'name',
+          'type', e->'product'->>'type',
+          'short_description', e->'product'->>'short_description',
+          'category_id', e->'product'->>'category_id',
+          'parent_preset_id', e->'product'->>'parent_preset_id',
+          'variant_display_name', e->'product'->>'variant_display_name',
+          'visibility', COALESCE(e->'product'->>'visibility', 'public'),
+          'standalone_discoverable',
+            COALESCE((e->'product'->>'standalone_discoverable')::BOOLEAN, FALSE),
+          'featured_rank', NULLIF(e->'product'->>'featured_rank', '')::INT,
+          'style_archetype',
+            e->'metadata'->'filter_config'->>'style_archetype',
+          'identity_preservation',
+            e->'metadata'->'filter_config'->>'identity_preservation',
+          'layout_template',
+            e->'metadata'->'poster_config'->>'layout_template',
+          'provider', e->'version'->'provider_strategy'->>'primary_provider',
+          'model', e->'version'->'provider_strategy'->>'primary_model',
+          'input_mode', e->'version'->>'input_mode',
+          'input_image_range', concat_ws('–',
+            e->'version'->>'input_min_images',
+            e->'version'->>'input_max_images'),
+          'safety', jsonb_build_object(
+            'allowed_nsfw', e->'version'->'safety_config'->'allowed_nsfw',
+            'block_public_figures',
+              e->'version'->'safety_config'->'block_public_figures',
+            'block_minors', e->'version'->'safety_config'->'block_minors',
+            'policy_version', e->'version'->'safety_config'->>'policy_version'
+          ),
+          'post_process', jsonb_build_object(
+            'format', e->'version'->'post_process_config'->>'format',
+            'quality', e->'version'->'post_process_config'->'quality',
+            'crop', e->'version'->'post_process_config'->'crop'
+          ),
+          'credit_cost', NULLIF(e->'version'->>'credit_cost', '')::INT,
+          'output_sizes',
+            COALESCE(e->'version'->'output_sizes', '[]'::jsonb),
+          'field_count',
+            jsonb_array_length(COALESCE(e->'fields', '[]'::jsonb)),
+          'asset_link_count',
+            jsonb_array_length(COALESCE(e->'asset_links', '[]'::jsonb))
+        )
+        ORDER BY ord
+      )
+    ) INTO v_preview
+    FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(e, ord);
   ELSE
-    SELECT array_agg(md5(e::text) ORDER BY ord) INTO v_fingerprints
+    SELECT array_agg(
+      encode(extensions.digest(e::text::bytea, 'sha256'), 'hex')
+      ORDER BY ord
+    ) INTO v_fingerprints
+    FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(e, ord);
+
+    SELECT jsonb_build_object(
+      'operation', p_operation,
+      'total_items', count(*),
+      'categories', jsonb_agg(
+        jsonb_build_object(
+          'name', e->>'name',
+          'slug', e->>'slug',
+          'description', e->>'description',
+          'sort_order', COALESCE((e->>'sort_order')::INT, 0)
+        )
+        ORDER BY ord
+      )
+    ) INTO v_preview
     FROM jsonb_array_elements(p_items) WITH ORDINALITY AS t(e, ord);
   END IF;
-  v_digest := md5(p_items::text);
+
+  -- Identical staged items produce identical fingerprints; duplicates
+  -- would make the intent un-consumable (consumed count can never reach
+  -- total) and let one approval line hide a second write.
+  IF (SELECT count(DISTINCT f) FROM unnest(v_fingerprints) AS f)
+     <> cardinality(v_fingerprints) THEN
+    RAISE EXCEPTION 'PF_BAD_REQUEST: duplicate staged items are not allowed';
+  END IF;
+
+  v_digest := encode(
+    extensions.digest(p_items::text::bytea, 'sha256'), 'hex'
+  );
 
   v_expires := NOW() + make_interval(
     secs => GREATEST(60, LEAST(COALESCE(p_ttl_seconds, 900), 3600))
@@ -154,7 +248,7 @@ BEGIN
     preview, client_id, expires_at
   ) VALUES (
     v_user_id, p_operation, v_digest, v_fingerprints,
-    COALESCE(p_preview, '{}'::jsonb),
+    v_preview,
     (SELECT auth.jwt() ->> 'client_id'),
     v_expires
   )
@@ -164,6 +258,7 @@ BEGIN
     'intent_id', v_id,
     'status', 'pending',
     'digest', v_digest,
+    'preview', v_preview,
     'item_fingerprints', to_jsonb(v_fingerprints),
     'expires_at', v_expires
   );
@@ -171,10 +266,10 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.admin_stage_write_intent(
-  TEXT, JSONB, JSONB, INT
+  TEXT, JSONB, INT
 ) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admin_stage_write_intent(
-  TEXT, JSONB, JSONB, INT
+  TEXT, JSONB, INT
 ) TO authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -289,6 +384,16 @@ BEGIN
     RAISE EXCEPTION
       'PF_APPROVAL_INVALID: intent is %', v_intent.status;
   END IF;
+  -- OAuth-client binding: an intent staged under a client_id can only be
+  -- consumed by a token carrying the same claim — one connector cannot
+  -- spend another connector's approval. Intents staged without a client
+  -- (web tools) carry no such restriction.
+  IF v_intent.client_id IS NOT NULL
+     AND v_intent.client_id IS DISTINCT FROM
+         (SELECT auth.jwt() ->> 'client_id') THEN
+    RAISE EXCEPTION
+      'PF_APPROVAL_INVALID: intent was staged by a different OAuth client';
+  END IF;
   IF v_intent.expires_at <= NOW() THEN
     RAISE EXCEPTION 'PF_APPROVAL_EXPIRED: approval intent expired';
   END IF;
@@ -382,14 +487,20 @@ DECLARE
   -- Canonical payload fingerprint computed here, never trusted from the
   -- caller. jsonb::text output is key-order-normalised so semantically
   -- identical payloads hash identically regardless of key order.
-  v_fingerprint CONSTANT TEXT := md5(
-    concat_ws(chr(31),
-      p_product::text,
-      COALESCE(p_metadata, '{}'::jsonb)::text,
-      p_version::text,
-      COALESCE(p_fields, '[]'::jsonb)::text,
-      COALESCE(p_asset_links, '[]'::jsonb)::text
-    )
+  -- SHA-256 (pgcrypto) — identical expression to admin_stage_write_intent,
+  -- so a staged fingerprint can only ever match this exact payload.
+  v_fingerprint CONSTANT TEXT := encode(
+    extensions.digest(
+      concat_ws(chr(31),
+        p_product::text,
+        COALESCE(p_metadata, '{}'::jsonb)::text,
+        p_version::text,
+        COALESCE(p_fields, '[]'::jsonb)::text,
+        COALESCE(p_asset_links, '[]'::jsonb)::text
+      )::bytea,
+      'sha256'
+    ),
+    'hex'
   );
   v_ref_roles CONSTANT TEXT[] := ARRAY[
     'style_reference', 'composition_reference', 'layout_reference'

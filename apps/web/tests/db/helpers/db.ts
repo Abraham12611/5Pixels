@@ -100,10 +100,11 @@ export function asUser<T>(
 export function asOAuthUser<T>(
   client: Client,
   userId: string,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  clientId = "test-oauth-client"
 ): Promise<T> {
   return asRole(client, "authenticated", userId, fn, {
-    client_id: "test-oauth-client",
+    client_id: clientId,
   });
 }
 

@@ -229,7 +229,7 @@ item = {
 - **Idempotent retry.** Replaying the same `(admin_user_id, idempotency_key)`
   returns `status:'reused'` with the originally created `product_id` /
   `version_id` — safe after a lost response or reconnect. The RPC computes a
-  canonical payload fingerprint itself (md5 over normalised `jsonb::text`)
+  canonical payload fingerprint itself (SHA-256 over normalised `jsonb::text`)
   and stores it on the ledger row; a key replayed with a _different_
   payload fails with `idempotency_conflict` — unconditionally, so a forged
   or missing fingerprint can never bypass the check. The caller-supplied
@@ -265,15 +265,24 @@ therefore enforced **at the database layer**, keyed on the token itself:
   present) with `approval_required` unless `p_approval_intent_id` names an
   intent that (a) belongs to the calling admin, (b) is `approved` and
   unexpired, and (c) covers the item's **server-computed canonical
-  fingerprint** — the same md5 used for idempotency, so a staged approval
-  binds to the exact payload SQL writes, never to a caller-asserted hash.
+  fingerprint** — the same SHA-256 used for idempotency, so a staged
+  approval binds to the exact payload SQL writes, never to a
+  caller-asserted hash.
 - Web/session tokens skip the gate entirely: ordinary admin UI creation is
   unchanged.
-- Categories are **not** DB-gated: the existing `categories_admin FOR ALL
-is_admin()` policy permits direct inserts by any admin JWT, so a DB gate
-  on our path would not actually restrict OAuth writes. Category intents
-  use the same store but are consumed at the tool layer by the adapter.
+- Categories are **not** DB-gated: the existing `categories_admin FOR ALL`
+  `is_admin()` policy permits direct inserts by any admin JWT, so a DB
+  gate on our path would not actually restrict OAuth writes. Category
+  intents use the same store but are consumed at the tool layer by the
+  adapter — **consume before writing** (mirroring the draft path's
+  atomicity): a failed category write burns the fingerprint and needs a
+  re-staged intent, the conservative failure mode versus writing first
+  and discovering the approval was unclaimable.
 - Replaying a `reused` item needs no approval — no write occurs.
+- **Client binding.** An intent staged under an OAuth `client_id` can only
+  be consumed by a token carrying the same claim — one connector cannot
+  spend another connector's approval. Web-staged intents (no `client_id`)
+  carry no such restriction.
 
 ### `preset_factory_write_intents`
 
@@ -282,22 +291,28 @@ Caller-bound SELECT-only RLS (an admin sees only their own intents); all
 mutations go through `SECURITY DEFINER` RPCs — no insert/update/delete
 policy exists for any role, and direct table writes are revoked.
 
-| RPC                                                             | Role                                                                                                                                                 |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admin_stage_write_intent(operation, items, preview, ttl)`      | OAuth or UI caller; computes fingerprints + digest in SQL, records `pending`                                                                         |
-| `admin_approve_write_intent(intent_id)`                         | **UI session only** — OAuth tokens refused; atomic `pending→approved` claim                                                                          |
-| `admin_consume_write_intent(intent_id, operation, fingerprint)` | Called internally by the draft RPC; also tool-level for categories. Atomic single-fingerprint claim; intent flips `consumed` when all units are used |
+| RPC                                                             | Role                                                                                                                                                                       |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin_stage_write_intent(operation, items, ttl)`               | OAuth or UI caller; computes SHA-256 fingerprints + digest AND derives the preview in SQL, records `pending`                                                               |
+| `admin_approve_write_intent(intent_id)`                         | **UI session only** — OAuth tokens refused; atomic `pending→approved` claim                                                                                                |
+| `admin_consume_write_intent(intent_id, operation, fingerprint)` | Called internally by the draft RPC; also tool-level for categories. Atomic single-fingerprint claim + `client_id` binding; intent flips `consumed` when all units are used |
 
-Safe preview only: `preview` carries names/slugs/counts — recipe fields are
-rejected at stage time and private instructions are never stored.
+Server-derived preview: `admin_stage_write_intent` takes **no** preview
+parameter — it projects a safe identity/settings summary (slugs, names,
+types, provider/model, safety and post-process flags, counts) directly
+from `p_items`, so the owner can never be shown a description that
+differs from the fingerprinted payload. Private recipe text is never
+selected or stored. Stage rejects >25 items, >256 KiB payloads, and
+duplicate canonical items (identical items share one fingerprint and
+would make the intent un-consumable).
 
 ### `stage_write_intent` → `stageWriteIntent(ctx, request)`
 
 ```ts
-{ operation: 'create_draft_batch', batch_id?, items: DraftItem[],
-  preview?: { title?, item_names?, item_slugs?, item_count?, note? },
+{ operation: 'create_draft_batch', batch_id, items: DraftItem[],
   ttl_seconds? = 900 /* clamped 60..3600 */ }
-// → { intent_id, status:'pending', digest, item_fingerprints[], expires_at }
+// → { intent_id, status:'pending', digest, preview, item_fingerprints[],
+//     expires_at }
 ```
 
 `items` are canonicalized through the same payload builder the write path
