@@ -903,7 +903,7 @@ async function logFactoryAudit(
  * Flattened RPC payload for one draft item — the exact five jsonb
  * arguments `admin_create_preset_draft` receives. `stageWriteIntent`
  * submits the same objects so the SQL-side canonical fingerprint
- * (md5 over normalized jsonb text) binds an approved intent to this
+ * (SHA-256 over normalized jsonb text) binds an approved intent to this
  * precise payload.
  */
 function draftRpcPayloads(item: PresetDraftItem): {
@@ -987,7 +987,7 @@ function draftRpcPayloads(item: PresetDraftItem): {
  * Caller-asserted fingerprint sent as `p_request_fingerprint`. The RPC
  * requires it non-empty as a submission marker but never trusts it —
  * idempotency and approval binding both use the server-computed
- * canonical md5 instead.
+ * canonical SHA-256 instead.
  */
 function draftItemFingerprint(item: PresetDraftItem): string {
   return createHash("sha256")
@@ -1272,10 +1272,12 @@ export async function stageWriteIntent(
   }
   const req = parsed.data;
 
-  // Payloads are canonicalized exactly as the write path sends them, then
-  // fingerprinted *inside* admin_stage_write_intent (same canonical md5 as
-  // admin_create_preset_draft). The approval therefore binds to the SQL-
-  // verified payload, never to a caller-asserted hash.
+  // Payloads are canonicalized exactly as the write path sends them;
+  // fingerprints, digest AND the owner-visible preview are all derived
+  // *inside* admin_stage_write_intent from these payloads (same canonical
+  // SHA-256 as admin_create_preset_draft). The approval therefore binds
+  // to the SQL-verified payload, never to a caller-asserted hash or a
+  // caller-written description.
   const items =
     req.operation === "create_draft_batch"
       ? req.items.map(draftRpcPayloads)
@@ -1289,7 +1291,6 @@ export async function stageWriteIntent(
   const { data, error } = await ctx.supabase.rpc("admin_stage_write_intent", {
     p_operation: req.operation,
     p_items: items,
-    p_preview: req.preview,
     p_ttl_seconds: req.ttl_seconds,
   });
   if (error) {
@@ -1298,6 +1299,7 @@ export async function stageWriteIntent(
   const staged = data as {
     intent_id?: string;
     digest?: string;
+    preview?: Record<string, unknown>;
     item_fingerprints?: string[];
     expires_at?: string;
   } | null;
@@ -1305,6 +1307,7 @@ export async function stageWriteIntent(
     intent_id: staged?.intent_id ?? "",
     status: "pending",
     digest: staged?.digest ?? "",
+    preview: staged?.preview ?? {},
     item_fingerprints: staged?.item_fingerprints ?? [],
     expires_at: staged?.expires_at ?? "",
   });

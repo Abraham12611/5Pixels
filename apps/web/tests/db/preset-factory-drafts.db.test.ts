@@ -587,9 +587,9 @@ describe("preset_factory_write_intents", () => {
   ): Promise<Record<string, unknown>> {
     return asOAuthUser(client, userId, async () => {
       const res = await client.query(
-        `SELECT public.admin_stage_write_intent($1, $2::jsonb, $3::jsonb)
+        `SELECT public.admin_stage_write_intent($1, $2::jsonb)
          AS result`,
-        [operation, JSON.stringify(items), "{}"]
+        [operation, JSON.stringify(items)]
       );
       return res.rows[0].result as Record<string, unknown>;
     });
@@ -752,6 +752,83 @@ describe("preset_factory_write_intents", () => {
           );
         })
       ).rejects.toThrow();
+    });
+  });
+
+  it("derives the owner preview from the staged payload — recipe text excluded", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const slug = `dbtest-o-${randomUUID().slice(0, 8)}`;
+      const staged = await stageIntent(client, staffId, [
+        draftIntentItem(draftParams(slug)),
+      ]);
+      const preview = staged.preview as {
+        operation?: string;
+        total_items?: number;
+        items?: Array<{ slug?: string; name?: string; provider?: string }>;
+      };
+      expect(preview.operation).toBe("create_draft_batch");
+      expect(preview.total_items).toBe(1);
+      expect(preview.items?.[0]?.slug).toBe(slug);
+      expect(preview.items?.[0]?.provider).toBe("fal-ai");
+      // The staged version carries a secret template — the derived
+      // preview must not surface it anywhere.
+      expect(JSON.stringify(preview)).not.toContain("db-test hidden recipe");
+      expect(JSON.stringify(preview)).not.toContain(
+        "private_instruction_template"
+      );
+    });
+  });
+
+  it("rejects duplicate canonical items and oversized intents", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const item = draftIntentItem(
+        draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)
+      );
+
+      await expect(stageIntent(client, staffId, [item, item])).rejects.toThrow(
+        /PF_BAD_REQUEST/
+      );
+
+      const tooMany = Array.from({ length: 26 }, (_, i) => ({
+        ...item,
+        product: { ...(item as { product: object }).product, slug: `s-${i}` },
+      }));
+      await expect(stageIntent(client, staffId, tooMany)).rejects.toThrow(
+        /PF_BAD_REQUEST/
+      );
+    });
+  });
+
+  it("an intent is only consumable by the OAuth client that staged it", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const params = draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`);
+      const staged = await stageIntent(client, staffId, [
+        draftIntentItem(params),
+      ]);
+      const intentId = staged.intent_id as string;
+      await approveIntent(client, staffId, intentId);
+
+      // A different connector's token cannot spend the approval — the
+      // consume RPC binds the stored client_id claim.
+      await expect(
+        asOAuthUser(
+          client,
+          staffId,
+          async () => {
+            await client.query(
+              `SELECT public.admin_create_preset_draft(
+                 $1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb,
+                 $6, $7, $8, $9, $10
+               )`,
+              [...params.slice(0, 9), intentId]
+            );
+          },
+          "other-oauth-client"
+        )
+      ).rejects.toThrow(/PF_APPROVAL_INVALID/);
     });
   });
 });

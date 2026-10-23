@@ -345,28 +345,21 @@ export const WRITE_INTENT_STATUSES = [
 ] as const;
 export type WriteIntentStatus = (typeof WRITE_INTENT_STATUSES)[number];
 
-/**
- * Owner-facing preview — arbitrary safe summary the adapter builds.
- * The stage RPC rejects previews containing recipe-field names as
- * defense-in-depth; never include private_instruction_template or
- * private_negative_instruction content.
- */
-export const intentPreviewSchema = z.record(z.string(), z.unknown());
-
 const intentTtlSchema = z.number().int().min(60).max(3600).default(900);
 
 /**
  * stage_write_intent — discriminated on operation. The service flattens
  * items through the same payload builder the write path uses; SQL then
- * computes payload_digest + item_fingerprints from the canonical form, so
- * the approval binds to what will actually be written.
+ * computes payload_digest + item_fingerprints AND derives the owner-
+ * visible preview from the canonical form, so what the approver sees is
+ * provably the same payload the fingerprints cover. There is deliberately
+ * no caller-supplied preview field.
  */
 export const stageWriteIntentRequestSchema = z.discriminatedUnion("operation", [
   z.strictObject({
     operation: z.literal("create_draft_batch"),
     batch_id: z.string().min(1).max(120),
     items: z.array(presetDraftItemSchema).min(1).max(MAX_BATCH_ITEMS),
-    preview: intentPreviewSchema.default({}),
     ttl_seconds: intentTtlSchema,
   }),
   z.strictObject({
@@ -375,7 +368,6 @@ export const stageWriteIntentRequestSchema = z.discriminatedUnion("operation", [
       .array(createCategoryRequestSchema.omit({ approval_intent_id: true }))
       .min(1)
       .max(MAX_BATCH_ITEMS),
-    preview: intentPreviewSchema.default({}),
     ttl_seconds: intentTtlSchema,
   }),
 ]);
@@ -404,7 +396,8 @@ export interface WriteIntentSummary {
   operation: ApprovableOperation;
   status: WriteIntentStatus;
   payload_digest: string;
-  /** Safe preview as staged — no private recipe fields. */
+  /** Server-derived preview of the staged payload — a safe
+   *  identity/settings projection, never caller-written or recipe text. */
   preview: Record<string, unknown>;
   expires_at: string;
   created_at: string;
@@ -413,10 +406,13 @@ export interface WriteIntentSummary {
 export interface StageWriteIntentResult {
   intent_id: string;
   status: "pending";
-  /** SQL-computed md5 of the canonical items payload — show to the
+  /** SQL-computed SHA-256 of the canonical items payload — show to the
    *  approver for cross-checking. */
   digest: string;
-  /** Per-item fingerprints the approval covers (SQL canonical md5 —
+  /** Server-derived safe projection of the staged payload — the same
+   *  object the approval page renders. */
+  preview: Record<string, unknown>;
+  /** Per-item fingerprints the approval covers (SQL canonical SHA-256 —
    *  for drafts, identical to the draft RPC's idempotency fingerprint). */
   item_fingerprints: string[];
   expires_at: string;

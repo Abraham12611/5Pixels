@@ -34,7 +34,7 @@ CREATE TABLE public.preset_factory_operations (
   status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created')),
   product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
   version_id UUID REFERENCES public.product_versions(id) ON DELETE SET NULL,
-  -- Canonical payload hash computed *inside* the RPC (md5 over the
+  -- Canonical payload hash computed *inside* the RPC (SHA-256 over the
   -- normalised jsonb text) — never a caller-asserted value. A key replayed
   -- with a different payload deterministically conflicts instead of
   -- silently returning the original product.
@@ -98,14 +98,20 @@ DECLARE
   -- Canonical payload fingerprint computed here, never trusted from the
   -- caller. jsonb::text output is key-order-normalised so semantically
   -- identical payloads hash identically regardless of key order.
-  v_fingerprint CONSTANT TEXT := md5(
-    concat_ws(chr(31),
-      p_product::text,
-      COALESCE(p_metadata, '{}'::jsonb)::text,
-      p_version::text,
-      COALESCE(p_fields, '[]'::jsonb)::text,
-      COALESCE(p_asset_links, '[]'::jsonb)::text
-    )
+  -- SHA-256 (pgcrypto, extensions schema) — the same value also binds
+  -- owner write approvals, so collision resistance matters.
+  v_fingerprint CONSTANT TEXT := encode(
+    extensions.digest(
+      concat_ws(chr(31),
+        p_product::text,
+        COALESCE(p_metadata, '{}'::jsonb)::text,
+        p_version::text,
+        COALESCE(p_fields, '[]'::jsonb)::text,
+        COALESCE(p_asset_links, '[]'::jsonb)::text
+      )::bytea,
+      'sha256'
+    ),
+    'hex'
   );
   v_ref_roles CONSTANT TEXT[] := ARRAY[
     'style_reference', 'composition_reference', 'layout_reference'
