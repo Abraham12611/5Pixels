@@ -960,6 +960,38 @@ describe("preset_factory_write_intents", () => {
     });
   });
 
+  it("treats empty-string and null category descriptions identically", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const slug = `cat-${randomUUID().slice(0, 8)}`;
+
+      // Stage with "" (a literal empty description), create with NULL —
+      // both normalize to the same canonical payload, so the fingerprint
+      // must match and the write must succeed.
+      const staged = await stageIntent(
+        client,
+        staffId,
+        [{ name: "Desc Edge", slug, description: "", sort_order: 0 }],
+        "create_categories"
+      );
+      const intentId = staged.intent_id as string;
+      await approveIntent(client, staffId, intentId);
+
+      const created = await asOAuthUser(client, staffId, async () => {
+        const res = await client.query(
+          `SELECT public.admin_create_preset_category($1,$2,$3,$4,$5) AS r`,
+          ["Desc Edge", slug, "", 0, intentId]
+        );
+        return res.rows[0].r as {
+          status: string;
+          category: { description: string | null };
+        };
+      });
+      expect(created.status).toBe("created");
+      expect(created.category.description).toBeNull();
+    });
+  });
+
   it("normalizes JSON-null output_sizes to [] in the derived preview", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);

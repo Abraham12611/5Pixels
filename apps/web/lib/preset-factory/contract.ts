@@ -312,9 +312,12 @@ export const createCategoryRequestSchema = z.strictObject({
   /** Replay-safe key; a repeated call returns the same category. */
   idempotency_key: z.string().min(16).max(200),
   /**
-   * Tool-level approval binding: categories can't be DB-gated (the
-   * categories_admin policy permits direct admin inserts), so the adapter
-   * consumes the approved intent itself after a successful create.
+   * Approval binding for OAuth/MCP callers: when set, the write routes
+   * through `admin_create_preset_category`, which computes this payload's
+   * canonical fingerprint, verifies + consumes it against the intent, and
+   * inserts atomically. (Direct `categories` inserts remain possible via
+   * the categories_admin policy — the boundary is the canonical tool
+   * path, not the table itself.)
    */
   approval_intent_id: z.string().uuid().optional(),
 });
@@ -325,8 +328,10 @@ export const createCategoryRequestSchema = z.strictObject({
 // The tamper-resistant approval store for MCP-origin writes. OAuth-issued
 // JWTs (client_id claim present) are REQUIRED by the draft RPC to carry an
 // approved intent covering each item's fingerprint; web/session tokens are
-// unaffected. Category writes cannot be DB-gated (see above) — the adapter
-// consumes their intents at the tool level instead.
+// unaffected. Category writes are gated the same way through
+// admin_create_preset_category (atomic consume + insert); only direct
+// table inserts via the categories_admin policy bypass intents, which no
+// narrower policy could prevent without changing existing admin RLS.
 // ---------------------------------------------------------------------------
 
 export const APPROVABLE_OPERATIONS = [

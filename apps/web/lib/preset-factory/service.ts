@@ -1311,12 +1311,12 @@ export async function getPresetReviewLinks(
 // ---------------------------------------------------------------------------
 // Write-approval intents (coordinator rev3 / #272)
 //
-// OAuth-issued JWTs (client_id claim present) are refused by the draft RPC
-// unless an approved intent covers the item's fingerprint; web/session
-// tokens are unaffected. Category writes go through the same store but are
-// consumed at the tool level — the existing categories_admin RLS policy
-// permits direct admin inserts, so a DB gate there would not restrict
-// OAuth writes anyway.
+// OAuth-issued JWTs (client_id claim present) are refused by the draft
+// and category RPCs unless an approved intent covers the payload's
+// fingerprint; web/session tokens are unaffected. Both RPCs compute and
+// consume the fingerprint internally — the adapter never consumes
+// itself. (Direct categories table inserts bypass intents via the
+// categories_admin policy — a documented residual boundary.)
 // ---------------------------------------------------------------------------
 
 export async function stageWriteIntent(
@@ -1345,7 +1345,9 @@ export async function stageWriteIntent(
       : req.categories.map((c) => ({
           name: c.name,
           slug: c.slug,
-          description: c.description ?? null,
+          // '' → null, identical to createPresetCategory and the SQL-side
+          // NULLIF — otherwise the staged fingerprint can't match.
+          description: c.description || null,
           sort_order: c.sort_order,
         }));
 
@@ -1448,10 +1450,11 @@ export async function approveWriteIntent(
 }
 
 /**
- * Tool-level consumption for writes the DB can't gate (categories). The
- * draft RPC consumes internally; the adapter calls this for other
- * operations after a successful write — the claim is atomic, so a
- * fingerprint can never be consumed twice.
+ * Raw single-claim consume primitive. Both write paths consume inside
+ * their own atomic RPCs (admin_create_preset_draft /
+ * admin_create_preset_category), so callers normally never need this —
+ * it's kept for completeness/future tool-gated operations. The claim is
+ * atomic: a fingerprint can never be consumed twice.
  */
 export async function consumeWriteIntent(
   ctx: PresetFactoryContext,
