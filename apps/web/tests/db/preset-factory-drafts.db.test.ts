@@ -873,6 +873,93 @@ describe("preset_factory_write_intents", () => {
     });
   });
 
+  it("does not burn approval fingerprints on slug reuse or conflict", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const countConsumed = async (intentId: string) => {
+        const res = await asService(client, async () => {
+          const r = await client.query(
+            `SELECT cardinality(consumed_fingerprints) AS n,
+                    status
+             FROM public.preset_factory_write_intents WHERE id = $1`,
+            [intentId]
+          );
+          return r.rows[0] as { n: number; status: string };
+        });
+        return res;
+      };
+      const callCatRpc = (name: string, slug: string, intentId: string) =>
+        asOAuthUser(client, staffId, async () => {
+          const res = await client.query(
+            `SELECT public.admin_create_preset_category($1,$2,$3,$4,$5) AS r`,
+            [name, slug, null, 0, intentId]
+          );
+          return res.rows[0].r as { status: string };
+        });
+
+      // Existing slug holder (web path — ungated).
+      const slug = `cat-${randomUUID().slice(0, 8)}`;
+      await asUser(client, staffId, async () => {
+        await client.query(
+          `SELECT public.admin_create_preset_category($1,$2,$3,$4,$5)`,
+          ["Same Name", slug, null, 0, null]
+        );
+      });
+
+      // REUSE: same name + slug staged & approved → 'reused', no burn.
+      const reuseStaged = await stageIntent(
+        client,
+        staffId,
+        [{ name: "Same Name", slug, description: null, sort_order: 0 }],
+        "create_categories"
+      );
+      await approveIntent(client, staffId, reuseStaged.intent_id as string);
+      const reused = await callCatRpc(
+        "Same Name",
+        slug,
+        reuseStaged.intent_id as string
+      );
+      expect(reused.status).toBe("reused");
+      expect(await countConsumed(reuseStaged.intent_id as string)).toEqual({
+        n: 0,
+        status: "approved",
+      });
+
+      // CONFLICT: different name under the taken slug → 'conflict', no burn.
+      const conflictSlug = `cat-${randomUUID().slice(0, 8)}`;
+      await asUser(client, staffId, async () => {
+        await client.query(
+          `SELECT public.admin_create_preset_category($1,$2,$3,$4,$5)`,
+          ["Taken Name", conflictSlug, null, 0, null]
+        );
+      });
+      const conflictStaged = await stageIntent(
+        client,
+        staffId,
+        [
+          {
+            name: "Other Name",
+            slug: conflictSlug,
+            description: null,
+            sort_order: 0,
+          },
+        ],
+        "create_categories"
+      );
+      await approveIntent(client, staffId, conflictStaged.intent_id as string);
+      const conflict = await callCatRpc(
+        "Other Name",
+        conflictSlug,
+        conflictStaged.intent_id as string
+      );
+      expect(conflict.status).toBe("conflict");
+      expect(await countConsumed(conflictStaged.intent_id as string)).toEqual({
+        n: 0,
+        status: "approved",
+      });
+    });
+  });
+
   it("normalizes JSON-null output_sizes to [] in the derived preview", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);

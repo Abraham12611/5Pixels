@@ -862,20 +862,25 @@ BEGIN
   END IF;
 
   -- OAuth-origin calls require an approved intent covering THIS payload.
-  -- The claim runs before the insert and inside the same transaction, so
-  -- a denied intent can never follow a write, and a failed insert rolls
-  -- the consumption back (the fingerprint stays spendable on retry).
   IF (SELECT auth.jwt() ->> 'client_id') IS NOT NULL THEN
     IF p_approval_intent_id IS NULL THEN
       RAISE EXCEPTION
         'PF_APPROVAL_REQUIRED: OAuth-issued tokens must carry an approved write intent';
     END IF;
-    PERFORM public.admin_consume_write_intent(
-      p_approval_intent_id, 'create_categories', v_fingerprint
-    );
   END IF;
 
   BEGIN
+    -- The claim must live INSIDE this exception-protected block: a caught
+    -- unique_violation rolls back to the block's savepoint, un-spending
+    -- the fingerprint so a reused/conflicting slug can never burn the
+    -- approval. Consume-then-insert keeps the ordering atomic — a denied
+    -- intent can never follow a write, and PF_* errors propagate.
+    IF (SELECT auth.jwt() ->> 'client_id') IS NOT NULL THEN
+      PERFORM public.admin_consume_write_intent(
+        p_approval_intent_id, 'create_categories', v_fingerprint
+      );
+    END IF;
+
     INSERT INTO public.categories (
       name, slug, description, sort_order, is_active
     ) VALUES (
