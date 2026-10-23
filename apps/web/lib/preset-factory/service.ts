@@ -44,14 +44,19 @@ import {
   adminReviewPath,
   batchStatusQuerySchema,
   catalogQuerySchema,
+  consumeWriteIntentSchema,
   createCategoryRequestSchema,
+  intentIdQuerySchema,
   presetDraftBatchSchema,
   presetDraftItemSchema,
   reviewLinksQuerySchema,
+  stageWriteIntentRequestSchema,
+  type ApproveWriteIntentResult,
   type BatchStatusItem,
   type CatalogItemSummary,
   type CatalogQuery,
   type CategorySummary,
+  type ConsumeWriteIntentResult,
   type CreateCategoryResult,
   type FactoryError,
   type FactoryResult,
@@ -60,6 +65,8 @@ import {
   type PresetDraftItem,
   type PresetItemResult,
   type ReviewLinkEntry,
+  type StageWriteIntentResult,
+  type WriteIntentSummary,
 } from "./contract";
 import {
   checkDraftItem,
@@ -544,6 +551,7 @@ function itemContext(
  */
 function parseBatch(raw: unknown): FactoryResult<{
   batchId: string;
+  approvalIntentId?: string;
   items: PresetDraftItem[];
   itemErrors: Map<number, FactoryError[]>;
 }> {
@@ -551,6 +559,7 @@ function parseBatch(raw: unknown): FactoryResult<{
   if (envelope.success) {
     return ok({
       batchId: envelope.data.batch_id,
+      approvalIntentId: envelope.data.approval_intent_id,
       items: envelope.data.items,
       itemErrors: new Map(),
     });
@@ -636,7 +645,16 @@ function parseBatch(raw: unknown): FactoryResult<{
     seenSlugs.add(item.product.slug);
   }
 
-  return ok({ batchId, items, itemErrors });
+  const rawEnvelope = rawObj as { approval_intent_id?: unknown };
+  return ok({
+    batchId,
+    approvalIntentId:
+      typeof rawEnvelope.approval_intent_id === "string"
+        ? rawEnvelope.approval_intent_id
+        : undefined,
+    items,
+    itemErrors,
+  });
 }
 
 function summarize(items: PresetItemResult[]) {
@@ -829,6 +847,10 @@ export async function createPresetCategory(
 // ---------------------------------------------------------------------------
 
 const RPC_ERROR_MAP: Array<[RegExp, FactoryError["code"]]> = [
+  [/PF_APPROVAL_REQUIRED/i, "approval_required"],
+  [/PF_APPROVAL_EXPIRED/i, "approval_expired"],
+  [/PF_APPROVAL_PAYLOAD_MISMATCH/i, "approval_payload_mismatch"],
+  [/PF_APPROVAL_INVALID/i, "approval_invalid"],
   [/PF_BAD_REQUEST/i, "validation_failed"],
   [/PF_SLUG_CONFLICT/i, "slug_conflict"],
   [/PF_INVALID_CATEGORY/i, "category_not_found"],
@@ -877,13 +899,109 @@ async function logFactoryAudit(
   }
 }
 
+/**
+ * Flattened RPC payload for one draft item — the exact five jsonb
+ * arguments `admin_create_preset_draft` receives. `stageWriteIntent`
+ * submits the same objects so the SQL-side canonical fingerprint
+ * (md5 over normalized jsonb text) binds an approved intent to this
+ * precise payload.
+ */
+function draftRpcPayloads(item: PresetDraftItem): {
+  product: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  version: Record<string, unknown>;
+  fields: Record<string, unknown>[];
+  asset_links: Record<string, unknown>[];
+} {
+  const { product, version } = item;
+  return {
+    product: {
+      type: product.type,
+      slug: product.slug,
+      name: product.name,
+      short_description: product.short_description ?? null,
+      long_description: product.long_description ?? null,
+      public_prompt_recipe: product.public_prompt_recipe ?? null,
+      category_id: product.category_id ?? null,
+      visibility: product.visibility,
+      hero_asset_id: product.hero_asset_id ?? null,
+      poster_asset_id: product.poster_asset_id ?? null,
+      preview_video_asset_id: product.preview_video_asset_id ?? null,
+      preview_gif_asset_id: product.preview_gif_asset_id ?? null,
+      likeness_level: product.likeness_level ?? null,
+      featured_rank: product.featured_rank ?? null,
+      parent_preset_id: product.parent_preset_id ?? null,
+      standalone_discoverable: product.standalone_discoverable,
+      variant_display_name: product.variant_display_name ?? null,
+      variant_sort_order: product.variant_sort_order,
+    },
+    metadata: {
+      filter_config: product.filter_config,
+      poster_config: product.poster_config,
+      prompt_ui: product.prompt_ui,
+    },
+    version: {
+      private_instruction_template: version.private_instruction_template,
+      private_negative_instruction:
+        version.private_negative_instruction ?? null,
+      provider_strategy: version.provider_strategy,
+      model_config: version.model_config,
+      output_sizes: version.output_sizes ?? null,
+      input_validation_config: version.input_validation_config,
+      input_mode: version.input_capability.input_mode,
+      input_min_images: version.input_capability.input_min_images,
+      input_max_images: version.input_capability.input_max_images,
+      input_image_roles: version.input_capability.input_image_roles,
+      prompt_override_enabled: version.input_capability.prompt_override_enabled,
+      prompt_max_chars: version.input_capability.prompt_max_chars,
+      post_process_config: version.post_process_config,
+      safety_config: version.safety_config,
+      credit_cost: version.credit_cost,
+    },
+    fields: item.fields.map((f) => ({
+      field_key: f.field_key,
+      label: f.label,
+      help_text: f.help_text ?? null,
+      field_type: f.field_type,
+      required: f.required,
+      sort_order: f.sort_order,
+      config: f.config,
+      validation: f.validation,
+      active: f.active,
+    })),
+    asset_links: item.asset_links.map((l) => ({
+      asset_id: l.asset_id,
+      role: l.role,
+      // *_reference links are private recipe material — forced, not
+      // defaulted (schema refine + RPC CASE both enforce this).
+      internal_only: isVersionBoundRole(l.role)
+        ? true
+        : (l.internal_only ?? false),
+      sort_order: l.sort_order,
+      bind_to_version: isVersionBoundRole(l.role),
+    })),
+  };
+}
+
+/**
+ * Caller-asserted fingerprint sent as `p_request_fingerprint`. The RPC
+ * requires it non-empty as a submission marker but never trusts it —
+ * idempotency and approval binding both use the server-computed
+ * canonical md5 instead.
+ */
+function draftItemFingerprint(item: PresetDraftItem): string {
+  return createHash("sha256")
+    .update(JSON.stringify(draftRpcPayloads(item)))
+    .digest("hex");
+}
+
 export async function createPresetDrafts(
   ctx: PresetFactoryContext,
   rawBatch: unknown
 ): Promise<FactoryResult<PresetBatchResult>> {
   const parsed = parseBatch(rawBatch);
   if (!parsed.ok) return parsed;
-  const { batchId, items, itemErrors } = parsed.data;
+  const { batchId, approvalIntentId, items, itemErrors } = parsed.data;
 
   const lookups = await resolveBatchLookups(ctx, items);
   if (!lookups.ok) return lookups;
@@ -933,16 +1051,7 @@ export async function createPresetDrafts(
     }
 
     const item = parsedByIndex.get(index)!;
-    const fingerprint = createHash("sha256")
-      .update(
-        JSON.stringify({
-          product: item.product,
-          version: item.version,
-          fields: item.fields,
-          asset_links: item.asset_links,
-        })
-      )
-      .digest("hex");
+    const fingerprint = draftItemFingerprint(item);
 
     // Prior ledger hit → straight to the RPC: its server-computed canonical
     // fingerprint decides `reused` vs PF_IDEMPOTENCY_CONFLICT before any
@@ -962,80 +1071,21 @@ export async function createPresetDrafts(
       warnings = check.warnings;
     }
 
-    const { product, version } = item;
+    const { product } = item;
+    const payloads = draftRpcPayloads(item);
     const { data: rpcData, error: rpcError } = await ctx.supabase.rpc(
       "admin_create_preset_draft",
       {
-        p_product: {
-          type: product.type,
-          slug: product.slug,
-          name: product.name,
-          short_description: product.short_description ?? null,
-          long_description: product.long_description ?? null,
-          public_prompt_recipe: product.public_prompt_recipe ?? null,
-          category_id: product.category_id ?? null,
-          visibility: product.visibility,
-          hero_asset_id: product.hero_asset_id ?? null,
-          poster_asset_id: product.poster_asset_id ?? null,
-          preview_video_asset_id: product.preview_video_asset_id ?? null,
-          preview_gif_asset_id: product.preview_gif_asset_id ?? null,
-          likeness_level: product.likeness_level ?? null,
-          featured_rank: product.featured_rank ?? null,
-          parent_preset_id: product.parent_preset_id ?? null,
-          standalone_discoverable: product.standalone_discoverable,
-          variant_display_name: product.variant_display_name ?? null,
-          variant_sort_order: product.variant_sort_order,
-        },
-        p_metadata: {
-          filter_config: product.filter_config,
-          poster_config: product.poster_config,
-          prompt_ui: product.prompt_ui,
-        },
-        p_version: {
-          private_instruction_template: version.private_instruction_template,
-          private_negative_instruction:
-            version.private_negative_instruction ?? null,
-          provider_strategy: version.provider_strategy,
-          model_config: version.model_config,
-          output_sizes: version.output_sizes ?? null,
-          input_validation_config: version.input_validation_config,
-          input_mode: version.input_capability.input_mode,
-          input_min_images: version.input_capability.input_min_images,
-          input_max_images: version.input_capability.input_max_images,
-          input_image_roles: version.input_capability.input_image_roles,
-          prompt_override_enabled:
-            version.input_capability.prompt_override_enabled,
-          prompt_max_chars: version.input_capability.prompt_max_chars,
-          post_process_config: version.post_process_config,
-          safety_config: version.safety_config,
-          credit_cost: version.credit_cost,
-        },
-        p_fields: item.fields.map((f) => ({
-          field_key: f.field_key,
-          label: f.label,
-          help_text: f.help_text ?? null,
-          field_type: f.field_type,
-          required: f.required,
-          sort_order: f.sort_order,
-          config: f.config,
-          validation: f.validation,
-          active: f.active,
-        })),
-        p_asset_links: item.asset_links.map((l) => ({
-          asset_id: l.asset_id,
-          role: l.role,
-          // *_reference links are private recipe material — forced, not
-          // defaulted (schema refine + RPC CASE both enforce this).
-          internal_only: isVersionBoundRole(l.role)
-            ? true
-            : (l.internal_only ?? false),
-          sort_order: l.sort_order,
-          bind_to_version: isVersionBoundRole(l.role),
-        })),
+        p_product: payloads.product,
+        p_metadata: payloads.metadata,
+        p_version: payloads.version,
+        p_fields: payloads.fields,
+        p_asset_links: payloads.asset_links,
         p_batch_id: batchId,
         p_client_item_id: item.client_item_id,
         p_idempotency_key: item.idempotency_key,
         p_request_fingerprint: fingerprint,
+        p_approval_intent_id: approvalIntentId ?? null,
       }
     );
 
@@ -1195,4 +1245,180 @@ export async function getPresetReviewLinks(
     }
   );
   return ok({ items });
+}
+
+// ---------------------------------------------------------------------------
+// Write-approval intents (coordinator rev3 / #272)
+//
+// OAuth-issued JWTs (client_id claim present) are refused by the draft RPC
+// unless an approved intent covers the item's fingerprint; web/session
+// tokens are unaffected. Category writes go through the same store but are
+// consumed at the tool level — the existing categories_admin RLS policy
+// permits direct admin inserts, so a DB gate there would not restrict
+// OAuth writes anyway.
+// ---------------------------------------------------------------------------
+
+export async function stageWriteIntent(
+  ctx: PresetFactoryContext,
+  rawRequest: unknown
+): Promise<FactoryResult<StageWriteIntentResult>> {
+  const parsed = stageWriteIntentRequestSchema.safeParse(rawRequest);
+  if (!parsed.success) {
+    return fail({
+      code: "validation_failed",
+      message: parsed.error.issues[0]?.message ?? "Invalid intent request.",
+      field: parsed.error.issues[0]?.path.map(String).join("."),
+    });
+  }
+  const req = parsed.data;
+
+  // Payloads are canonicalized exactly as the write path sends them, then
+  // fingerprinted *inside* admin_stage_write_intent (same canonical md5 as
+  // admin_create_preset_draft). The approval therefore binds to the SQL-
+  // verified payload, never to a caller-asserted hash.
+  const items =
+    req.operation === "create_draft_batch"
+      ? req.items.map(draftRpcPayloads)
+      : req.categories.map((c) => ({
+          name: c.name,
+          slug: c.slug,
+          description: c.description ?? null,
+          sort_order: c.sort_order,
+        }));
+
+  const { data, error } = await ctx.supabase.rpc("admin_stage_write_intent", {
+    p_operation: req.operation,
+    p_items: items,
+    p_preview: req.preview,
+    p_ttl_seconds: req.ttl_seconds,
+  });
+  if (error) {
+    return fail(mapRpcError(error));
+  }
+  const staged = data as {
+    intent_id?: string;
+    digest?: string;
+    item_fingerprints?: string[];
+    expires_at?: string;
+  } | null;
+  return ok({
+    intent_id: staged?.intent_id ?? "",
+    status: "pending",
+    digest: staged?.digest ?? "",
+    item_fingerprints: staged?.item_fingerprints ?? [],
+    expires_at: staged?.expires_at ?? "",
+  });
+}
+
+/** Caller-bound intent read — drives the approval page's staged preview. */
+export async function getWriteIntent(
+  ctx: PresetFactoryContext,
+  rawQuery: unknown
+): Promise<FactoryResult<{ intent: WriteIntentSummary }>> {
+  const parsed = intentIdQuerySchema.safeParse(rawQuery);
+  if (!parsed.success) {
+    return fail({
+      code: "validation_failed",
+      message: "An intent_id is required.",
+    });
+  }
+  const { data, error } = await ctx.supabase
+    .from("preset_factory_write_intents")
+    .select(
+      "id, operation, status, payload_digest, preview, expires_at, created_at"
+    )
+    .eq("id", parsed.data.intent_id)
+    .eq("admin_user_id", ctx.userId)
+    .single();
+  if (error || !data) {
+    return fail({
+      code: "approval_invalid",
+      message: "Write intent not found.",
+    });
+  }
+  const row = data as Record<string, unknown>;
+  return ok({
+    intent: {
+      intent_id: row.id as string,
+      operation: row.operation as WriteIntentSummary["operation"],
+      status: row.status as WriteIntentSummary["status"],
+      payload_digest: row.payload_digest as string,
+      preview: (row.preview as Record<string, unknown>) ?? {},
+      expires_at: row.expires_at as string,
+      created_at: row.created_at as string,
+    },
+  });
+}
+
+/**
+ * pending → approved, atomically. OAuth-issued tokens are refused inside
+ * the RPC — approval must come from a non-connector session (the admin UI).
+ */
+export async function approveWriteIntent(
+  ctx: PresetFactoryContext,
+  rawQuery: unknown
+): Promise<FactoryResult<ApproveWriteIntentResult>> {
+  const parsed = intentIdQuerySchema.safeParse(rawQuery);
+  if (!parsed.success) {
+    return fail({
+      code: "validation_failed",
+      message: "An intent_id is required.",
+    });
+  }
+  const { data, error } = await ctx.supabase.rpc("admin_approve_write_intent", {
+    p_intent_id: parsed.data.intent_id,
+  });
+  if (error) {
+    return fail(mapRpcError(error));
+  }
+  const approved = data as {
+    intent_id?: string;
+    status?: string;
+    expires_at?: string;
+  } | null;
+  return ok({
+    intent_id: approved?.intent_id ?? parsed.data.intent_id,
+    status: "approved",
+    expires_at: approved?.expires_at ?? "",
+  });
+}
+
+/**
+ * Tool-level consumption for writes the DB can't gate (categories). The
+ * draft RPC consumes internally; the adapter calls this for other
+ * operations after a successful write — the claim is atomic, so a
+ * fingerprint can never be consumed twice.
+ */
+export async function consumeWriteIntent(
+  ctx: PresetFactoryContext,
+  rawRequest: unknown
+): Promise<FactoryResult<ConsumeWriteIntentResult>> {
+  const parsed = consumeWriteIntentSchema.safeParse(rawRequest);
+  if (!parsed.success) {
+    return fail({
+      code: "validation_failed",
+      message: parsed.error.issues[0]?.message ?? "Invalid consume request.",
+      field: parsed.error.issues[0]?.path.map(String).join("."),
+    });
+  }
+  const { data, error } = await ctx.supabase.rpc("admin_consume_write_intent", {
+    p_intent_id: parsed.data.intent_id,
+    p_operation: parsed.data.operation,
+    p_request_fingerprint: parsed.data.request_fingerprint,
+  });
+  if (error) {
+    return fail(mapRpcError(error));
+  }
+  const consumed = data as {
+    intent_id?: string;
+    status?: string;
+    consumed?: number;
+    total?: number;
+  } | null;
+  return ok({
+    intent_id: consumed?.intent_id ?? parsed.data.intent_id,
+    status: consumed?.status === "consumed" ? "consumed" : "approved",
+    consumed: consumed?.consumed ?? 0,
+    total: consumed?.total ?? 0,
+  });
 }

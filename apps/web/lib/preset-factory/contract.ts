@@ -79,6 +79,14 @@ export const FACTORY_ERROR_CODES = [
   "duplicate_item_key",
   /** Idempotency key replayed with a different payload, or row incomplete. */
   "idempotency_conflict",
+  /** OAuth-origin write without an approved write intent. */
+  "approval_required",
+  /** Intent missing, wrong operation, or already terminal. */
+  "approval_invalid",
+  /** Intent expired before approval or consumption. */
+  "approval_expired",
+  /** Item payload fingerprint not covered by the approved intent. */
+  "approval_payload_mismatch",
   /** The atomic RPC rejected the write — see message. */
   "persistence_failed",
   /** Unexpected server failure. */
@@ -267,6 +275,12 @@ export const presetDraftBatchSchema = z
   .strictObject({
     /** Owner-visible correlation id for review/status lookups. */
     batch_id: z.string().min(1).max(120),
+    /**
+     * Approved write-intent id — REQUIRED when the caller's JWT is
+     * OAuth-server-issued (the MCP connector); ignored on web/session
+     * tokens. Each item's fingerprint must be covered by the intent.
+     */
+    approval_intent_id: z.string().uuid().optional(),
     items: z.array(presetDraftItemSchema).min(1).max(MAX_BATCH_ITEMS),
   })
   .refine(
@@ -297,7 +311,131 @@ export const createCategoryRequestSchema = z.strictObject({
   sort_order: z.number().int().min(0).max(9999).default(0),
   /** Replay-safe key; a repeated call returns the same category. */
   idempotency_key: z.string().min(16).max(200),
+  /**
+   * Tool-level approval binding: categories can't be DB-gated (the
+   * categories_admin policy permits direct admin inserts), so the adapter
+   * consumes the approved intent itself after a successful create.
+   */
+  approval_intent_id: z.string().uuid().optional(),
 });
+
+// ---------------------------------------------------------------------------
+// Write-approval intents (coordinator rev3 / #272)
+//
+// The tamper-resistant approval store for MCP-origin writes. OAuth-issued
+// JWTs (client_id claim present) are REQUIRED by the draft RPC to carry an
+// approved intent covering each item's fingerprint; web/session tokens are
+// unaffected. Category writes cannot be DB-gated (see above) — the adapter
+// consumes their intents at the tool level instead.
+// ---------------------------------------------------------------------------
+
+export const APPROVABLE_OPERATIONS = [
+  "create_draft_batch",
+  "create_categories",
+] as const;
+export const approvableOperationSchema = z.enum(APPROVABLE_OPERATIONS);
+export type ApprovableOperation = z.infer<typeof approvableOperationSchema>;
+
+export const WRITE_INTENT_STATUSES = [
+  "pending",
+  "approved",
+  "consumed",
+  "cancelled",
+  "expired",
+] as const;
+export type WriteIntentStatus = (typeof WRITE_INTENT_STATUSES)[number];
+
+/**
+ * Owner-facing preview — arbitrary safe summary the adapter builds.
+ * The stage RPC rejects previews containing recipe-field names as
+ * defense-in-depth; never include private_instruction_template or
+ * private_negative_instruction content.
+ */
+export const intentPreviewSchema = z.record(z.string(), z.unknown());
+
+const intentTtlSchema = z.number().int().min(60).max(3600).default(900);
+
+/**
+ * stage_write_intent — discriminated on operation. The service flattens
+ * items through the same payload builder the write path uses; SQL then
+ * computes payload_digest + item_fingerprints from the canonical form, so
+ * the approval binds to what will actually be written.
+ */
+export const stageWriteIntentRequestSchema = z.discriminatedUnion("operation", [
+  z.strictObject({
+    operation: z.literal("create_draft_batch"),
+    batch_id: z.string().min(1).max(120),
+    items: z.array(presetDraftItemSchema).min(1).max(MAX_BATCH_ITEMS),
+    preview: intentPreviewSchema.default({}),
+    ttl_seconds: intentTtlSchema,
+  }),
+  z.strictObject({
+    operation: z.literal("create_categories"),
+    categories: z
+      .array(createCategoryRequestSchema.omit({ approval_intent_id: true }))
+      .min(1)
+      .max(MAX_BATCH_ITEMS),
+    preview: intentPreviewSchema.default({}),
+    ttl_seconds: intentTtlSchema,
+  }),
+]);
+export type StageWriteIntentRequest = z.infer<
+  typeof stageWriteIntentRequestSchema
+>;
+
+export const intentIdQuerySchema = z.strictObject({
+  intent_id: z.string().uuid(),
+});
+export type IntentIdQuery = z.infer<typeof intentIdQuerySchema>;
+
+export const consumeWriteIntentSchema = z.strictObject({
+  intent_id: z.string().uuid(),
+  operation: approvableOperationSchema,
+  /** SQL-computed fingerprint for the consumed unit — taken verbatim
+   *  from the `item_fingerprints` array stage returned. */
+  request_fingerprint: z.string().min(1).max(200),
+});
+export type ConsumeWriteIntentRequest = z.infer<
+  typeof consumeWriteIntentSchema
+>;
+
+export interface WriteIntentSummary {
+  intent_id: string;
+  operation: ApprovableOperation;
+  status: WriteIntentStatus;
+  payload_digest: string;
+  /** Safe preview as staged — no private recipe fields. */
+  preview: Record<string, unknown>;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface StageWriteIntentResult {
+  intent_id: string;
+  status: "pending";
+  /** SQL-computed md5 of the canonical items payload — show to the
+   *  approver for cross-checking. */
+  digest: string;
+  /** Per-item fingerprints the approval covers (SQL canonical md5 —
+   *  for drafts, identical to the draft RPC's idempotency fingerprint). */
+  item_fingerprints: string[];
+  expires_at: string;
+}
+
+export interface ApproveWriteIntentResult {
+  intent_id: string;
+  status: "approved";
+  expires_at: string;
+}
+
+export interface ConsumeWriteIntentResult {
+  intent_id: string;
+  status: "approved" | "consumed";
+  /** Fingerprints consumed so far (including this claim). */
+  consumed: number;
+  /** Total fingerprints the intent covers. */
+  total: number;
+}
 
 // ---------------------------------------------------------------------------
 // Read operation inputs
