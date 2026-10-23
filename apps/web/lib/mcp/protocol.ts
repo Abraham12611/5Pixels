@@ -11,7 +11,13 @@
  * dependency-free; the surface is intentionally narrow (#272).
  */
 
-export const MCP_PROTOCOL_VERSIONS = ["2025-03-26", "2024-11-05"] as const;
+/**
+ * Streamable-HTTP-era protocol revisions only. `2024-11-05` predates the
+ * transport this server implements and must not be advertised; unknown or
+ * newer versions are negotiated down to the newest we support per spec.
+ */
+export const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26"] as const;
+export const MCP_DEFAULT_VERSION = MCP_PROTOCOL_VERSIONS[0];
 export const MCP_SERVER_INFO = {
   name: "5pixels-preset-factory",
   version: "0.1.0",
@@ -131,7 +137,7 @@ export class McpDispatch {
           capabilities: { tools: { listChanged: false } },
           serverInfo: MCP_SERVER_INFO,
           instructions:
-            "5Pixels Preset Factory — draft-only preset authoring. Write tools require explicit confirmation; no generation, testing or publishing capability exists here.",
+            "5Pixels Preset Factory — draft-only preset authoring. Write tools require an owner-minted approval token bound to the exact payload; no generation, testing or publishing capability exists here.",
         });
       }
       case "ping":

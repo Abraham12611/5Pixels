@@ -40,10 +40,14 @@ catalog inspection, planning, validation and approved draft creation.
    be substantive and specific to the concept.
 4. **Validate.** `validate_preset_batch` on every approved item. Fix and
    re-validate until zero errors (warnings are okay to surface to the owner).
-5. **Confirm.** Show the owner an itemized summary and ask for explicit
-   approval of the exact set. Only then call `create_categories` (approved new
-   categories first, so their ids exist) then `create_draft_batch` with
-   `confirm: true` and STABLE idempotency keys.
+5. **Owner approval (required for any write).** Show the owner an itemized
+   summary of the exact set. Then call `create_categories` (approved new
+   categories first) then `create_draft_batch` — the FIRST call deliberately
+   omits `approval_token`, so the tool refuses and returns a payload `digest`
+   plus an `approval_url`. Give the owner the link; they verify the digest in
+   the admin UI, mint a 10-minute token and paste it back. Re-call with
+   `approval_token` and the SAME ids/keys. Never fabricate or request the
+   token another way — it is bound to the exact payload.
 6. **Report.** `get_batch_status` + `get_draft_review_links` +
    `prepare_manual_preset_review`. Give the owner created/reused/failed
    counts, per-item admin links and blockers (e.g. missing hero media).
@@ -71,9 +75,15 @@ catalog inspection, planning, validation and approved draft creation.
 
 ## Write-call etiquette
 
-- `confirm: true` means "the owner explicitly approved THIS exact set" — never
-  set it speculatively, and approval of a different list does not carry over.
-- Reuse `client_item_id`, `item_idempotency_key` and `batch_idempotency_key`
-  on retries — regenerating them after a partial failure creates duplicates.
+- Writes need an `approval_token` the owner minted for THIS exact payload —
+  never guess, reuse across payloads, or pressure the owner to approve a
+  digest they have not compared with your summary.
+- Reuse `client_item_id`, `idempotency_key` and `batch_id` on retries —
+  regenerating them after a partial failure creates duplicates. If you omit
+  keys, the server derives deterministic ones — but keep and reuse what it
+  returns.
 - If a write partially fails, report exactly which `client_item_id`s failed
   and why; never claim full success.
+- Never include product ids, version ids, `public_status`, version `state`
+  or any server-controlled field in draft items — strict schemas reject
+  them.

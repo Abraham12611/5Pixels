@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planPresetBatch, slugify } from "../preset-factory/planner";
-import type { CatalogItem, Category } from "../preset-factory/backend";
+import type { CatalogItemSummary, CategorySummary } from "@/lib/preset-factory/contract";
 
 /**
  * NOTE: written but intentionally UNEXECUTED per the owner's manual-only
@@ -8,24 +8,28 @@ import type { CatalogItem, Category } from "../preset-factory/backend";
  * authorizes automated testing.
  */
 
-const CATEGORIES: Category[] = [
-  { id: "c1", slug: "cinematic", name: "Cinematic", is_active: true, sort_order: 10 },
-  { id: "c2", slug: "portrait", name: "Portrait", is_active: true, sort_order: 20 },
-  { id: "c3", slug: "archive", name: "Archive", is_active: false, sort_order: 30 },
+const CATEGORIES: CategorySummary[] = [
+  { id: "00000000-0000-4000-8000-0000000000c1", slug: "cinematic", name: "Cinematic", description: null, is_active: true, sort_order: 10 },
+  { id: "00000000-0000-4000-8000-0000000000c2", slug: "portrait", name: "Portrait", description: null, is_active: true, sort_order: 20 },
+  { id: "00000000-0000-4000-8000-0000000000c3", slug: "archive", name: "Archive", description: null, is_active: false, sort_order: 30 },
 ];
 
-const CATALOG: CatalogItem[] = [
+const CATALOG: CatalogItemSummary[] = [
   {
-    id: "p1", slug: "noir-portrait", name: "Noir Portrait", type: "filter",
-    public_status: "active", visibility: "public", category_id: "c2",
-    parent_preset_id: null, version_count: 2, latest_version_state: "active",
-    media_flags: { hero: true, preview: true },
+    product_id: "00000000-0000-4000-8000-0000000000a1", slug: "noir-portrait", name: "Noir Portrait", type: "filter",
+    public_status: "active", visibility: "public", category_id: CATEGORIES[1].id, category_slug: "portrait",
+    parent_preset_id: null, standalone_discoverable: false, variant_display_name: null,
+    version_count: 2, has_active_version: true, has_editable_version: false, latest_version_number: 2,
+    field_count: 0, media: { has_hero: true, has_poster: false, has_preview_video: true, has_preview_gif: false, reference_count: 0 },
+    created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
   },
   {
-    id: "p2", slug: "noir-portrait-warm", name: "Noir Warm", type: "filter",
-    public_status: "active", visibility: "public", category_id: "c2",
-    parent_preset_id: "p1", version_count: 1, latest_version_state: "active",
-    media_flags: { hero: true, preview: false },
+    product_id: "00000000-0000-4000-8000-0000000000a2", slug: "noir-portrait-warm", name: "Noir Warm", type: "filter",
+    public_status: "active", visibility: "public", category_id: CATEGORIES[1].id, category_slug: "portrait",
+    parent_preset_id: "00000000-0000-4000-8000-0000000000a1", standalone_discoverable: false, variant_display_name: "Warm",
+    version_count: 1, has_active_version: true, has_editable_version: false, latest_version_number: 1,
+    field_count: 0, media: { has_hero: true, has_poster: false, has_preview_video: false, has_preview_gif: false, reference_count: 0 },
+    created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z",
   },
 ];
 
@@ -104,7 +108,7 @@ describe("planPresetBatch", () => {
       CATALOG,
       CATEGORIES
     );
-    expect(plan.items[0].parent).toEqual({ slug: "noir-portrait", product_id: "p1" });
+    expect(plan.items[0].parent).toEqual({ slug: "noir-portrait", product_id: CATALOG[0].product_id });
     expect(plan.items[1].parent).toBeNull();
     expect(plan.items[1].warnings.join()).toMatch(/one level/i);
   });

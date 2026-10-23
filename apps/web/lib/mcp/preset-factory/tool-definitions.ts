@@ -6,31 +6,57 @@ import type { McpTool } from "../protocol";
  * explicit owner authorization — any tool that generates images, runs lab
  * tests, spends credits, or publishes/activates/retires presets.
  *
+ * Input/output shapes mirror Engineer A's canonical contract
+ * (`lib/preset-factory/contract.ts`, preset-factory.v1) — the same Zod
+ * schemas validate on the server, so nothing a client sends can carry
+ * server-controlled fields (product/version ids, states, statuses).
+ *
  * `inputSchema` values are JSON Schema; `annotations` carry MCP behavioral
  * hints so the client can present confirmations correctly.
  */
 
 const uuid = { type: "string", format: "uuid" } as const;
+const idempotencyKey = {
+  type: "string",
+  minLength: 16,
+  maxLength: 200,
+  description:
+    "Retry-safe key (≥16 chars). Generate once and REUSE it on retry — never regenerate after a failed attempt. If omitted, the server derives one deterministically from the batch + item identity.",
+} as const;
 
 const draftItemSchema = {
   type: "object",
-  required: ["client_item_id", "product"],
+  required: ["client_item_id", "product", "version"],
   properties: {
     client_item_id: {
       type: "string",
-      maxLength: 64,
+      maxLength: 120,
       description:
         "Stable id for this item within the plan (e.g. 'item-001'). Reuse the SAME id when retrying a batch.",
     },
-    item_idempotency_key: {
-      ...uuid,
-      description:
-        "Retry-safety key. Generate once per item and REUSE it on retry — never regenerate after a failed attempt.",
-    },
+    idempotency_key: idempotencyKey,
     product: {
       type: "object",
       description:
-        "Complete productCreateSchema payload: type, slug, name, descriptions, category_id, version (with private_instruction_template, provider_strategy, input_capability, output_sizes), fields, and filter_config or poster_config. Server forces public_status/version.state to 'draft'.",
+        "PresetDraftProduct: type, slug, name, short/long_description, public_prompt_recipe (editorial copy only — never the private recipe), category_id, visibility, hero/poster/preview asset ids (previously approved only), likeness_level, featured_rank, parent_preset_id, standalone_discoverable, variant_display_name, variant_sort_order, filter_config (style_archetype required for filters), poster_config (layout_template required for posters), prompt_ui. STRICT — server-controlled keys (id, public_status) are rejected.",
+    },
+    version: {
+      type: "object",
+      description:
+        "PresetDraftVersion: private_instruction_template (required), private_negative_instruction, provider_strategy, model_config, output_sizes (≤4MP each), input_validation_config, input_capability, post_process_config, safety_config, credit_cost (display hint). STRICT — id/version_number/state are server-controlled and rejected if present.",
+    },
+    fields: {
+      type: "array",
+      maxItems: 64,
+      items: { type: "object" },
+      description: "productFieldSchema rows — the preset's user-facing controls.",
+    },
+    asset_links: {
+      type: "array",
+      maxItems: 32,
+      items: { type: "object" },
+      description:
+        "{asset_id, role, internal_only?, sort_order?} — only previously approved preset-media asset ids.",
     },
   },
   additionalProperties: false,
@@ -51,15 +77,23 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "get_catalog_summary",
     description:
-      "Read-only catalog inventory: preset ids, slugs, names, types, categories, statuses, version counts and media-readiness flags. Compact + paginated. Never returns private prompt recipes.",
+      "Read-only catalog inventory: preset ids, slugs, names, types, categories, statuses, family links, version counts and media-readiness flags. Paginated by offset. Never returns private prompt recipes.",
     inputSchema: {
       type: "object",
       properties: {
         type: { type: "string", enum: ["filter", "poster"] },
-        status: { type: "string", description: "public_status filter, e.g. draft|active|archived" },
+        public_status: {
+          type: "string",
+          enum: ["draft", "internal_test", "private_beta", "scheduled", "active", "paused", "retired"],
+        },
         category_id: uuid,
-        limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
-        cursor: { type: "string", description: "Pass back next_cursor for the next page." },
+        family: {
+          type: "string",
+          enum: ["roots", "variants", "all"],
+          description: "roots = no parent, variants = has parent.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 100 },
+        offset: { type: "integer", minimum: 0, default: 0 },
       },
       additionalProperties: false,
     },
@@ -70,7 +104,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "find_existing_presets",
     description:
-      "Search the catalog by name/slug substring before proposing new presets — use this to avoid duplicate or confusingly similar slugs and names.",
+      "Search the catalog by name/slug substring before proposing new presets — use this to avoid duplicate or confusingly similar slugs and names. Scans catalog pages server-side; match is case-insensitive substring.",
     inputSchema: {
       type: "object",
       required: ["query"],
@@ -97,7 +131,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "get_model_capabilities",
     description:
-      "List the admin-verified provider/model options (endpoint ids, cost units) usable in provider_strategy. Use ONLY these — never invent model names.",
+      "List the server-verified provider/model options (endpoint ids, capability hints, display names) usable in provider_strategy. Use ONLY these — never invent model names. Unverified options are flagged, not hidden.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     isWrite: false,
@@ -147,12 +181,17 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "validate_preset_batch",
     description:
-      "Dry-run validation of complete draft definitions (schema + domain checks: slugs, categories, model capability, family rules). NO generation or testing occurs. Run this on every item before asking the owner to approve creation.",
+      "Dry-run validation of complete draft definitions through the canonical service (schema + domain checks: slugs, categories, model capability, family rules, asset links). NO generation, testing or persistence occurs. Run this on every item before asking the owner to approve creation.",
     inputSchema: {
       type: "object",
       required: ["items"],
       properties: {
-        items: { type: "array", maxItems: 25, items: draftItemSchema },
+        batch_id: {
+          type: "string",
+          maxLength: 120,
+          description: "Optional correlation id — reused on the later create call for a consistent trail.",
+        },
+        items: { type: "array", minItems: 1, maxItems: 25, items: draftItemSchema },
       },
       additionalProperties: false,
     },
@@ -163,29 +202,32 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_categories",
     description:
-      "Create ONLY the explicitly owner-approved proposed categories. Present the plan to the owner first, then call with confirm=true. Slug collisions return a conflict with the existing category for reuse.",
+      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after verifying the displayed payload digest. Call WITHOUT the token first to receive the digest + approval link to hand the owner. Slug collisions return a conflict with the existing category for reuse.",
     inputSchema: {
       type: "object",
-      required: ["categories", "confirm"],
+      required: ["categories"],
       properties: {
         categories: {
           type: "array",
+          minItems: 1,
           maxItems: 10,
           items: {
             type: "object",
             required: ["name", "slug"],
             properties: {
-              name: { type: "string", maxLength: 120 },
-              slug: { type: "string", maxLength: 120, pattern: "^[a-z0-9-]+$" },
+              name: { type: "string", minLength: 1, maxLength: 120 },
+              slug: { type: "string", minLength: 1, maxLength: 120, pattern: "^[a-z0-9-]+$" },
               description: { type: "string", maxLength: 500 },
-              sort_order: { type: "integer", minimum: 0 },
+              sort_order: { type: "integer", minimum: 0, maximum: 9999 },
+              idempotency_key: idempotencyKey,
             },
             additionalProperties: false,
           },
         },
-        confirm: {
-          type: "boolean",
-          description: "MUST be true — asserts the owner explicitly approved these categories.",
+        approval_token: {
+          type: "string",
+          description:
+            "Owner-minted approval token bound to this exact payload's digest, the operation and the caller. Obtain it via the approval flow, never fabricate it.",
         },
       },
       additionalProperties: false,
@@ -197,19 +239,23 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_draft_batch",
     description:
-      "Persist a batch of complete preset drafts AFTER the owner approves the validated plan. Always: (1) plan_preset_batch → (2) validate_preset_batch → (3) present summary to owner → (4) call with confirm=true and the SAME idempotency keys on retry. Server forces every product+version to draft state — nothing can be published here.",
+      "Persist a batch of complete preset drafts AFTER the owner approves the validated plan. Flow: (1) plan_preset_batch → (2) validate_preset_batch → (3) present summary to owner → (4) call WITHOUT approval_token to get the payload digest + approval link → (5) owner mints the token in admin → (6) re-call with approval_token and the SAME ids/keys. The atomic RPC forces every product+version to draft — nothing can be published here.",
     inputSchema: {
       type: "object",
-      required: ["items", "confirm"],
+      required: ["items"],
       properties: {
-        batch_idempotency_key: {
-          ...uuid,
-          description: "Stable key for the whole batch — reuse on retry to avoid duplicate writes.",
+        batch_id: {
+          type: "string",
+          minLength: 1,
+          maxLength: 120,
+          description:
+            "Owner-visible correlation id for status/review lookups. If omitted, the server derives a stable one from the item set — reuse the returned id on retry.",
         },
         items: { type: "array", minItems: 1, maxItems: 25, items: draftItemSchema },
-        confirm: {
-          type: "boolean",
-          description: "MUST be true — asserts the owner explicitly approved this exact item set.",
+        approval_token: {
+          type: "string",
+          description:
+            "Owner-minted approval token bound to this exact payload's digest, the operation and the caller. Obtain it via the approval flow, never fabricate it.",
         },
       },
       additionalProperties: false,
@@ -220,12 +266,13 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "get_batch_status",
-    description: "Per-item outcome of a submitted batch: created/reused/failed plus product ids and slugs.",
+    description:
+      "Per-item outcome of a submitted batch: created/failed plus product ids, version ids and admin review paths. Looks up by the batch_id returned from create_draft_batch.",
     inputSchema: {
       type: "object",
+      required: ["batch_id"],
       properties: {
-        batch_idempotency_key: uuid,
-        product_ids: { type: "array", maxItems: 50, items: uuid },
+        batch_id: { type: "string", minLength: 1, maxLength: 120 },
       },
       additionalProperties: false,
     },
@@ -241,7 +288,7 @@ export const TOOL_DEFS: ToolDef[] = [
       type: "object",
       required: ["product_ids"],
       properties: {
-        product_ids: { type: "array", minItems: 1, maxItems: 50, items: uuid },
+        product_ids: { type: "array", minItems: 1, maxItems: 200, items: uuid },
       },
       additionalProperties: false,
     },
@@ -257,7 +304,7 @@ export const TOOL_DEFS: ToolDef[] = [
       type: "object",
       required: ["product_ids"],
       properties: {
-        product_ids: { type: "array", minItems: 1, maxItems: 50, items: uuid },
+        product_ids: { type: "array", minItems: 1, maxItems: 200, items: uuid },
       },
       additionalProperties: false,
     },

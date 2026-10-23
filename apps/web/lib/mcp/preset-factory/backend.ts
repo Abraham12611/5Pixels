@@ -1,257 +1,127 @@
 /**
- * Engineer A ↔ B service contract (#271/#272), transport = same-origin HTTP.
+ * Engineer A ↔ B service integration (#271/#272), transport = direct call.
  *
- * The MCP server is the ONLY caller: it has already authenticated the user
- * and forwards their Bearer token so A's handlers independently re-verify
- * identity + admin role. If A lands a service module instead of HTTP routes,
- * this file's factory is the single swap point — handlers and tool schemas
- * do not change.
+ * The MCP server is the ONLY caller: it authenticates the user once per
+ * request (Bearer token → verified Supabase user → fresh admin/owner check),
+ * then hands A's service a {@link PresetFactoryContext} built on a client
+ * bound to the caller's own token. A's functions re-derive identity and
+ * re-check privilege inside the SECURITY DEFINER RPCs — the MCP layer never
+ * holds the service-role key and never bypasses RLS.
+ *
+ * The backend interface mirrors {@link ../preset-factory/contract} exactly —
+ * types, error codes, and result shapes are A's canonical definitions.
  *
  * `PRESET_FACTORY_BACKEND=fixture` swaps in canned responses for offline
- * development. Fixture mode never writes and must never reach production —
+ * development. Fixture mode never writes and is REFUSED in production —
  * see fixture.ts.
  */
+import type {
+  BatchStatusItem,
+  BatchStatusQuery,
+  CatalogItemSummary,
+  CatalogQuery,
+  CategorySummary,
+  CreateCategoryRequest,
+  CreateCategoryResult,
+  FactoryResult,
+  ModelOption,
+  PresetBatchResult,
+  ReviewLinkEntry,
+  ReviewLinksQuery,
+} from "@/lib/preset-factory/contract";
+import {
+  createPresetCategory,
+  createPresetDrafts,
+  getPresetBatchStatus,
+  getPresetReviewLinks,
+  listCompatibleModelOptions,
+  listPresetCatalog,
+  listPresetCategories,
+  validatePresetBatch,
+  type PresetFactoryContext,
+} from "@/lib/preset-factory/service";
 
-export const CONTRACT_VERSION = "1" as const;
-export const MAX_BATCH_ITEMS = 25;
-
-// ---------------------------------------------------------------------------
-// Wire types (contractVersion "1" — agreed on issue #271)
-// ---------------------------------------------------------------------------
-
-export interface ApiOk<T> {
-  ok: true;
-  contractVersion: string;
-  data: T;
-}
-export interface ApiErr {
-  ok: false;
-  contractVersion: string;
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-    item_id?: string;
-  };
-}
-export type ApiResponse<T> = ApiOk<T> | ApiErr;
-
-export interface CatalogItem {
-  id: string;
-  slug: string;
-  name: string;
-  type: "filter" | "poster";
-  public_status: string;
-  visibility: string;
-  category_id: string | null;
-  parent_preset_id: string | null;
-  version_count: number;
-  latest_version_state: string | null;
-  media_flags: { hero: boolean; preview: boolean };
-}
-export interface CatalogResult {
-  items: CatalogItem[];
-  next_cursor: string | null;
-  totals: { filters: number; posters: number; draft: number; active: number };
-}
-
-export interface Category {
-  id: string;
-  slug: string;
-  name: string;
-  is_active: boolean;
-  sort_order: number;
-}
-
-export interface ModelOption {
-  provider: string;
-  endpoint_id: string;
-  display_name: string;
-  category: string;
-  unit: string;
-  unit_price: number;
-}
-
-export interface DraftItem {
-  client_item_id: string;
-  item_idempotency_key: string;
-  product: Record<string, unknown>; // productCreateSchema payload — A validates
-}
-
-export interface ItemValidation {
-  client_item_id: string;
-  ok: boolean;
-  errors: { code: string; message: string; path?: string }[];
-  warnings: string[];
-}
-export interface ValidateBatchResult {
-  results: ItemValidation[];
-}
-
-export interface CreatedCategory {
-  id: string;
-  slug: string;
-  status: "created" | "reused";
-}
-
-export interface BatchItemOutcome {
-  client_item_id: string;
-  outcome: "created" | "reused_idempotent" | "failed";
-  product_id?: string;
-  version_id?: string;
-  errors?: { code: string; message: string; path?: string }[];
-}
-export interface CreateDraftBatchResult {
-  batch_id: string;
-  items: BatchItemOutcome[];
-  summary: { created: number; reused: number; failed: number };
-}
-
-export interface BatchStatusResult {
-  items: {
-    client_item_id: string;
-    product_id: string | null;
-    outcome: string;
-    slug: string | null;
-  }[];
-}
-
-export interface ReviewLink {
-  product_id: string;
-  slug: string;
-  admin_edit_url: string;
-  blockers: string[];
-}
-export interface ReviewLinksResult {
-  links: ReviewLink[];
-}
+export {
+  MAX_BATCH_ITEMS,
+  PRESET_FACTORY_CONTRACT_VERSION as CONTRACT_VERSION,
+} from "@/lib/preset-factory/contract";
+export type { FactoryResult };
 
 // ---------------------------------------------------------------------------
-// Backend interface — one method per contract operation
+// Backend interface — one method per canonical operation
 // ---------------------------------------------------------------------------
 
 export interface PresetFactoryBackend {
-  listPresetCatalog(params: {
-    type?: "filter" | "poster";
-    status?: string;
-    category_id?: string;
-    q?: string;
-    cursor?: string;
-    limit?: number;
-  }): Promise<ApiResponse<CatalogResult>>;
+  listPresetCatalog(
+    query: CatalogQuery
+  ): Promise<FactoryResult<{ items: CatalogItemSummary[] }>>;
 
-  listCategories(): Promise<ApiResponse<Category[]>>;
+  listCategories(): Promise<FactoryResult<{ categories: CategorySummary[] }>>;
 
-  listCompatibleModelOptions(): Promise<ApiResponse<ModelOption[]>>;
+  listCompatibleModelOptions(): Promise<FactoryResult<{ models: ModelOption[] }>>;
 
-  validatePresetBatch(input: { items: DraftItem[] }): Promise<ApiResponse<ValidateBatchResult>>;
+  /** Schema + domain validation. Pure — writes nothing. */
+  validatePresetBatch(batch: unknown): Promise<FactoryResult<PresetBatchResult>>;
 
-  createCategory(input: {
-    name: string;
-    slug: string;
-    description?: string;
-    sort_order?: number;
-  }): Promise<ApiResponse<CreatedCategory>>;
+  createCategory(input: CreateCategoryRequest): Promise<FactoryResult<CreateCategoryResult>>;
 
-  createPresetDrafts(input: {
-    batch_idempotency_key: string;
-    items: DraftItem[];
-  }): Promise<ApiResponse<CreateDraftBatchResult>>;
+  /** The ONLY persistence path — atomic draft-only RPC per item. */
+  createPresetDrafts(batch: unknown): Promise<FactoryResult<PresetBatchResult>>;
 
-  getBatchStatus(input: {
-    batch_idempotency_key?: string;
-    product_ids?: string[];
-  }): Promise<ApiResponse<BatchStatusResult>>;
+  getBatchStatus(
+    query: BatchStatusQuery
+  ): Promise<FactoryResult<{ batch_id: string; items: BatchStatusItem[] }>>;
 
-  getReviewLinks(input: { product_ids: string[] }): Promise<ApiResponse<ReviewLinksResult>>;
+  getReviewLinks(
+    query: ReviewLinksQuery
+  ): Promise<FactoryResult<{ items: ReviewLinkEntry[] }>>;
 }
 
 // ---------------------------------------------------------------------------
-// HTTP implementation — forwards the caller's token to A's API
+// Direct implementation — Engineer A's canonical service
 // ---------------------------------------------------------------------------
 
-const OP_PATH: Record<string, string> = {
-  listPresetCatalog: "list_preset_catalog",
-  listCategories: "list_categories",
-  listCompatibleModelOptions: "list_compatible_model_options",
-  validatePresetBatch: "validate_preset_batch",
-  createCategory: "create_category",
-  createPresetDrafts: "create_preset_drafts",
-  getBatchStatus: "get_batch_status",
-  getReviewLinks: "get_review_links",
-};
-
-export function httpPresetFactoryBackend(
-  baseUrl: string,
-  accessToken: string
+export function directPresetFactoryBackend(
+  ctx: PresetFactoryContext
 ): PresetFactoryBackend {
-  const call = async <T>(op: keyof PresetFactoryBackend, body: unknown): Promise<ApiResponse<T>> => {
-    const path = OP_PATH[op as string];
-    let res: Response;
-    try {
-      res = await fetch(`${baseUrl.replace(/\/+$/, "")}/${path}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${accessToken}`,
-          "x-preset-factory-contract": CONTRACT_VERSION,
-        },
-        body: JSON.stringify(body ?? {}),
-        cache: "no-store",
-      });
-    } catch (err) {
-      return {
-        ok: false,
-        contractVersion: CONTRACT_VERSION,
-        error: {
-          code: "backend_unavailable",
-          message: `Preset factory API unreachable: ${err instanceof Error ? err.message : "network error"}`,
-        },
-      };
-    }
-    const json = (await res.json().catch(() => null)) as ApiResponse<T> | null;
-    if (!json || typeof json !== "object" || typeof json.ok !== "boolean") {
-      return {
-        ok: false,
-        contractVersion: CONTRACT_VERSION,
-        error: {
-          code: res.status === 404 ? "backend_not_deployed" : "backend_bad_response",
-          message:
-            res.status === 404
-              ? `Preset factory API '${path}' is not deployed yet (HTTP 404)`
-              : `Preset factory API '${path}' returned HTTP ${res.status} with an unexpected body`,
-        },
-      };
-    }
-    return json;
-  };
-
   return {
-    listPresetCatalog: (params) => call("listPresetCatalog", params),
-    listCategories: () => call("listCategories", {}),
-    listCompatibleModelOptions: () => call("listCompatibleModelOptions", {}),
-    validatePresetBatch: (input) => call("validatePresetBatch", input),
-    createCategory: (input) => call("createCategory", input),
-    createPresetDrafts: (input) => call("createPresetDrafts", input),
-    getBatchStatus: (input) => call("getBatchStatus", input),
-    getReviewLinks: (input) => call("getReviewLinks", input),
+    listPresetCatalog: (query) => listPresetCatalog(ctx, query),
+    listCategories: () => listPresetCategories(ctx),
+    listCompatibleModelOptions: () => listCompatibleModelOptions(ctx),
+    validatePresetBatch: (batch) => validatePresetBatch(ctx, batch),
+    createCategory: (input) => createPresetCategory(ctx, input),
+    createPresetDrafts: (batch) => createPresetDrafts(ctx, batch),
+    getBatchStatus: (query) => getPresetBatchStatus(ctx, query),
+    getReviewLinks: (query) => getPresetReviewLinks(ctx, query),
   };
 }
 
 // ---------------------------------------------------------------------------
-// Selection
+// Selection — direct by default; fixture is development-only.
 // ---------------------------------------------------------------------------
+
+function fixtureAllowed(): boolean {
+  // Fail closed anywhere near production: a fixture can fabricate
+  // successful-looking writes, so it must be impossible to select there.
+  return (
+    process.env.PRESET_FACTORY_BACKEND === "fixture" &&
+    process.env.NODE_ENV !== "production" &&
+    process.env.VERCEL_ENV !== "production" &&
+    process.env.VERCEL_ENV !== "preview"
+  );
+}
 
 export async function getPresetFactoryBackend(opts: {
-  requestOrigin: string;
-  accessToken: string;
+  ctx: PresetFactoryContext;
 }): Promise<PresetFactoryBackend> {
-  if (process.env.PRESET_FACTORY_BACKEND === "fixture") {
+  if (process.env.PRESET_FACTORY_BACKEND === "fixture" && !fixtureAllowed()) {
+    throw new Error(
+      "PRESET_FACTORY_BACKEND=fixture is development-only and cannot run in this environment."
+    );
+  }
+  if (fixtureAllowed()) {
     const { fixtureBackend } = await import("./fixture");
     return fixtureBackend();
   }
-  const base =
-    process.env.PRESET_FACTORY_API_BASE?.trim() ||
-    `${opts.requestOrigin}/api/admin/preset-factory/v1`;
-  return httpPresetFactoryBackend(base, opts.accessToken);
+  return directPresetFactoryBackend(opts.ctx);
 }

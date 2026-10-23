@@ -1,17 +1,32 @@
-import { createHash, randomUUID } from "crypto";
-import { productCreateSchema } from "@5pixels/shared";
+import { createHash } from "node:crypto";
+import {
+  MAX_BATCH_ITEMS,
+  createCategoryRequestSchema,
+  presetDraftItemSchema,
+  type CatalogQuery,
+  type CreateCategoryRequest,
+  type FactoryResult,
+  type PresetDraftItem,
+} from "@/lib/preset-factory/contract";
+import {
+  createPresetFactoryContext,
+  type PresetFactoryContext,
+} from "@/lib/preset-factory/service";
 import type { McpCallerContext } from "../auth";
 import { auditMcpToolCall } from "../audit";
 import { checkRateLimit } from "../rate-limit";
 import { toolError, toolOk, type ToolResultPayload } from "../protocol";
 import {
   CONTRACT_VERSION,
-  MAX_BATCH_ITEMS,
   getPresetFactoryBackend,
-  type ApiResponse,
-  type DraftItem,
   type PresetFactoryBackend,
 } from "./backend";
+import {
+  approvalRequired,
+  payloadDigest,
+  verifyApprovalToken,
+  type ApprovableOperation,
+} from "./approval";
 import { planPresetBatch, type ProposedPlanItem } from "./planner";
 import { TOOL_DEFS, type ToolDef } from "./tool-definitions";
 
@@ -19,106 +34,156 @@ import { TOOL_DEFS, type ToolDef } from "./tool-definitions";
 export interface ToolContext {
   caller: McpCallerContext;
   requestOrigin: string;
+  /** Lazily resolved canonical service context + backend. */
+  factory?: PresetFactoryContext;
+  backend?: PresetFactoryBackend;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CATALOG_SEARCH_PAGES = 2; // find_existing_presets scans ≤400 rows
 
-/** Deterministic uuid from a seed — same inputs → same key, so a retry that
- * lost its keys still hits the backend's idempotency check. */
-function deriveKey(seed: string, scope: string): string {
-  const h = createHash("sha256").update(`preset-factory:${seed}:${scope}`).digest("hex");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+/** Deterministic key/id derivation — same inputs → same key, so a retry
+ * that lost its keys still hits the service's idempotency ledger instead
+ * of minting duplicates. */
+function deriveKey(scope: string, ...parts: string[]): string {
+  const h = createHash("sha256").update(`preset-factory:${scope}:${parts.join("|")}`).digest("hex");
+  return `pf-${scope}-${h.slice(0, 32)}`;
 }
 
 function env<T>(data: T) {
   return { ok: true as const, contractVersion: CONTRACT_VERSION, data };
 }
 
-/** Uniform pass-through for backend results. */
-async function passthrough<T>(
-  promise: Promise<ApiResponse<T>>
-): Promise<ToolResultPayload> {
+/** Uniform pass-through for canonical results. */
+async function passthrough<T>(promise: Promise<FactoryResult<T>>): Promise<ToolResultPayload> {
   const res = await promise;
-  if (!res.ok) {
-    return toolError(res.error.message, res);
+  if (!res.ok) return toolError(res.error.message, env(res.error));
+  return toolOk(env(res.data));
+}
+
+/**
+ * Resolve the caller-scoped factory context + backend once per request.
+ * `createPresetFactoryContext` re-verifies the bearer-bound session and
+ * the profiles role inside Engineer A's own code — the MCP layer never
+ * asserts privilege itself.
+ */
+async function resolveBackend(
+  ctx: ToolContext
+): Promise<{ ok: true; backend: PresetFactoryBackend } | { ok: false; result: ToolResultPayload }> {
+  if (ctx.backend) return { ok: true, backend: ctx.backend };
+  const factoryRes = await createPresetFactoryContext(ctx.caller.supabase);
+  if (!factoryRes.ok) {
+    return { ok: false, result: toolError(factoryRes.error.message, env(factoryRes.error)) };
   }
-  return toolOk(res);
+  ctx.factory = factoryRes.data;
+  ctx.backend = await getPresetFactoryBackend({ ctx: factoryRes.data });
+  return { ok: true, backend: ctx.backend };
 }
 
-/** Client-side completeness check + draft-only enforcement before A ever sees it. */
-interface ItemFailure {
-  client_item_id: string;
-  errors: { code: string; message: string; path?: string }[];
+type RawItem = {
+  client_item_id?: string;
+  idempotency_key?: string;
+  product?: unknown;
+  version?: unknown;
+  fields?: unknown;
+  asset_links?: unknown;
+};
+
+/**
+ * Normalize raw items into the canonical PresetDraftItem shape:
+ * deterministic idempotency keys where the client didn't supply one, then
+ * a strict schema parse. Server-controlled fields (ids, states, statuses)
+ * are REJECTED by the strict schema — never silently rewritten.
+ */
+interface NormalizedItems {
+  items: PresetDraftItem[];
+  failures: {
+    client_item_id: string;
+    errors: { code: string; message: string; field?: string }[];
+  }[];
 }
 
-function precheckDraftItems(
-  items: DraftItem[],
-  keySeed?: string
-): {
-  items: DraftItem[];
-  warnings: Record<string, string[]>;
-  failures: ItemFailure[];
-} {
-  const warnings: Record<string, string[]> = {};
-  const failures: ItemFailure[] = [];
-  const seenIds = new Set<string>();
+function normalizeDraftItems(rawItems: RawItem[], batchId: string): NormalizedItems {
+  const failures: NormalizedItems["failures"] = [];
+  const items: PresetDraftItem[] = [];
 
-  const checked = items.map((item) => {
-    const warn: string[] = (warnings[item.client_item_id] ??= []);
-    if (!item.client_item_id || item.client_item_id.length > 64) {
-      failures.push({ client_item_id: item.client_item_id || "?", errors: [{ code: "invalid_item_id", message: "client_item_id is required (max 64 chars)" }] });
-    } else if (seenIds.has(item.client_item_id)) {
-      failures.push({ client_item_id: item.client_item_id, errors: [{ code: "duplicate_item_id", message: "client_item_id must be unique within the batch" }] });
-    }
-    seenIds.add(item.client_item_id);
-    if (item.item_idempotency_key && !UUID_RE.test(item.item_idempotency_key)) {
-      warn.push("item_idempotency_key is not a uuid — a stable key was generated for it.");
-    }
-
-    const product = { ...(item.product ?? {}) } as Record<string, unknown>;
-    const parsed = productCreateSchema.safeParse(product);
+  rawItems.forEach((raw, index) => {
+    const clientItemId =
+      typeof raw.client_item_id === "string" && raw.client_item_id.trim()
+        ? raw.client_item_id
+        : `item-${String(index + 1).padStart(3, "0")}`;
+    const candidate = {
+      client_item_id: clientItemId,
+      idempotency_key:
+        typeof raw.idempotency_key === "string" && raw.idempotency_key.length >= 16
+          ? raw.idempotency_key
+          : deriveKey("it", batchId, clientItemId),
+      product: raw.product,
+      version: raw.version,
+      fields: raw.fields ?? [],
+      asset_links: raw.asset_links ?? [],
+    };
+    const parsed = presetDraftItemSchema.safeParse(candidate);
     if (!parsed.success) {
       failures.push({
-        client_item_id: item.client_item_id,
+        client_item_id: clientItemId,
         errors: parsed.error.issues.map((i) => ({
-          code: "schema",
+          code: "validation_failed" as const,
           message: i.message,
-          path: i.path.join("."),
+          field: i.path.map(String).join(".") || undefined,
         })),
       });
+      return;
     }
-    // Draft-only enforcement — strip any state the caller tried to set.
-    if (product.public_status && product.public_status !== "draft") {
-      warn.push(`public_status '${String(product.public_status)}' ignored — server forces 'draft'.`);
-      product.public_status = "draft";
-    }
-    const version = product.version as Record<string, unknown> | undefined;
-    if (version && version.state && version.state !== "draft") {
-      warn.push(`version.state '${String(version.state)}' ignored — forced to 'draft'.`);
-      version.state = "draft";
-    }
-    for (const key of ["hero_asset_id", "poster_asset_id", "preview_video_asset_id", "preview_gif_asset_id"]) {
-      if (product[key]) {
-        warn.push(`${key} set on draft — the backend only accepts previously approved asset ids.`);
-      }
-    }
-    return {
-      client_item_id: item.client_item_id,
-      item_idempotency_key:
-        item.item_idempotency_key && UUID_RE.test(item.item_idempotency_key)
-          ? item.item_idempotency_key
-          : keySeed
-            ? deriveKey(keySeed, item.client_item_id)
-            : randomUUID(),
-      product,
-    };
+    items.push(parsed.data);
   });
 
-  return { items: checked, warnings, failures };
+  return { items, failures };
 }
 
-export function buildToolHandlers(): Map<string, ToolDef & { handler: (args: unknown, ctx: unknown) => Promise<ToolResultPayload> }> {
-  const handlers = new Map<string, ToolDef & { handler: (args: unknown, ctx: unknown) => Promise<ToolResultPayload> }>();
+/**
+ * The owner-approval gate shared by both write tools. Computes the digest
+ * over the EXACT canonical payload the service will receive (post
+ * key-derivation), then verifies the supplied token binds that digest +
+ * operation + verified caller. No token → `approval_required` with the
+ * digest and the admin approval link; bad token → refused.
+ */
+function gateWrite(
+  ctx: ToolContext,
+  operation: ApprovableOperation,
+  canonicalPayload: unknown,
+  token: unknown
+): ToolResultPayload | null {
+  const digest = payloadDigest(canonicalPayload);
+  if (typeof token !== "string" || !token) {
+    return toolError(
+      "Owner approval required — no approval_token supplied.",
+      env({
+        error: approvalRequired({ operation, digest, siteOrigin: ctx.requestOrigin }),
+      })
+    );
+  }
+  const check = verifyApprovalToken(token, {
+    userId: ctx.caller.user.id,
+    operation,
+    digest,
+  });
+  if (!check.ok) {
+    return toolError(
+      `Write refused: approval token rejected (${check.reason}). The owner must approve this exact payload in the admin UI.`,
+      env({ error: { code: "approval_invalid", reason: check.reason, digest } })
+    );
+  }
+  return null;
+}
+
+export function buildToolHandlers(): Map<
+  string,
+  ToolDef & { handler: (args: unknown, ctx: unknown) => Promise<ToolResultPayload> }
+> {
+  const handlers = new Map<
+    string,
+    ToolDef & { handler: (args: unknown, ctx: unknown) => Promise<ToolResultPayload> }
+  >();
 
   const register = (
     name: string,
@@ -135,6 +200,7 @@ export function buildToolHandlers(): Map<string, ToolDef & { handler: (args: unk
         const rl = checkRateLimit(ctx.caller.user.id, def.isWrite ? "write" : "default");
         if (!rl.allowed) {
           await auditMcpToolCall(ctx.caller.supabase, {
+            userId: ctx.caller.user.id,
             tool: name,
             entityType: def.auditEntity,
             outcome: "denied",
@@ -152,6 +218,7 @@ export function buildToolHandlers(): Map<string, ToolDef & { handler: (args: unk
           result = toolError(err instanceof Error ? err.message : "Tool failed");
         }
         await auditMcpToolCall(ctx.caller.supabase, {
+          userId: ctx.caller.user.id,
           tool: name,
           entityType: def.auditEntity,
           outcome: result.isError ? "error" : "ok",
@@ -161,100 +228,148 @@ export function buildToolHandlers(): Map<string, ToolDef & { handler: (args: unk
     });
   };
 
-  const backend = (ctx: ToolContext): Promise<PresetFactoryBackend> =>
-    getPresetFactoryBackend({
-      requestOrigin: ctx.requestOrigin,
-      accessToken: ctx.caller.accessToken,
-    });
+  const backend = async (ctx: ToolContext) => resolveBackend(ctx);
 
   // --------------------------------------------------------------- reads
-  register("get_catalog_summary", async (args, ctx) =>
-    passthrough(
-      (await backend(ctx)).listPresetCatalog({
-        type: args.type as "filter" | "poster" | undefined,
-        status: args.status as string | undefined,
-        category_id: args.category_id as string | undefined,
-        cursor: args.cursor as string | undefined,
-        limit: typeof args.limit === "number" ? Math.min(args.limit, 100) : 50,
+  register("get_catalog_summary", async (args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    const limit = typeof args.limit === "number" ? Math.min(args.limit, 200) : 100;
+    const offset = typeof args.offset === "number" ? Math.max(0, args.offset) : 0;
+    const res = await b.backend.listPresetCatalog({
+      type: args.type as CatalogQuery["type"],
+      category_id: args.category_id as string | undefined,
+      public_status: args.public_status as CatalogQuery["public_status"],
+      family: (args.family as CatalogQuery["family"]) ?? "all",
+      limit,
+      offset,
+    });
+    if (!res.ok) return toolError(res.error.message, env(res.error));
+    return toolOk(
+      env({
+        items: res.data.items,
+        page: { limit, offset, next_offset: res.data.items.length === limit ? offset + limit : null },
       })
-    )
-  );
+    );
+  });
 
-  register("find_existing_presets", async (args, ctx) =>
-    passthrough(
-      (await backend(ctx)).listPresetCatalog({
-        q: String(args.query ?? ""),
+  register("find_existing_presets", async (args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    const query = String(args.query ?? "").trim().toLowerCase();
+    const limit = typeof args.limit === "number" ? Math.min(args.limit, 50) : 20;
+    // The canonical catalog op has no text filter — scan bounded pages and
+    // match client-side; the scope is reported honestly in the result.
+    const scanned = [];
+    for (let page = 0; page < CATALOG_SEARCH_PAGES; page++) {
+      const res = await b.backend.listPresetCatalog({
         type: args.type as "filter" | "poster" | undefined,
-        limit: typeof args.limit === "number" ? Math.min(args.limit, 50) : 20,
+        family: "all",
+        limit: 200,
+        offset: page * 200,
+      });
+      if (!res.ok) return toolError(res.error.message, env(res.error));
+      scanned.push(...res.data.items);
+      if (res.data.items.length < 200) break;
+    }
+    const matches = scanned
+      .filter((i) => i.slug.toLowerCase().includes(query) || i.name.toLowerCase().includes(query))
+      .slice(0, limit);
+    return toolOk(
+      env({
+        items: matches,
+        search_scope: { scanned: scanned.length, max_pages: CATALOG_SEARCH_PAGES, complete: scanned.length < 200 * CATALOG_SEARCH_PAGES },
       })
-    )
-  );
+    );
+  });
 
-  register("list_preset_categories", async (_args, ctx) =>
-    passthrough((await backend(ctx)).listCategories())
-  );
+  register("list_preset_categories", async (_args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    return passthrough(b.backend.listCategories());
+  });
 
-  register("get_model_capabilities", async (_args, ctx) =>
-    passthrough((await backend(ctx)).listCompatibleModelOptions())
-  );
+  register("get_model_capabilities", async (_args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    return passthrough(b.backend.listCompatibleModelOptions());
+  });
 
   // ---------------------------------------------------------------- plan
   register("plan_preset_batch", async (args, ctx) => {
     const b = await backend(ctx);
+    if (!b.ok) return b.result;
     const [catalogRes, categoryRes] = await Promise.all([
-      b.listPresetCatalog({ limit: 100 }),
-      b.listCategories(),
+      b.backend.listPresetCatalog({ family: "all", limit: 200, offset: 0 }),
+      b.backend.listCategories(),
     ]);
-    if (!catalogRes.ok) return toolError(catalogRes.error.message, catalogRes);
-    if (!categoryRes.ok) return toolError(categoryRes.error.message, categoryRes);
+    if (!catalogRes.ok) return toolError(catalogRes.error.message, env(catalogRes.error));
+    if (!categoryRes.ok) return toolError(categoryRes.error.message, env(categoryRes.error));
 
     const proposed = (Array.isArray(args.items) ? args.items : []) as ProposedPlanItem[];
-    const plan = planPresetBatch(proposed, catalogRes.data.items, categoryRes.data);
+    const plan = planPresetBatch(proposed, catalogRes.data.items, categoryRes.data.categories);
     return toolOk(
       env({
         plan,
         reminder:
-          "Planning is pure — nothing was persisted. Present this plan to the owner; only create_categories/create_draft_batch with confirm=true writes.",
+          "Planning is pure — nothing was persisted. Present this plan to the owner; writes require the owner-approved token flow on create_categories/create_draft_batch.",
       })
     );
   });
 
   // ------------------------------------------------------------ validate
   register("validate_preset_batch", async (args, ctx) => {
-    const items = (Array.isArray(args.items) ? args.items : []) as DraftItem[];
-    if (items.length === 0 || items.length > MAX_BATCH_ITEMS) {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    const rawItems = (Array.isArray(args.items) ? args.items : []) as RawItem[];
+    if (rawItems.length === 0 || rawItems.length > MAX_BATCH_ITEMS) {
       return toolError(`items must contain 1..${MAX_BATCH_ITEMS} entries`);
     }
-    const { items: checked, warnings, failures } = precheckDraftItems(items);
-    const failedIds = new Set(failures.map((f) => f.client_item_id));
-    const toBackend = checked.filter((i) => !failedIds.has(i.client_item_id));
+    const batchId =
+      typeof args.batch_id === "string" && args.batch_id.trim()
+        ? args.batch_id
+        : `pf-batch-${payloadDigest(rawItems).slice(0, 24)}`;
+    const normalized = normalizeDraftItems(rawItems, batchId);
 
+    // Items that fail strict schema are reported locally; the rest go to the
+    // service's real validation — the mode is reported honestly either way.
+    const toService = normalized.items;
+    const localFailures = normalized.failures;
     const remote =
-      toBackend.length > 0
-        ? await (await backend(ctx)).validatePresetBatch({ items: toBackend })
+      toService.length > 0
+        ? await b.backend.validatePresetBatch({ batch_id: batchId, items: toService })
         : null;
-    if (remote && !remote.ok && remote.error.code !== "backend_not_deployed") {
-      return toolError(remote.error.message, remote);
-    }
+    if (remote && !remote.ok) return toolError(remote.error.message, env(remote.error));
 
     const results = [
-      ...failures.map((f) => ({ client_item_id: f.client_item_id, ok: false, errors: f.errors, warnings: warnings[f.client_item_id] ?? [] })),
-      ...(remote?.ok
-        ? remote.data.results.map((r) => ({
-            ...r,
-            warnings: [...(warnings[r.client_item_id] ?? []), ...r.warnings],
-          }))
-        : toBackend.map((i) => ({
-            client_item_id: i.client_item_id,
-            ok: true,
-            errors: [],
-            warnings: [...(warnings[i.client_item_id] ?? []), "backend validation unavailable — schema-level checks only"],
-          }))),
+      ...localFailures.map((f) => ({
+        client_item_id: f.client_item_id,
+        status: "failed" as const,
+        errors: f.errors,
+        warnings: [],
+      })),
+      ...(remote?.ok ? remote.data.items : []),
     ];
     return toolOk(
       env({
-        results,
-        backend_validation: remote?.ok ? "performed" : "schema_only",
+        batch_id: batchId,
+        items: results,
+        summary: remote?.ok
+          ? {
+              ...remote.data.summary,
+              total: results.length,
+              failed: remote.data.summary.failed + localFailures.length,
+            }
+          : {
+              total: results.length,
+              created: 0,
+              reused: 0,
+              validated: 0,
+              failed: localFailures.length,
+            },
+        validation_mode: remote?.ok
+          ? "schema_and_domain" // canonical service ran real domain checks
+          : "schema_only", // local strict-schema failures only
         note: "Validation is a dry run — no generation, testing, credits or persistence occurred.",
       })
     );
@@ -262,26 +377,71 @@ export function buildToolHandlers(): Map<string, ToolDef & { handler: (args: unk
 
   // -------------------------------------------------------------- writes
   register("create_categories", async (args, ctx) => {
-    if (args.confirm !== true) {
-      return toolError(
-        "Write refused: re-call with confirm=true ONLY after the owner explicitly approves this category list.",
-        { ok: false, error: { code: "confirmation_required", message: "confirm=true required" } }
-      );
-    }
-    const categories = (Array.isArray(args.categories) ? args.categories : []) as {
-      name: string; slug: string; description?: string; sort_order?: number;
-    }[];
-    if (categories.length === 0) return toolError("categories must be a non-empty array");
-
     const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    const rawCats = (Array.isArray(args.categories) ? args.categories : []) as {
+      name: string;
+      slug: string;
+      description?: string;
+      sort_order?: number;
+      idempotency_key?: string;
+    }[];
+    if (rawCats.length === 0 || rawCats.length > 10) {
+      return toolError("categories must contain 1..10 entries");
+    }
+
+    // Canonical payload — the digest is computed over EXACTLY this, after
+    // deterministic idempotency-key derivation, so approval binds the real write.
+    const candidates = rawCats.map((c) => ({
+      name: c.name,
+      slug: c.slug,
+      ...(c.description !== undefined ? { description: c.description } : {}),
+      sort_order: c.sort_order ?? 0,
+      idempotency_key:
+        typeof c.idempotency_key === "string" && c.idempotency_key.length >= 16
+          ? c.idempotency_key
+          : deriveKey("cat", String(c.slug), String(c.name)),
+    }));
+    // Local schema check before the approval round-trip — no point asking the
+    // owner to approve a payload the strict schema would refuse anyway.
+    const parsedCats = candidates.map((c) => ({
+      slug: String(c.slug),
+      parsed: createCategoryRequestSchema.safeParse(c),
+    }));
+    const catFailures = parsedCats.filter((r) => !r.parsed.success);
+    if (catFailures.length > 0) {
+      return toolError("Some categories failed schema checks — fix and retry.", {
+        ok: false,
+        contractVersion: CONTRACT_VERSION,
+        error: {
+          code: "validation_failed",
+          message: "Local schema checks failed",
+          details: catFailures.map((f) => ({
+            slug: f.slug,
+            errors: f.parsed.success ? [] : f.parsed.error.issues.map((i) => ({ message: i.message, field: i.path.join(".") })),
+          })),
+        },
+      });
+    }
+    const canonical = {
+      categories: parsedCats
+        .map((r) => (r.parsed.success ? r.parsed.data : null))
+        .filter((c): c is CreateCategoryRequest => c !== null),
+    };
+
+    const gate = gateWrite(ctx, "create_categories", canonical, args.approval_token);
+    if (gate) return gate;
+
     const results = [];
-    for (const c of categories) {
-      const res = await b.createCategory(c);
+    for (const c of canonical.categories) {
+      const res = await b.backend.createCategory(c);
       results.push(
         res.ok
-          ? { slug: c.slug, id: res.data.id, status: res.data.status }
+          ? { slug: c.slug, status: res.data.status, category: res.data.category, warnings: res.data.warnings }
           : { slug: c.slug, status: "failed" as const, error: res.error }
       );
+      // Fail-fast on hard errors is unnecessary — collect all outcomes; the
+      // idempotency ledger makes a retry of the batch safe.
     }
     return toolOk(
       env({
@@ -296,77 +456,75 @@ export function buildToolHandlers(): Map<string, ToolDef & { handler: (args: unk
   });
 
   register("create_draft_batch", async (args, ctx) => {
-    if (args.confirm !== true) {
-      return toolError(
-        "Write refused: present the validated plan to the owner, then re-call with confirm=true and the SAME idempotency keys.",
-        { ok: false, error: { code: "confirmation_required", message: "confirm=true required" } }
-      );
-    }
-    const items = (Array.isArray(args.items) ? args.items : []) as DraftItem[];
-    if (items.length === 0 || items.length > MAX_BATCH_ITEMS) {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    const rawItems = (Array.isArray(args.items) ? args.items : []) as RawItem[];
+    if (rawItems.length === 0 || rawItems.length > MAX_BATCH_ITEMS) {
       return toolError(`items must contain 1..${MAX_BATCH_ITEMS} entries`);
     }
-    // Batch key first: missing item keys derive deterministically from it,
-    // so a retry that lost its keys still hits backend idempotency.
-    const batchKey =
-      typeof args.batch_idempotency_key === "string" && UUID_RE.test(args.batch_idempotency_key)
-        ? args.batch_idempotency_key
-        : randomUUID();
-    const { items: checked, warnings, failures } = precheckDraftItems(items, batchKey);
-    if (failures.length > 0) {
-      return toolError("Some items failed local schema checks — fix and re-validate before creating.", {
+    // batch_id is owner-visible correlation — deterministic derivation keeps
+    // a keyless retry on the same ledger instead of minting a new batch.
+    const batchId =
+      typeof args.batch_id === "string" && args.batch_id.trim()
+        ? args.batch_id
+        : `pf-batch-${payloadDigest(rawItems).slice(0, 24)}`;
+    const normalized = normalizeDraftItems(rawItems, batchId);
+    if (normalized.failures.length > 0) {
+      return toolError("Some items failed strict schema checks — fix and re-validate before creating.", {
         ok: false,
-        error: { code: "validation_failed", message: "Local schema checks failed", details: failures },
+        contractVersion: CONTRACT_VERSION,
+        error: { code: "validation_failed", message: "Local schema checks failed", details: normalized.failures },
       });
     }
 
-    const res = await (await backend(ctx)).createPresetDrafts({
-      batch_idempotency_key: batchKey,
-      items: checked,
-    });
-    if (!res.ok) return toolError(res.error.message, res);
+    // The digest binds the EXACT canonical batch the service receives.
+    const canonical = { batch_id: batchId, items: normalized.items };
+    const gate = gateWrite(ctx, "create_draft_batch", canonical, args.approval_token);
+    if (gate) return gate;
+
+    const res = await b.backend.createPresetDrafts(canonical);
+    if (!res.ok) return toolError(res.error.message, env(res.error));
     return toolOk(
       env({
         ...res.data,
-        batch_idempotency_key: batchKey,
-        item_warnings: warnings,
         reminder:
           "All results are unpublished drafts. Manual owner review and manual-only testing are still required — nothing here was generated, tested or published.",
       })
     );
   });
 
-  register("get_batch_status", async (args, ctx) =>
-    passthrough(
-      (await backend(ctx)).getBatchStatus({
-        batch_idempotency_key: args.batch_idempotency_key as string | undefined,
-        product_ids: args.product_ids as string[] | undefined,
-      })
-    )
-  );
+  register("get_batch_status", async (args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    return passthrough(b.backend.getBatchStatus({ batch_id: String(args.batch_id ?? "") }));
+  });
 
-  register("get_draft_review_links", async (args, ctx) =>
-    passthrough(
-      (await backend(ctx)).getReviewLinks({ product_ids: (args.product_ids as string[]) ?? [] })
-    )
-  );
+  register("get_draft_review_links", async (args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
+    return passthrough(b.backend.getReviewLinks({ product_ids: (args.product_ids as string[]) ?? [] }));
+  });
 
   register("prepare_manual_preset_review", async (args, ctx) => {
+    const b = await backend(ctx);
+    if (!b.ok) return b.result;
     const productIds = (args.product_ids as string[]) ?? [];
-    const res = await (await backend(ctx)).getReviewLinks({ product_ids: productIds });
-    if (!res.ok) return toolError(res.error.message, res);
+    const res = await b.backend.getReviewLinks({ product_ids: productIds });
+    if (!res.ok) return toolError(res.error.message, env(res.error));
 
-    const items = res.data.links.map((l) => ({
+    const items = res.data.items.map((l) => ({
       product_id: l.product_id,
       slug: l.slug,
-      admin_edit_url: l.admin_edit_url,
+      name: l.name,
+      type: l.type,
+      admin_edit_url: `${ctx.requestOrigin}${l.review_path}`,
       blockers: l.blockers,
       checklist: [
         "Open the admin editor link and eyeball name/descriptions/category",
         "Verify private_instruction_template reads correctly in the editor (content is never shown via MCP)",
         "Confirm provider_strategy matches an entry from get_model_capabilities",
         "Check input_capability/fields render correctly on the preset form",
-        ...(l.blockers.length ? l.blockers.map((b) => `BLOCKER: ${b}`) : ["Attach hero/preview media assets when ready"]),
+        ...(l.blockers.length ? l.blockers.map((bl) => `BLOCKER: ${bl}`) : ["Attach hero/preview media assets when ready"]),
       ],
     }));
 

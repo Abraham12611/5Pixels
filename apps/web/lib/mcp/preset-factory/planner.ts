@@ -1,4 +1,8 @@
-import { MAX_BATCH_ITEMS, type CatalogItem, type Category } from "./backend";
+import {
+  MAX_BATCH_ITEMS,
+  type CatalogItemSummary,
+  type CategorySummary,
+} from "@/lib/preset-factory/contract";
 
 /**
  * Pure batch-planning normalization (#272). `plan_preset_batch` never
@@ -67,8 +71,8 @@ const norm = (s: string) => s.trim().toLowerCase();
 
 export function planPresetBatch(
   proposed: ProposedPlanItem[],
-  catalog: CatalogItem[],
-  categories: Category[]
+  catalog: CatalogItemSummary[],
+  categories: CategorySummary[]
 ): PlannedBatch {
   const warnings: string[] = [];
   const catalogSlugs = new Set(catalog.map((p) => norm(p.slug)));
@@ -166,7 +170,7 @@ export function planPresetBatch(
       } else if (parentRow.type !== raw.type) {
         itemWarnings.push(`Parent '${parentSlug}' is a ${parentRow.type} — cross-type families are not allowed; left standalone.`);
       } else {
-        parent = { slug: parentSlug, product_id: parentRow.id };
+        parent = { slug: parentSlug, product_id: parentRow.product_id };
       }
     }
 

@@ -35,6 +35,20 @@ describe("McpDispatch", () => {
     expect(res && "result" in res && (res.result as { protocolVersion: string }).protocolVersion).toBe("2025-03-26");
   });
 
+  it("does not accept the legacy pre-streamable revision", async () => {
+    const res = await makeDispatch().handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2024-11-05" },
+    });
+    // Unsupported request → negotiate to the newest supported version.
+    expect(
+      res && "result" in res && (res.result as { protocolVersion: string }).protocolVersion
+    ).toBe(MCP_PROTOCOL_VERSIONS[0]);
+    expect(MCP_PROTOCOL_VERSIONS).not.toContain("2024-11-05");
+  });
+
   it("falls back to its own protocol version for unknown requests", async () => {
     const res = await makeDispatch().handle({
       jsonrpc: "2.0",
