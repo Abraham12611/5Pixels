@@ -741,6 +741,67 @@ export async function createPresetCategory(
   }
   const input = parsed.data;
 
+  // Approval-bound path (MCP/OAuth callers): admin_create_preset_category
+  // consumes the intent's fingerprint for THIS payload and inserts
+  // atomically — the approval can never be spent on a different category,
+  // and a failed insert rolls the consumption back. Ordinary admin calls
+  // (no intent) keep the direct insert path below, unchanged.
+  if (input.approval_intent_id) {
+    const { data: rpcData, error: rpcError } = await ctx.supabase.rpc(
+      "admin_create_preset_category",
+      {
+        p_name: input.name,
+        p_slug: input.slug,
+        p_description: input.description || null,
+        p_sort_order: input.sort_order,
+        p_approval_intent_id: input.approval_intent_id,
+      }
+    );
+    if (rpcError) {
+      return fail(mapRpcError(rpcError));
+    }
+    const res = rpcData as {
+      status?: string;
+      category?: CategorySummary;
+      existing?: CategorySummary;
+    } | null;
+    if (res?.status === "conflict") {
+      return fail({
+        code: "category_conflict",
+        message: `Slug "${input.slug}" already belongs to category "${res.existing?.name}". Reuse that category via category_id "${res.existing?.id}" or choose a distinct slug.`,
+        field: "slug",
+        details: { existing: res.existing },
+      });
+    }
+    if (res?.status === "reused" && res.category) {
+      return ok({
+        status: "reused",
+        category: res.category,
+        warnings: [
+          {
+            code: "category_conflict",
+            message: `Category "${res.category.slug}" already exists — reusing it.`,
+            details: { existing_id: res.category.id },
+          },
+        ],
+      });
+    }
+    const created = res?.category;
+    if (!created) {
+      return fail({
+        code: "persistence_failed",
+        message: "Category could not be created.",
+      });
+    }
+    await logFactoryAudit(ctx, {
+      action: "preset_factory.category_create",
+      entityType: "category",
+      entityId: created.id,
+      after: created,
+    });
+    return ok({ status: "created", category: created, warnings: [] });
+  }
+
   const { data: existingRows, error: lookupError } = await ctx.supabase
     .from("categories")
     .select("id, slug, name, description, sort_order, is_active")

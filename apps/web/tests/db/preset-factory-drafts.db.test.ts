@@ -801,6 +801,93 @@ describe("preset_factory_write_intents", () => {
     });
   });
 
+  it("category create consumes its approval atomically (OAuth gated)", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const slug = `cat-${randomUUID().slice(0, 8)}`;
+      const catItem = {
+        name: "Test Category",
+        slug,
+        description: null,
+        sort_order: 0,
+      };
+
+      const staged = await stageIntent(
+        client,
+        staffId,
+        [catItem],
+        "create_categories"
+      );
+      const intentId = staged.intent_id as string;
+
+      const callRpc = (intentId: string | null, oauth = true) => {
+        const run = (fn: () => Promise<unknown>) =>
+          oauth
+            ? asOAuthUser(client, staffId, fn)
+            : asUser(client, staffId, fn);
+        return run(async () => {
+          const res = await client.query(
+            `SELECT public.admin_create_preset_category(
+               $1, $2, $3, $4, $5
+             ) AS result`,
+            ["Test Category", slug, null, 0, intentId]
+          );
+          return res.rows[0].result;
+        });
+      };
+
+      // OAuth without intent → refused.
+      await expect(callRpc(null)).rejects.toThrow(/PF_APPROVAL_REQUIRED/);
+      // Still pending → refused.
+      await expect(callRpc(intentId)).rejects.toThrow(/PF_APPROVAL_REQUIRED/);
+
+      await approveIntent(client, staffId, intentId);
+
+      // A different payload than staged → fingerprint mismatch, no write.
+      await expect(
+        asOAuthUser(client, staffId, async () => {
+          await client.query(
+            `SELECT public.admin_create_preset_category($1,$2,$3,$4,$5)`,
+            ["Different Name", slug, null, 0, intentId]
+          );
+        })
+      ).rejects.toThrow(/PF_APPROVAL_PAYLOAD_MISMATCH/);
+
+      const created = (await callRpc(intentId)) as {
+        status: string;
+        category: { id: string; slug: string };
+      };
+      expect(created.status).toBe("created");
+      expect(created.category.slug).toBe(slug);
+
+      // Web path (no client_id) is ungated as before.
+      const webSlug = `cat-${randomUUID().slice(0, 8)}`;
+      const web = (await asUser(client, staffId, async () => {
+        const res = await client.query(
+          `SELECT public.admin_create_preset_category($1,$2,$3,$4,$5) AS r`,
+          ["Web Category", webSlug, null, 0, null]
+        );
+        return res.rows[0].r;
+      })) as { status: string };
+      expect(web.status).toBe("created");
+    });
+  });
+
+  it("normalizes JSON-null output_sizes to [] in the derived preview", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const params = draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`);
+      const item = draftIntentItem(params) as { version: object };
+      (item.version as { output_sizes?: unknown }).output_sizes = null;
+
+      const staged = await stageIntent(client, staffId, [item]);
+      const preview = staged.preview as {
+        items?: Array<{ output_sizes?: unknown; field_count?: number }>;
+      };
+      expect(preview.items?.[0]?.output_sizes).toEqual([]);
+    });
+  });
+
   it("an intent is only consumable by the OAuth client that staged it", async () => {
     await withDb(async (client) => {
       const staffId = await makeStaff(client);
