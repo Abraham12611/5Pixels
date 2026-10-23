@@ -7,64 +7,57 @@ import { supabaseAnonKey, supabaseUrl } from "@/lib/supabase/env";
  * The caller is a remote MCP client (ChatGPT connector), so there is no
  * cookie session. Every request must carry `Authorization: Bearer <token>`
  * where token is a Supabase access token issued through the project's
- * OAuth 2.1 server (see .well-known routes + /oauth/consent) or a
- * short-lived dev token.
+ * OAuth 2.1 server to the approved connector client.
  *
  * Verification is fully server-side:
  *   1. `auth.getUser(token)` validates the JWT against Supabase — forged or
  *      expired tokens fail closed before any data access.
- *   2. `profiles.is_admin || is_owner` is re-checked on EVERY call — bearer
- *      user IDs, client-supplied flags and JWT user_metadata are never
- *      trusted.
- *   3. Downstream work uses a client whose session IS the caller's token,
- *      so RLS, `auth.uid()` and Engineer A's `createPresetFactoryContext`
- *      behave exactly as they do for the web admin — the service role is
- *      never touched.
- *   4. If `PRESET_FACTORY_MCP_CLIENT_IDS` is set (comma-separated), the
- *      token's `azp`/`client_id`/`aud` claim must match one of them, so
- *      ordinary web-session tokens can't drive the MCP write surface.
+ *   2. `PRESET_FACTORY_MCP_CLIENT_IDS` (comma-separated) is REQUIRED in
+ *      production: the token's `client_id` claim — issued by the Supabase
+ *      OAuth server per its documented claim shape — must match an entry,
+ *      so ordinary web-session bearer tokens can never drive this surface.
+ *      Outside production the gate may stay unset for local development.
+ *   3. Role/owner checks are NOT duplicated here — Engineer A's
+ *      `createBearerPresetFactoryContext` is the single authoritative gate
+ *      (it re-verifies the JWT with GoTrue, reads profiles, and every
+ *      SECURITY DEFINER RPC re-checks `is_admin()/is_owner()` on
+ *      `auth.uid()`).
  */
 
 export interface McpCallerContext {
   user: User;
-  /** Bearer token as received — forwarded nowhere else; the client carries it. */
+  /** Bearer token as received — passed to A's bearer context factory. */
   accessToken: string;
-  /** Supabase client scoped to the caller's token (their RLS, their uid). */
+  /**
+   * Token-scoped client for MCP-side bookkeeping (audit inserts). Carries
+   * the caller's JWT in `Authorization` so RLS/`auth.uid()` resolve to the
+   * real caller; no session is persisted and the service role is never
+   * touched.
+   */
   supabase: SupabaseClient;
-  isAdmin: boolean;
-  isOwner: boolean;
 }
 
 export type McpAuthResult =
   | { ok: true; caller: McpCallerContext }
   | { ok: false; status: 401 | 403; error: string };
 
-/**
- * Build a client whose auth session is the caller's verified token.
- * `setSession` stores it so `supabase.auth.getUser()` (used inside
- * `createPresetFactoryContext`) resolves without a cookie store; the
- * global Authorization header keeps every PostgREST call on the caller's
- * own JWT. The refresh_token is a placeholder — it is only touched when
- * the access token has expired, in which case setSession fails closed and
- * we never get here (the token was verified moments earlier).
- */
-async function userClientForToken(token: string): Promise<SupabaseClient> {
-  const client = createClient(supabaseUrl(), supabaseAnonKey(), {
-    auth: { persistSession: false, autoRefreshToken: false },
+function userClientForToken(token: string): SupabaseClient {
+  return createClient(supabaseUrl(), supabaseAnonKey(), {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
-  const { error } = await client.auth.setSession({
-    access_token: token,
-    refresh_token: "mcp-transport-only",
-  });
-  if (error) {
-    throw new Error("Caller token could not establish a session context.");
-  }
-  return client;
 }
 
-/** Decode a JWT payload without trusting it — verification already happened
- * server-side via getUser(); this is only the optional client-id gate. */
+function isProduction(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+}
+
+/** Decode a JWT payload — verification already happened via getUser();
+ * this is only the client-binding gate. */
 function tokenClaims(token: string): Record<string, unknown> {
   try {
     const [, payload] = token.split(".");
@@ -74,16 +67,28 @@ function tokenClaims(token: string): Record<string, unknown> {
   }
 }
 
-function clientIdAllowed(token: string): boolean {
+/**
+ * Client binding gate. Production: the allowlist MUST be configured and the
+ * token's `client_id` claim (the field Supabase's OAuth 2.1 server
+ * documents for OAuth-issued access tokens) must match — fail closed.
+ * Development: unset allowlist degrades to a warning-free pass for local
+ * work, but never silently in production.
+ */
+function clientIdCheck(token: string): { ok: true } | { ok: false; error: string } {
   const allow = process.env.PRESET_FACTORY_MCP_CLIENT_IDS?.split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (!allow || allow.length === 0) return true; // gate only when configured
+  if (!allow || allow.length === 0) {
+    return isProduction()
+      ? { ok: false, error: "MCP client allowlist (PRESET_FACTORY_MCP_CLIENT_IDS) is not configured" }
+      : { ok: true };
+  }
   const claims = tokenClaims(token);
-  const candidates = [claims.azp, claims.client_id, claims.aud]
-    .flat()
-    .filter((v): v is string => typeof v === "string");
-  return candidates.some((c) => allow.includes(c));
+  const clientId = typeof claims.client_id === "string" ? claims.client_id : null;
+  if (!clientId || !allow.includes(clientId)) {
+    return { ok: false, error: "Token was not issued to an approved MCP client" };
+  }
+  return { ok: true };
 }
 
 export async function authenticateMcpRequest(
@@ -96,13 +101,13 @@ export async function authenticateMcpRequest(
   }
   const token = match[1];
 
-  // Optional client binding: only tokens issued to the approved MCP OAuth
-  // client may drive this surface when the env gate is configured.
-  if (!clientIdAllowed(token)) {
-    return { ok: false, status: 403, error: "Token was not issued to an approved MCP client" };
+  // Client binding first — cheap reject before any provider calls.
+  const clientCheck = clientIdCheck(token);
+  if (!clientCheck.ok) {
+    return { ok: false, status: 403, error: clientCheck.error };
   }
 
-  // 1 — verify the token with Supabase (invalid/expired → fail closed).
+  // Verify the token with Supabase (invalid/expired → fail closed).
   const verifier = createClient(supabaseUrl(), supabaseAnonKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -110,36 +115,16 @@ export async function authenticateMcpRequest(
   if (error || !data.user) {
     return { ok: false, status: 401, error: "Invalid or expired token" };
   }
-  const user = data.user;
 
-  // 2 — fresh role check on every request, using the caller's own session.
-  let supabase: SupabaseClient;
-  try {
-    supabase = await userClientForToken(token);
-  } catch {
-    return { ok: false, status: 401, error: "Invalid or expired token" };
-  }
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner")
-    .eq("id", user.id)
-    .single();
-  if (profileError || !(profile?.is_admin || profile?.is_owner)) {
-    return {
-      ok: false,
-      status: 403,
-      error: "Preset Factory is restricted to admin/owner accounts",
-    };
-  }
-
+  // Role authorization is delegated to createBearerPresetFactoryContext —
+  // a non-admin caller authenticates here but every tool call resolves the
+  // canonical context and fails closed with `forbidden`.
   return {
     ok: true,
     caller: {
-      user,
+      user: data.user,
       accessToken: token,
-      supabase,
-      isAdmin: Boolean(profile.is_admin),
-      isOwner: Boolean(profile.is_owner),
+      supabase: userClientForToken(token),
     },
   };
 }

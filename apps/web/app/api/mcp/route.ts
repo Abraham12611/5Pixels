@@ -5,7 +5,6 @@ import {
   McpDispatch,
   rpcError,
   type JsonRpcRequest,
-  type JsonRpcResponse,
   RPC,
 } from "@/lib/mcp/protocol";
 import { buildToolHandlers } from "@/lib/mcp/preset-factory/handlers";
@@ -13,16 +12,18 @@ import { buildToolHandlers } from "@/lib/mcp/preset-factory/handlers";
 /**
  * 5Pixels Preset Factory MCP endpoint (#272) — streamable HTTP, stateless.
  *
- * POST accepts single or batched JSON-RPC messages. Responses are plain
- * `application/json` (no SSE, no sessions) — permitted by the transport spec
- * and the simplest correct surface for a private connector.
+ * POST accepts exactly one JSON-RPC message per request. Responses are
+ * plain `application/json` (no SSE, no sessions) — permitted by the
+ * transport spec and the simplest correct surface for a private connector.
  *
  * Transport hardening per the Streamable HTTP spec:
  *   - Origin header validated when present (DNS-rebinding defense); absent
  *     Origin is fine for non-browser clients, never for browsers.
  *   - `MCP-Protocol-Version` validated against supported revisions.
- *   - Request body capped before parsing; JSON-RPC batch capped; tool calls
- *     within a batch run with bounded concurrency (writes included).
+ *   - ONE JSON-RPC message per POST (the 2025-06-18 transport requirement);
+ *     array batches are rejected outright, which also removes batched-write
+ *     concurrency as an abuse vector.
+ *   - Request body capped before parsing.
  *
  * Auth: `Authorization: Bearer <supabase access token>` verified on every
  * request; non-admin callers get 403; 401s advertise the OAuth 2.1 flow via
@@ -33,8 +34,6 @@ import { buildToolHandlers } from "@/lib/mcp/preset-factory/handlers";
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 256 * 1024;
-const MAX_BATCH_MESSAGES = 10;
-const TOOL_CALL_CONCURRENCY = 4;
 
 const tools = buildToolHandlers();
 
@@ -81,23 +80,6 @@ function protocolVersionOk(req: NextRequest): boolean {
   return (MCP_PROTOCOL_VERSIONS as readonly string[]).includes(v);
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (cursor < items.length) {
-      const i = cursor++;
-      results[i] = await fn(items[i]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
 export async function POST(request: NextRequest) {
   if (!originAllowed(request)) {
     return rejected(403, "Origin not allowed for this MCP endpoint");
@@ -136,25 +118,21 @@ export async function POST(request: NextRequest) {
   const ctx = { caller: auth.caller, requestOrigin: origin };
   const dispatch = new McpDispatch(new Map(tools), () => ctx);
 
-  const messages = Array.isArray(body) ? body : [body];
-  if (messages.length === 0 || messages.length > MAX_BATCH_MESSAGES) {
+  // 2025-06-18 Streamable HTTP: exactly one JSON-RPC message per POST.
+  if (Array.isArray(body)) {
     return NextResponse.json(
-      rpcError(null, RPC.INVALID_REQUEST, `Batch must contain 1..${MAX_BATCH_MESSAGES} messages`),
+      rpcError(null, RPC.INVALID_REQUEST, "JSON-RPC batches are not supported — send one message per POST"),
       { status: 400 }
     );
   }
 
-  const responses = (
-    await mapWithConcurrency(messages, TOOL_CALL_CONCURRENCY, (m) =>
-      dispatch.handle(m as JsonRpcRequest)
-    )
-  ).filter((r): r is JsonRpcResponse => r !== null);
+  const response = await dispatch.handle(body as JsonRpcRequest);
 
-  // Notification-only payloads are acknowledged with 202 and no body.
-  if (responses.length === 0) {
+  // Notifications are acknowledged with 202 and no body.
+  if (response === null) {
     return new NextResponse(null, { status: 202 });
   }
-  return NextResponse.json(Array.isArray(body) ? responses : responses[0]);
+  return NextResponse.json(response);
 }
 
 export async function GET() {

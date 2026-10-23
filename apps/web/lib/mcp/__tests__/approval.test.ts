@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildIntentSummary,
   canonicalJson,
   mintApprovalToken,
   payloadDigest,
@@ -78,5 +79,52 @@ describe("approval tokens", () => {
       ok: false,
       reason: "expired",
     });
+  });
+});
+
+describe("buildIntentSummary", () => {
+  it("previews items without leaking private recipe material", () => {
+    const summary = buildIntentSummary("create_draft_batch", {
+      batch_id: "b1",
+      items: [
+        {
+          client_item_id: "item-1",
+          idempotency_key: "k",
+          product: { name: "Neon Bloom", slug: "neon-bloom", type: "filter", category_id: "c1" },
+          version: {
+            private_instruction_template: "SECRET RECIPE TEXT — must never appear",
+            private_negative_instruction: "also-secret",
+            provider_strategy: { primary_provider: "fal", primary_model: "nano-banana-2" },
+            output_sizes: [{ width: 1024, height: 1024 }],
+          },
+          fields: [{}, {}],
+          asset_links: [{}],
+        },
+      ],
+    });
+    const item = summary.items![0];
+    expect(item).toMatchObject({
+      name: "Neon Bloom",
+      slug: "neon-bloom",
+      type: "filter",
+      provider: "fal",
+      model: "nano-banana-2",
+      field_count: 2,
+      asset_link_count: 1,
+    });
+    // No private recipe text anywhere in the serialized summary.
+    expect(JSON.stringify(summary)).not.toContain("SECRET RECIPE TEXT");
+    expect(JSON.stringify(summary)).not.toContain("also-secret");
+    expect(JSON.stringify(summary)).not.toContain("private_instruction_template");
+  });
+
+  it("previews category creates", () => {
+    const summary = buildIntentSummary("create_categories", {
+      categories: [
+        { name: "Retro Futurism", slug: "retro-futurism", sort_order: 40, idempotency_key: "k" },
+      ],
+    });
+    expect(summary.categories).toHaveLength(1);
+    expect(summary.categories![0]).toMatchObject({ name: "Retro Futurism", slug: "retro-futurism" });
   });
 });

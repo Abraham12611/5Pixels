@@ -9,7 +9,7 @@ import {
   type PresetDraftItem,
 } from "@/lib/preset-factory/contract";
 import {
-  createPresetFactoryContext,
+  createBearerPresetFactoryContext,
   type PresetFactoryContext,
 } from "@/lib/preset-factory/service";
 import type { McpCallerContext } from "../auth";
@@ -23,7 +23,9 @@ import {
 } from "./backend";
 import {
   approvalRequired,
+  buildIntentSummary,
   payloadDigest,
+  recordWriteIntent,
   verifyApprovalToken,
   type ApprovableOperation,
 } from "./approval";
@@ -62,15 +64,15 @@ async function passthrough<T>(promise: Promise<FactoryResult<T>>): Promise<ToolR
 
 /**
  * Resolve the caller-scoped factory context + backend once per request.
- * `createPresetFactoryContext` re-verifies the bearer-bound session and
- * the profiles role inside Engineer A's own code — the MCP layer never
- * asserts privilege itself.
+ * A's `createBearerPresetFactoryContext` builds the token-scoped client,
+ * validates the JWT with GoTrue, and re-checks the profiles role — the
+ * single authoritative authorization gate for every tool.
  */
 async function resolveBackend(
   ctx: ToolContext
 ): Promise<{ ok: true; backend: PresetFactoryBackend } | { ok: false; result: ToolResultPayload }> {
   if (ctx.backend) return { ok: true, backend: ctx.backend };
-  const factoryRes = await createPresetFactoryContext(ctx.caller.supabase);
+  const factoryRes = await createBearerPresetFactoryContext(ctx.caller.accessToken);
   if (!factoryRes.ok) {
     return { ok: false, result: toolError(factoryRes.error.message, env(factoryRes.error)) };
   }
@@ -144,21 +146,39 @@ function normalizeDraftItems(rawItems: RawItem[], batchId: string): NormalizedIt
  * The owner-approval gate shared by both write tools. Computes the digest
  * over the EXACT canonical payload the service will receive (post
  * key-derivation), then verifies the supplied token binds that digest +
- * operation + verified caller. No token → `approval_required` with the
- * digest and the admin approval link; bad token → refused.
+ * operation + verified caller. No token → STAGE a server-held pending
+ * intent (the owner reviews its real itemized content in the admin UI)
+ * and refuse with `approval_required`; bad token → refused.
  */
-function gateWrite(
+async function requireApproval(
   ctx: ToolContext,
   operation: ApprovableOperation,
   canonicalPayload: unknown,
   token: unknown
-): ToolResultPayload | null {
+): Promise<ToolResultPayload | null> {
   const digest = payloadDigest(canonicalPayload);
   if (typeof token !== "string" || !token) {
+    const summary = buildIntentSummary(operation, canonicalPayload);
+    const staged = await recordWriteIntent(ctx.caller.supabase, {
+      userId: ctx.caller.user.id,
+      operation,
+      digest,
+      summary,
+    });
+    if (!staged.ok) {
+      return toolError(`Write refused: ${staged.error}`, env({
+        error: { code: "approval_staging_failed", message: staged.error },
+      }));
+    }
     return toolError(
-      "Owner approval required — no approval_token supplied.",
+      "Owner approval required — a pending approval request was staged.",
       env({
-        error: approvalRequired({ operation, digest, siteOrigin: ctx.requestOrigin }),
+        error: approvalRequired({
+          operation,
+          digest,
+          intentId: staged.intentId,
+          siteOrigin: ctx.requestOrigin,
+        }),
       })
     );
   }
@@ -429,7 +449,7 @@ export function buildToolHandlers(): Map<
         .filter((c): c is CreateCategoryRequest => c !== null),
     };
 
-    const gate = gateWrite(ctx, "create_categories", canonical, args.approval_token);
+    const gate = await requireApproval(ctx, "create_categories", canonical, args.approval_token);
     if (gate) return gate;
 
     const results = [];
@@ -479,7 +499,7 @@ export function buildToolHandlers(): Map<
 
     // The digest binds the EXACT canonical batch the service receives.
     const canonical = { batch_id: batchId, items: normalized.items };
-    const gate = gateWrite(ctx, "create_draft_batch", canonical, args.approval_token);
+    const gate = await requireApproval(ctx, "create_draft_batch", canonical, args.approval_token);
     if (gate) return gate;
 
     const res = await b.backend.createPresetDrafts(canonical);

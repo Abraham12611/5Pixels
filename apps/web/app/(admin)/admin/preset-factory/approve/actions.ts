@@ -2,24 +2,23 @@
 
 import { createClient } from "@/lib/supabase/server";
 import {
+  consumeWriteIntent,
+  loadWriteIntent,
   mintApprovalToken,
-  type ApprovableOperation,
+  type StoredWriteIntent,
 } from "@/lib/mcp/preset-factory/approval";
 
-const VALID_OPS: ApprovableOperation[] = ["create_draft_batch", "create_categories"];
-
 /**
- * Mint an owner-bound MCP write-approval token (#272).
+ * Owner write-approval actions (#272).
  *
- * Only reachable from this authenticated admin page — never through MCP.
- * The action re-verifies the cookie session is admin/owner, then signs a
- * short-lived token binding {owner, operation, payload digest}. The owner
- * pastes the token into the ChatGPT conversation; the write tool verifies
- * all three bindings before the backend sees the request.
+ * The ONLY way to mint a write-approval token: pass a staged intent id.
+ * The action loads the SERVER-HELD pending intent, re-validates ownership/
+ * freshness/pending state for the signed-in admin, then signs a token bound
+ * to the stored digest — there is no way to sign an arbitrary digest, URL
+ * parameter, or model-supplied payload.
  */
 export async function mintWriteApproval(opts: {
-  operation: string;
-  digest: string;
+  intentId: string;
 }): Promise<{ token?: string; expires_at?: string; error?: string }> {
   const supabase = await createClient();
   const {
@@ -36,28 +35,27 @@ export async function mintWriteApproval(opts: {
     return { error: "Admin or owner privileges are required." };
   }
 
-  if (!VALID_OPS.includes(opts.operation as ApprovableOperation)) {
-    return { error: "Unknown operation." };
-  }
-  if (!/^[0-9a-f]{64}$/.test(opts.digest)) {
-    return { error: "Malformed payload digest." };
-  }
+  const loaded = await loadWriteIntent(supabase, opts.intentId, user.id);
+  if (!loaded.ok) return { error: loaded.error };
+  const intent: StoredWriteIntent = loaded.intent;
 
   try {
     const { token, expires_at } = mintApprovalToken({
       userId: user.id,
-      operation: opts.operation as ApprovableOperation,
-      digest: opts.digest,
+      operation: intent.operation,
+      digest: intent.digest,
     });
+    // One intent → one mint. If the consume update is somehow lost the
+    // token still can't be replayed past expiry, but the pending→approved
+    // transition is the replay guard that shows up in review.
+    await consumeWriteIntent(supabase, opts.intentId);
     return { token, expires_at };
   } catch (err) {
     return {
       error:
         err instanceof Error
           ? err.message
-          : `Approval signing is not configured. Set PRESET_FACTORY_APPROVAL_SECRET.`,
+          : "Approval signing is not configured. Set PRESET_FACTORY_APPROVAL_SECRET.",
     };
   }
 }
-
-

@@ -6,17 +6,21 @@ import { supabaseUrl } from "@/lib/supabase/env";
  *
  * Proxies the Supabase project's REAL discovery document instead of
  * hand-coding endpoints — the project's Auth → OAuth Server feature
- * publishes `/.well-known/openid-configuration` (and the OAuth-server
- * variant under `/auth/v1/.well-known/oauth-authorization-server`) with
- * the authoritative authorize/token/register/userinfo URLs. Forwarded
- * verbatim so metadata can never drift from the actual provider; cached
- * briefly at the edge.
+ * publishes the authoritative authorize/token/register/userinfo URLs at
+ * `/.well-known/oauth-authorization-server/auth/v1`, with the OIDC
+ * document at `/auth/v1/.well-known/openid-configuration` as fallback.
+ * Forwarded verbatim so metadata can never drift from the actual provider;
+ * cached briefly at the edge.
  */
 
 export const dynamic = "force-dynamic";
 
+// Documented Supabase OAuth-server discovery locations (in order):
+//   /.well-known/oauth-authorization-server/auth/v1   (OAuth 2.1 server)
+//   /auth/v1/.well-known/openid-configuration          (OIDC fallback)
+// https://supabase.com/docs/guides/auth/oauth-server/getting-started
 const DISCOVERY_PATHS = [
-  "/auth/v1/.well-known/oauth-authorization-server",
+  "/.well-known/oauth-authorization-server/auth/v1",
   "/auth/v1/.well-known/openid-configuration",
 ];
 

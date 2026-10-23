@@ -24,24 +24,27 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
 ```
 
 - **Transport** — stateless streamable HTTP, plain `application/json`
-  responses, no SSE/sessions. Methods: `initialize`, `ping`,
-  `notifications/*`, `tools/list`, `tools/call`. Protocol revisions
-  `2025-06-18` / `2025-03-26`; Origin, `MCP-Protocol-Version`, body size
-  (≤256 KB) and batch (≤10 messages, ≤4 concurrent) are enforced.
-- **AuthN** — every request independently verified: Supabase JWT → user →
-  per-call `profiles.is_admin || is_owner`. Optional
-  `PRESET_FACTORY_MCP_CLIENT_IDS` restricts accepted tokens to the approved
-  OAuth client.
-- **Backend** — direct adapter to `createPresetFactoryContext` + the #271
-  service functions; the caller's own token-scoped client drives every query
-  and RPC (service role is never touched; `is_admin()/is_owner()` re-checks
-  happen inside the SECURITY DEFINER RPCs too).
-- **Owner-bound writes** — a `confirm` flag is *not* enough (the model can
-  set it). Both write tools require `approval_token`: an HMAC token minted
-  only inside the authenticated admin UI at `/admin/preset-factory/approve`,
-  binding {owner id, operation, canonical payload digest, 10-min expiry}.
-  The refused call returns the digest + approval link; the owner verifies
-  the digest matches what ChatGPT showed, mints, and pastes the token.
+  responses, no SSE/sessions, **one JSON-RPC message per POST** (the
+  2025-06-18 requirement; array batches are rejected). Methods:
+  `initialize`, `ping`, `notifications/*`, `tools/list`, `tools/call`.
+  Protocol revisions `2025-06-18` / `2025-03-26`; Origin,
+  `MCP-Protocol-Version` and body size (≤256 KB) are enforced.
+- **AuthN** — every request independently verified: Supabase JWT → user.
+  `PRESET_FACTORY_MCP_CLIENT_IDS` is **required in production**: the token's
+  `client_id` claim must match the approved OAuth client, so ordinary
+  web-session tokens can never drive this surface.
+- **Backend** — direct adapter: A's `createBearerPresetFactoryContext(jwt)`
+  builds the token-scoped client, validates the JWT, and re-checks the
+  profiles role; the #271 service functions run on it (service role never
+  touched; `is_admin()/is_owner()` re-checked inside the RPCs).
+- **Owner-bound, inspectable writes** — a `confirm` flag is *not* enough
+  (the model can set it). A refused write STAGES a server-held pending
+  intent (sanitized itemized summary + canonical digest in
+  `admin_audit_logs`, 15-min TTL). `/admin/preset-factory/approve?intent=…`
+  displays the REAL staged items — names, slugs, types, model config,
+  counts; never private recipe text — and mints an HMAC token bound to the
+  stored {owner, operation, digest, 10-min expiry} only after re-validating
+  the intent. No URL-supplied or model-supplied digest is ever signed.
 - **Audit** — every tool call writes `mcp.{tool}.{outcome}` to
   `admin_audit_logs` with the verified `admin_user_id`.
 - **Rate limits** — soft per-user buckets (120 reads, 20 writes per window;
@@ -81,8 +84,9 @@ credit-spending tool. Do not add them without explicit owner authorization.
    owner signs in, lands on `/oauth/consent`, and approves or denies.
 5. Paste `plugin/preset-factory/INSTRUCTIONS.md` into the connector's
    instructions field.
-6. Recommended: set `PRESET_FACTORY_MCP_CLIENT_IDS` to the registered client
-   id so only connector-issued tokens can drive this surface.
+6. **Required in production:** set `PRESET_FACTORY_MCP_CLIENT_IDS` to the
+   registered OAuth client id — without it every /api/mcp request fails
+   closed. Locally it may stay unset for development.
 7. Dev fallback: paste a short-lived Supabase access token as a static
    Bearer credential. It expires — OAuth is the intended path.
 
@@ -92,7 +96,7 @@ credit-spending tool. Do not add them without explicit owner authorization.
 |---|---|---|
 | `PRESET_FACTORY_BACKEND` | `direct` | `direct` = A's service in-process; `fixture` = simulated dev responses (refused outside development) |
 | `PRESET_FACTORY_APPROVAL_SECRET` | — | HMAC key for owner write approvals; unset = writes fail closed |
-| `PRESET_FACTORY_MCP_CLIENT_IDS` | — | Optional OAuth client-id allowlist for bearer tokens |
+| `PRESET_FACTORY_MCP_CLIENT_IDS` | — | **Required in production** — OAuth client-id allowlist for bearer tokens |
 | `PRESET_FACTORY_MCP_ALLOWED_ORIGINS` | — | Optional extra Origins allowed to POST (same-origin always OK) |
 
 ## Rollback / limitations
@@ -104,6 +108,22 @@ credit-spending tool. Do not add them without explicit owner authorization.
   production/preview.
 - Review links follow the existing admin editor routes
   `/admin/filters/{id}` and `/admin/posters/{id}` (by product type).
-- OAuth consent requires the project's OAuth 2.1 server to be enabled and
-  the connector flow manually verified once — the `.well-known` metadata is
-  proxied live from Supabase so it can't drift.
+
+## Verification status (honest)
+
+Static checks only — the following are implemented but **UNVERIFIED** and
+must not be described as working until the owner runs the live checklist:
+
+- Supabase OAuth 2.1 server availability, the consent redirect into
+  `/oauth/consent`, and the exact `client_id` claim value on issued tokens
+  (code targets the documented claim).
+- ChatGPT connector compatibility — registration, PKCE and discovery are
+  wired per spec but never exercised end-to-end.
+- The approval round-trip (stage → review → mint → write) against a live
+  Supabase instance, including `admin_audit_logs` intent-row reads.
+- Whether the owner account's `is_admin`/`is_owner` flags satisfy all RLS
+  paths (owner-without-admin fails closed on `is_admin()`-gated reads by
+  design; owners are expected to hold `is_admin` per app convention).
+
+Live end-to-end checklist for the owner is in "Setup" above; every step is
+manual-only per the owner's testing policy.

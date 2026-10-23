@@ -2,21 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import type { StoredWriteIntent } from "@/lib/mcp/preset-factory/approval";
 import { mintWriteApproval } from "./actions";
 
 /**
- * Mint + display the approval token (#272). The digest is shown in full so
- * the owner can eyeball it against the payload summary ChatGPT displayed —
- * approving anything else is meaningless because the token only binds THIS
- * digest.
+ * Itemized approval preview (#272) — the owner sees the REAL staged
+ * request (read back from the server-held intent, not model text):
+ * each preset's name/slug/type/category/model/counts, or each category.
+ * Private instruction templates are deliberately never rendered here.
  */
-export function ApprovalForm({
-  operation,
-  digest,
-}: {
-  operation: string;
-  digest: string;
-}) {
+export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,12 +19,16 @@ export function ApprovalForm({
   const [pending, start] = useTransition();
 
   const opLabel =
-    operation === "create_draft_batch" ? "Create preset draft batch" : "Create preset categories";
+    intent.operation === "create_draft_batch"
+      ? "Create preset draft batch"
+      : "Create preset categories";
+  const items = intent.summary.items ?? [];
+  const categories = intent.summary.categories ?? [];
 
   const mint = () => {
     setError(null);
     start(async () => {
-      const res = await mintWriteApproval({ operation, digest });
+      const res = await mintWriteApproval({ intentId: intent.intentId });
       if (res.error) {
         setError(res.error);
         return;
@@ -47,21 +46,71 @@ export function ApprovalForm({
   };
 
   return (
-    <div className="border-cream-100/10 bg-charcoal-850 mt-8 max-w-2xl rounded-2xl border p-6">
-      <dl className="space-y-4 text-sm">
-        <div>
+    <div className="border-cream-100/10 bg-charcoal-850 mt-8 max-w-3xl rounded-2xl border p-6">
+      <dl className="space-y-2 text-sm">
+        <div className="flex justify-between gap-4">
           <dt className="text-text-secondary">Operation</dt>
-          <dd className="text-cream-50 mt-0.5 font-medium">{opLabel}</dd>
+          <dd className="text-cream-50 font-medium">{opLabel}</dd>
         </div>
-        <div>
-          <dt className="text-text-secondary">Payload digest (SHA-256)</dt>
-          <dd className="text-cream-50 mt-0.5 break-all font-mono text-xs">{digest}</dd>
-          <dd className="text-text-secondary mt-1 text-xs">
-            Confirm this matches the digest shown in your ChatGPT
-            conversation — the token will only authorize that exact payload.
-          </dd>
+        <div className="flex justify-between gap-4">
+          <dt className="text-text-secondary">Items</dt>
+          <dd className="text-cream-50">{intent.summary.total_items}</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-text-secondary">Request expires</dt>
+          <dd className="text-cream-50">{new Date(intent.expiresAt).toLocaleString()}</dd>
         </div>
       </dl>
+
+      {items.length > 0 && (
+        <ul className="divide-cream-100/10 border-cream-100/10 mt-5 divide-y rounded-xl border">
+          {items.map((it) => (
+            <li key={it.client_item_id} className="px-4 py-3">
+              <div className="flex flex-wrap items-baseline gap-x-3">
+                <span className="text-cream-50 text-sm font-medium">{it.name}</span>
+                <span className="text-text-secondary font-mono text-xs">{it.slug}</span>
+                <span className="text-text-secondary text-xs uppercase">{it.type}</span>
+              </div>
+              <div className="text-text-secondary mt-1 flex flex-wrap gap-x-4 text-xs">
+                <span>model: {it.provider}/{it.model}</span>
+                <span>category: {it.category_id ?? "none"}</span>
+                {it.parent_preset_id && <span>variant of {it.parent_preset_id}</span>}
+                <span>{it.field_count} fields</span>
+                <span>{it.asset_link_count} linked assets</span>
+                {it.output_sizes.length > 0 && (
+                  <span>
+                    sizes: {it.output_sizes.map((s) => `${s.width}x${s.height}`).join(", ")}
+                  </span>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {categories.length > 0 && (
+        <ul className="divide-cream-100/10 border-cream-100/10 mt-5 divide-y rounded-xl border">
+          {categories.map((c) => (
+            <li key={c.slug} className="px-4 py-3">
+              <div className="flex flex-wrap items-baseline gap-x-3">
+                <span className="text-cream-50 text-sm font-medium">{c.name}</span>
+                <span className="text-text-secondary font-mono text-xs">{c.slug}</span>
+                <span className="text-text-secondary text-xs">sort {c.sort_order}</span>
+              </div>
+              {c.description && (
+                <p className="text-text-secondary mt-1 text-xs">{c.description}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-text-secondary mt-4 text-xs">
+        Payload digest: <span className="font-mono">{intent.digest.slice(0, 24)}…</span>
+        {" "}— confirm these items match what your ChatGPT conversation proposed.
+        Private instruction templates are never shown here; verify them in the
+        draft editor after creation.
+      </p>
 
       {error && (
         <p className="text-destructive mt-4 text-sm" role="alert">
@@ -70,11 +119,11 @@ export function ApprovalForm({
       )}
 
       {!token ? (
-        <Button className="mt-6" disabled={pending} onClick={mint}>
-          Approve this exact payload
+        <Button className="mt-5" disabled={pending} onClick={mint}>
+          Approve exactly this request
         </Button>
       ) : (
-        <div className="mt-6 space-y-3">
+        <div className="mt-5 space-y-3">
           <p className="text-cream-50 text-sm font-medium">
             Approval token — paste it into the ChatGPT conversation as
             `approval_token`. Expires {expiresAt}.
@@ -86,8 +135,8 @@ export function ApprovalForm({
             {copied ? "Copied" : "Copy token"}
           </Button>
           <p className="text-text-secondary text-xs">
-            One approval = one exact payload. A changed batch needs a new
-            approval.
+            One approval = this exact staged request. A changed payload needs
+            a fresh approval round-trip.
           </p>
         </div>
       )}

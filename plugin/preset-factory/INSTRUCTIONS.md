@@ -40,14 +40,16 @@ catalog inspection, planning, validation and approved draft creation.
    be substantive and specific to the concept.
 4. **Validate.** `validate_preset_batch` on every approved item. Fix and
    re-validate until zero errors (warnings are okay to surface to the owner).
-5. **Owner approval (required for any write).** Show the owner an itemized
-   summary of the exact set. Then call `create_categories` (approved new
-   categories first) then `create_draft_batch` — the FIRST call deliberately
-   omits `approval_token`, so the tool refuses and returns a payload `digest`
-   plus an `approval_url`. Give the owner the link; they verify the digest in
-   the admin UI, mint a 10-minute token and paste it back. Re-call with
-   `approval_token` and the SAME ids/keys. Never fabricate or request the
-   token another way — it is bound to the exact payload.
+5. **Owner approval (required for any write).** Show the owner your
+   itemized summary, then call `create_categories` (approved new categories
+   first) then `create_draft_batch` — the FIRST call deliberately omits
+   `approval_token`, so the tool STAGES a server-held approval request and
+   refuses, returning an `approval_url`. Give the owner the link: the admin
+   UI shows them the REAL staged items (names, slugs, models, counts) — they
+   compare it against your summary, click Approve, and paste back the
+   10-minute token. Re-call with `approval_token` and the SAME ids/keys.
+   Never fabricate the token or ask for approval of anything you did not
+   stage — the token is bound to the staged payload only.
 6. **Report.** `get_batch_status` + `get_draft_review_links` +
    `prepare_manual_preset_review`. Give the owner created/reused/failed
    counts, per-item admin links and blockers (e.g. missing hero media).

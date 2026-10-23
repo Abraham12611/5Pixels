@@ -202,7 +202,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_categories",
     description:
-      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after verifying the displayed payload digest. Call WITHOUT the token first to receive the digest + approval link to hand the owner. Slug collisions return a conflict with the existing category for reuse.",
+      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the request and receive the approval link to hand the owner. Slug collisions return a conflict with the existing category for reuse.",
     inputSchema: {
       type: "object",
       required: ["categories"],
@@ -239,7 +239,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_draft_batch",
     description:
-      "Persist a batch of complete preset drafts AFTER the owner approves the validated plan. Flow: (1) plan_preset_batch → (2) validate_preset_batch → (3) present summary to owner → (4) call WITHOUT approval_token to get the payload digest + approval link → (5) owner mints the token in admin → (6) re-call with approval_token and the SAME ids/keys. The atomic RPC forces every product+version to draft — nothing can be published here.",
+      "Persist a batch of complete preset drafts AFTER the owner approves the validated plan. Flow: (1) plan_preset_batch → (2) validate_preset_batch → (3) present summary to owner → (4) call WITHOUT approval_token to stage a server-held approval request and get the approval link → (5) the owner inspects the real staged items in the admin UI and mints the token → (6) re-call with approval_token and the SAME ids/keys. The atomic RPC forces every product+version to draft — nothing can be published here.",
     inputSchema: {
       type: "object",
       required: ["items"],

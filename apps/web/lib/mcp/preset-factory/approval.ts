@@ -5,13 +5,14 @@
  * it. Instead, every write requires an `approval_token` that can only be
  * minted inside the authenticated 5Pixels admin UI:
  *
- *   1. A write tool called without a token refuses, returning
- *      `approval_required` + a canonical `digest` of the exact payload the
- *      backend would receive (after key derivation — nothing can shift
- *      between approval and write).
- *   2. The owner opens `/admin/preset-factory/approve` (cookie session,
- *      requireAdmin), verifies the digest matches what ChatGPT showed, and
- *      clicks Approve → the server action mints a token.
+ *   1. A write tool called without a token STAGES a server-held pending
+ *      intent (canonical payload digest + sanitized itemized summary in
+ *      `admin_audit_logs`, admin-only RLS, 15-min TTL) and refuses.
+ *   2. The owner opens `/admin/preset-factory/approve?intent=<id>` (cookie
+ *      session, requireAdmin), reviews the REAL staged items — names,
+ *      slugs, types, model config, counts; never recipe text — and clicks
+ *      Approve → the server action re-validates the stored intent and
+ *      mints a token bound to its digest.
  *   3. The owner pastes the token back into the conversation; the model
  *      re-calls the write tool with `approval_token`.
  *
@@ -22,6 +23,8 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PresetDraftItem } from "@/lib/preset-factory/contract";
 
 export const APPROVAL_TTL_SECONDS = 600;
 const TOKEN_VERSION = "pfa1";
@@ -142,22 +145,220 @@ export function verifyApprovalToken(
 export function approvalRequired(opts: {
   operation: ApprovableOperation;
   digest: string;
+  intentId: string;
   siteOrigin: string;
 }) {
   const approvalUrl =
     `${opts.siteOrigin}/admin/preset-factory/approve` +
-    `?op=${encodeURIComponent(opts.operation)}&d=${encodeURIComponent(opts.digest)}`;
+    `?intent=${encodeURIComponent(opts.intentId)}`;
   return {
     code: "approval_required" as const,
     message:
-      "The owner must approve this exact payload in the 5Pixels admin UI before it can be written.",
+      "The owner must approve this exact request in the 5Pixels admin UI before it can be written.",
     approval: {
       operation: opts.operation,
+      intent_id: opts.intentId,
       digest: opts.digest,
       approval_url: approvalUrl,
-      expires_in_seconds: APPROVAL_TTL_SECONDS,
+      expires_in_seconds: INTENT_TTL_SECONDS,
       instructions_for_owner:
-        "Open the approval link, confirm the digest matches the payload shown in this conversation, click Approve, and paste the returned token here as approval_token.",
+        "Open the approval link — it shows the exact items this request will write. If they match what you saw here, click Approve and paste the returned token back as approval_token.",
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pending write intents — server-held, user-bound, short-lived.
+//
+// A refused write STAGES an intent row instead of asking the owner to trust
+// a model-rendered summary: the canonical payload's sanitized summary and
+// its digest are stored in `admin_audit_logs` (admin-only RLS, no new
+// schema), keyed by a fresh intent id. The approval page reads the row back
+// and displays the REAL itemized request; minting validates the stored row
+// (ownership, freshness, pending state) — never a caller-supplied digest.
+// ---------------------------------------------------------------------------
+
+export const INTENT_TTL_SECONDS = 900; // 15 minutes
+const INTENT_ACTION = "mcp.write_intent";
+const INTENT_ENTITY = "preset_factory_write_intent";
+const INTENT_PENDING = "pending";
+const INTENT_APPROVED = "approved";
+
+/** Safe preview of a draft item — names/settings only, NEVER recipe text. */
+export interface IntentItemPreview {
+  client_item_id: string;
+  name: string;
+  slug: string;
+  type: string;
+  category_id: string | null;
+  parent_preset_id: string | null;
+  provider: string;
+  model: string;
+  output_sizes: { width: number; height: number }[];
+  field_count: number;
+  asset_link_count: number;
+}
+
+export interface IntentCategoryPreview {
+  name: string;
+  slug: string;
+  description: string | null;
+  sort_order: number;
+}
+
+export interface IntentSummary {
+  operation: ApprovableOperation;
+  items?: IntentItemPreview[];
+  categories?: IntentCategoryPreview[];
+  total_items: number;
+}
+
+/** Build the owner-facing preview from the canonical payload — strips all
+ * private recipe material (instruction templates, negative prompts). */
+export function buildIntentSummary(
+  operation: ApprovableOperation,
+  canonical: unknown
+): IntentSummary {
+  if (operation === "create_draft_batch") {
+    const items = ((canonical as { items?: PresetDraftItem[] }).items ?? []).map(
+      (i): IntentItemPreview => ({
+        client_item_id: i.client_item_id,
+        name: i.product?.name ?? "?",
+        slug: i.product?.slug ?? "?",
+        type: i.product?.type ?? "?",
+        category_id: i.product?.category_id ?? null,
+        parent_preset_id: i.product?.parent_preset_id ?? null,
+        provider: i.version?.provider_strategy?.primary_provider ?? "?",
+        model: i.version?.provider_strategy?.primary_model ?? "?",
+        output_sizes: (i.version?.output_sizes ?? []).map((s) => ({
+          width: s.width,
+          height: s.height,
+        })),
+        field_count: i.fields?.length ?? 0,
+        asset_link_count: i.asset_links?.length ?? 0,
+      })
+    );
+    return { operation, items, total_items: items.length };
+  }
+  const categories = (
+    (canonical as { categories?: { name: string; slug: string; description?: string; sort_order: number }[] })
+      .categories ?? []
+  ).map(
+    (c): IntentCategoryPreview => ({
+      name: c.name,
+      slug: c.slug,
+      description: c.description ?? null,
+      sort_order: c.sort_order ?? 0,
+    })
+  );
+  return { operation, categories, total_items: categories.length };
+}
+
+/** Stage a pending write intent. The row is written through the caller's
+ * own scoped client — admin-only RLS means a non-admin caller can't stage. */
+export async function recordWriteIntent(
+  supabase: SupabaseClient,
+  opts: {
+    userId: string;
+    operation: ApprovableOperation;
+    digest: string;
+    summary: IntentSummary;
+  }
+): Promise<{ ok: true; intentId: string } | { ok: false; error: string }> {
+  const intentId = crypto.randomUUID();
+  const { error } = await supabase.from("admin_audit_logs").insert({
+    admin_user_id: opts.userId,
+    action: `${INTENT_ACTION}.${opts.operation}`,
+    entity_type: INTENT_ENTITY,
+    entity_id: intentId,
+    after: {
+      digest: opts.digest,
+      summary: opts.summary,
+      expires_at: new Date(Date.now() + INTENT_TTL_SECONDS * 1000).toISOString(),
+    },
+    reason: INTENT_PENDING,
+  });
+  if (error) {
+    return { ok: false, error: `Could not stage approval request: ${error.message}` };
+  }
+  return { ok: true, intentId };
+}
+
+export interface StoredWriteIntent {
+  intentId: string;
+  operation: ApprovableOperation;
+  digest: string;
+  summary: IntentSummary;
+  ownerId: string;
+  expiresAt: string;
+}
+
+/**
+ * Load + validate a staged intent for the approval page. Enforces:
+ * the row is a pending intent, belongs to the viewing user, and has not
+ * expired — anything else is refused.
+ */
+export async function loadWriteIntent(
+  supabase: SupabaseClient,
+  intentId: string,
+  viewerUserId: string
+): Promise<{ ok: true; intent: StoredWriteIntent } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("admin_audit_logs")
+    .select("entity_id, admin_user_id, action, reason, after, created_at")
+    .eq("entity_type", INTENT_ENTITY)
+    .eq("entity_id", intentId)
+    .maybeSingle();
+  if (error || !data) {
+    return { ok: false, error: "Approval request not found." };
+  }
+  if (data.admin_user_id !== viewerUserId) {
+    return { ok: false, error: "This approval request belongs to a different account." };
+  }
+  if (typeof data.action !== "string" || !data.action.startsWith(`${INTENT_ACTION}.`)) {
+    return { ok: false, error: "Not a write-approval request." };
+  }
+  if (data.reason !== INTENT_PENDING) {
+    return { ok: false, error: "This approval request was already used or is no longer pending." };
+  }
+  const body = (data.after ?? {}) as {
+    digest?: string;
+    summary?: IntentSummary;
+    expires_at?: string;
+  };
+  const expiresAt = typeof body.expires_at === "string" ? body.expires_at : null;
+  if (!expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
+    return { ok: false, error: "This approval request has expired — ask the connector to stage a new one." };
+  }
+  const operation = data.action.slice(INTENT_ACTION.length + 1) as ApprovableOperation;
+  if (operation !== "create_draft_batch" && operation !== "create_categories") {
+    return { ok: false, error: "Unknown approval operation." };
+  }
+  if (typeof body.digest !== "string" || !/^[0-9a-f]{64}$/.test(body.digest) || !body.summary) {
+    return { ok: false, error: "Approval request is malformed." };
+  }
+  return {
+    ok: true,
+    intent: {
+      intentId,
+      operation,
+      digest: body.digest,
+      summary: body.summary,
+      ownerId: data.admin_user_id as string,
+      expiresAt,
+    },
+  };
+}
+
+/** Mark a staged intent consumed so the same row cannot mint twice. */
+export async function consumeWriteIntent(
+  supabase: SupabaseClient,
+  intentId: string
+): Promise<void> {
+  await supabase
+    .from("admin_audit_logs")
+    .update({ reason: INTENT_APPROVED })
+    .eq("entity_type", INTENT_ENTITY)
+    .eq("entity_id", intentId)
+    .eq("reason", INTENT_PENDING);
 }
