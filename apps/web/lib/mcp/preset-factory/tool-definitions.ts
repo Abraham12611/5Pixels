@@ -229,6 +229,12 @@ export const TOOL_DEFS: ToolDef[] = [
           description:
             "Owner-minted approval token binding the caller, operation and approved intent id. Obtain it via the approval flow, never fabricate it.",
         },
+        approval_intent_id: {
+          type: "string",
+          format: "uuid",
+          description:
+            "Resume path — the intent_id returned by the staging refusal. Re-call with the SAME payload plus this id after the owner approves in the admin UI; no token needed. The database re-verifies every payload fingerprint against the intent.",
+        },
       },
       additionalProperties: false,
     },
@@ -259,6 +265,12 @@ export const TOOL_DEFS: ToolDef[] = [
           type: "string",
           description:
             "Owner-minted approval token bound to this exact payload's digest, the operation and the caller. Obtain it via the approval flow, never fabricate it.",
+        },
+        approval_intent_id: {
+          type: "string",
+          format: "uuid",
+          description:
+            "Resume path — the intent_id returned by the staging refusal. Re-call with the SAME payload plus this id after the owner approves in the admin UI; no token needed. The database re-verifies every item fingerprint against the intent.",
         },
       },
       additionalProperties: false,

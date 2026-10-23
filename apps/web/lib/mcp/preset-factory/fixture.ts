@@ -168,6 +168,21 @@ export function fixtureBackend(): PresetFactoryBackend {
         })
       );
     },
+    async getWriteIntent(query) {
+      return ok(
+        simulated({
+          intent: {
+            intent_id: query.intent_id,
+            operation: "create_draft_batch" as const,
+            status: "approved" as const,
+            payload_digest: "sim-digest-not-real",
+            preview: { operation: "create_draft_batch", total_items: 0, items: [] },
+            expires_at: new Date(Date.now() + 900_000).toISOString(),
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        })
+      );
+    },
     async getBatchStatus(query) {
       const items: BatchStatusItem[] = [...created.values()].map((r) => ({
         client_item_id: r.client_item_id,

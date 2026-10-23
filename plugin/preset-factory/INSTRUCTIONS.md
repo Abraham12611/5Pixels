@@ -46,15 +46,18 @@ catalog inspection, planning, validation and approved draft creation.
    `approval_token`, so the tool STAGES a server-held approval intent (SQL
    SHA-256-fingerprints the exact payload and derives the owner preview
    from the payload itself) and refuses, returning an `approval_url`
-   + `item_fingerprints` (informational — nothing echoes them back). Give
-   the owner the link: the admin UI shows them the REAL staged items
-   (names, slugs, visibility/safety/model settings — a summary, not the
-   hidden recipe text). They approve and paste back the 10-minute token.
-   Re-call with `approval_token` and the SAME ids/keys — the database
-   verifies each payload's fingerprint against the approved intent,
-   consumes it and writes atomically; an unstaged category is refused.
-   Never fabricate the token or ask for approval of anything you did not
-   stage.
+   + `item_fingerprints` (informational — nothing echoes them back) +
+   `intent_id`. Give the owner the link: the admin UI (or the owner's
+   approvals inbox at `/admin/preset-factory/approvals`) shows the REAL
+   staged items (names, slugs, visibility/safety/model settings — a
+   summary, not the hidden recipe text). Once the owner approves, RESUME:
+   re-call the SAME write tool with the SAME payload plus
+   `approval_intent_id` set to the intent — no token paste needed.
+   (A minted `approval_token` still works too.) The database re-verifies
+   each payload's fingerprint against the approved intent and consumes it
+   as items write; an unstaged or already-consumed payload is refused.
+   Never fabricate intent ids or tokens, or claim approval you did not
+   receive.
 6. **Report.** `get_batch_status` + `get_draft_review_links` +
    `prepare_manual_preset_review`. Give the owner created/reused/failed
    counts, per-item admin links and blockers (e.g. missing hero media).

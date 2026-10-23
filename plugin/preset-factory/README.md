@@ -45,19 +45,24 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   (callers can no longer supply a preview — a request can never describe one
   payload and stage another). `/admin/preset-factory/approve?intent=…` reads
   `getWriteIntent` (caller-bound) to display that staged preview.
-  **Approver role (explicit product decision pending):** approval accepts
-  `is_admin() OR is_owner()` — the same gate as every other admin RPC — so
-  an admin may approve an intent they staged themselves ("self-approval").
-  Owner-only restriction is deliberately NOT implemented pending owner
-  sign-off; if required it is a one-line predicate change in
-  `admin_approve_write_intent`. The
+  **Approver role:** approval is **owner-only** (pending A's approver
+  change — an admin requests, the product owner approves; cross-admin
+  requester/approver by design). The owner reviews either at
+  `/admin/preset-factory/approve?intent=…` (single intent + optional token
+  mint) or in the **approvals inbox** `/admin/preset-factory/approvals`
+  (owner-only page: every admin's pending intents, bulk approve). The
   action first verifies `PRESET_FACTORY_APPROVAL_SECRET` is configured and
   ≥32 chars — an unconfigured secret must never reach the transition, or
   the approval would be consumed without producing a token — then
   `approveWriteIntent` performs the atomic `pending→approved` transition —
   refused inside the RPC for OAuth callers, non-owners, expired or
-  non-pending intents. Only then is an HMAC `approval_token` minted,
-  binding {owner, operation, intent_id, SQL digest, 10-min expiry}.
+  non-pending intents.
+  - **Frictionless resume**: after approval the connector simply re-calls
+    the same write tool with the same payload plus `approval_intent_id` —
+    the adapter confirms `status='approved'` via `getWriteIntent` and the
+    write RPCs re-verify every fingerprint in SQL. No token paste needed;
+    the HMAC path remains as an alternative binding {owner, operation,
+    intent_id, SQL digest, ≤10-min expiry}.
   - **Drafts**: the adapter forwards `approval_intent_id` into
     `createPresetDrafts` — A's draft RPC is **database-gated**: OAuth-issued
     JWTs (client_id claim) are rejected `approval_required` unless the

@@ -24,18 +24,21 @@ import type {
   CreateCategoryRequest,
   CreateCategoryResult,
   FactoryResult,
+  IntentIdQuery,
   ModelOption,
   PresetBatchResult,
   ReviewLinkEntry,
   ReviewLinksQuery,
   StageWriteIntentRequest,
   StageWriteIntentResult,
+  WriteIntentSummary,
 } from "@/lib/preset-factory/contract";
 import {
   createPresetCategory,
   createPresetDrafts,
   getPresetBatchStatus,
   getPresetReviewLinks,
+  getWriteIntent,
   listCompatibleModelOptions,
   listPresetCatalog,
   listPresetCategories,
@@ -84,6 +87,13 @@ export interface PresetFactoryBackend {
     request: StageWriteIntentRequest
   ): Promise<FactoryResult<StageWriteIntentResult>>;
 
+  /** Caller-bound intent read — used for frictionless resume: the model
+   *  re-calls with `approval_intent_id` and the adapter checks whether the
+   *  owner has approved it yet. */
+  getWriteIntent(
+    query: IntentIdQuery
+  ): Promise<FactoryResult<{ intent: WriteIntentSummary }>>;
+
   getBatchStatus(
     query: BatchStatusQuery
   ): Promise<FactoryResult<{ batch_id: string; items: BatchStatusItem[] }>>;
@@ -108,6 +118,7 @@ export function directPresetFactoryBackend(
     createCategory: (input) => createPresetCategory(ctx, input),
     createPresetDrafts: (batch) => createPresetDrafts(ctx, batch),
     stageWriteIntent: (request) => stageWriteIntent(ctx, request),
+    getWriteIntent: (query) => getWriteIntent(ctx, query),
     getBatchStatus: (query) => getPresetBatchStatus(ctx, query),
     getReviewLinks: (query) => getPresetReviewLinks(ctx, query),
   };

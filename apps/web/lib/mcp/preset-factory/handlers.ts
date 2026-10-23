@@ -144,28 +144,80 @@ function normalizeDraftItems(rawItems: RawItem[], batchId: string): NormalizedIt
 /**
  * The owner-approval gate shared by both write tools (A's intent contract):
  *
- *   No token → `stageWriteIntent` on the caller's bearer context — SQL
+ *   `approval_intent_id` (resume) → caller-bound `getWriteIntent` check:
+ *   the model re-calls with the intent id it was refused with; if the
+ *   owner approved it meanwhile the write proceeds, if still pending the
+ *   refusal repeats with the same approval link. SQL re-verifies every
+ *   payload fingerprint + UID + client_id at write time — a wrong or
+ *   foreign intent id can never authorize an unstaged payload.
+ *
+ *   Token → verify the ChatGPT-layer HMAC (binds owner, operation, the
+ *   approved intent id + A's SQL digest) and return the intent id.
+ *
+ *   Neither → `stageWriteIntent` on the caller's bearer context — SQL
  *   fingerprints the canonical payload, DERIVES the owner preview from
  *   the items themselves (callers cannot describe one payload and stage
  *   another) and returns {intent_id, digest, item_fingerprints} → refuse
  *   with `approval_required` + approval_url.
  *
- *   Token → verify the ChatGPT-layer HMAC (binds owner, operation, the
- *   approved intent id + A's SQL digest) and return the intent id — the
- *   write then forwards `approval_intent_id` (drafts: the RPC verifies +
- *   consumes internally) or `admin_create_preset_category` (verifies and
- *   consumes each payload's fingerprint atomically with the insert).
+ *   All paths converge on `approval_intent_id` into the write RPCs
+ *   (drafts: verified + consumed inside `admin_create_preset_draft`;
+ *   categories: `admin_create_preset_category` verifies and consumes
+ *   each payload's fingerprint atomically with the insert).
  */
 async function stageOrVerifyApproval(
   ctx: ToolContext,
   backend: PresetFactoryBackend,
   operation: ApprovableOperation,
   stageRequest: StageWriteIntentRequest,
-  token: unknown
+  token: unknown,
+  resumeIntentId: unknown
 ): Promise<
   | { approved: true; intentId: string }
   | { approved: false; result: ToolResultPayload }
 > {
+  const intentRefusal = (intent: {
+    intent_id: string;
+    expires_at: string;
+    payload_digest?: string;
+  }) =>
+    toolError(
+      "Owner approval required — the staged request is awaiting the owner's review.",
+      env({
+        error: approvalRequired({
+          operation,
+          intentId: intent.intent_id,
+          digest: intent.payload_digest ?? "",
+          itemFingerprints: [],
+          expiresAt: intent.expires_at,
+          siteOrigin: ctx.requestOrigin,
+        }),
+      })
+    );
+
+  // Frictionless resume: the caller passed back a staged intent id.
+  if (typeof resumeIntentId === "string" && resumeIntentId) {
+    const intent = await backend.getWriteIntent({ intent_id: resumeIntentId });
+    if (intent.ok) {
+      const row = intent.data.intent;
+      if (row.operation !== operation) {
+        return {
+          approved: false,
+          result: toolError(
+            `Write refused: intent ${resumeIntentId} was staged for "${row.operation}", not "${operation}".`,
+            env({ error: { code: "approval_invalid", reason: "operation_mismatch" } })
+          ),
+        };
+      }
+      if (row.status === "approved" && new Date(row.expires_at).getTime() > Date.now()) {
+        return { approved: true, intentId: row.intent_id };
+      }
+      return { approved: false, result: intentRefusal(row) };
+    }
+    // Unreadable intent (wrong id / not the caller's) — fall through to a
+    // fresh stage, which is the same refusal the caller started with.
+  }
+
   if (typeof token !== "string" || !token) {
     const staged = await backend.stageWriteIntent(stageRequest);
     if (!staged.ok) {
@@ -476,7 +528,8 @@ export function buildToolHandlers(): Map<
         categories: canonicalCategories,
         ttl_seconds: 900,
       },
-      args.approval_token
+      args.approval_token,
+      args.approval_intent_id
     );
     if (!gate.approved) return gate.result;
 
@@ -557,7 +610,8 @@ export function buildToolHandlers(): Map<
         items: normalized.items,
         ttl_seconds: 900,
       },
-      args.approval_token
+      args.approval_token,
+      args.approval_intent_id
     );
     if (!gate.approved) return gate.result;
 

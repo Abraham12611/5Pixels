@@ -216,7 +216,10 @@ export function ApprovalForm({ intent }: { intent: WriteIntentSummary }) {
             This token points at the approved intent — it authorizes only
             this exact staged request through the connector. It may be
             retried until expiry; the intent is consumed server-side as each
-            item writes, so replays cannot duplicate drafts.
+            item writes, so replays cannot duplicate drafts. Alternatively
+            the connector can simply retry with{" "}
+            <span className="font-mono">approval_intent_id</span> — no
+            token is needed once the intent is approved.
           </p>
         </div>
       )}
