@@ -323,7 +323,7 @@ export const createCategoryRequestSchema = z.strictObject({
 });
 
 // ---------------------------------------------------------------------------
-// Write-approval intents (coordinator rev3 / #272)
+// Write-approval intents (coordinator rev4 / #272)
 //
 // The tamper-resistant approval store for MCP-origin writes. OAuth-issued
 // JWTs (client_id claim present) are REQUIRED by the draft RPC to carry an
@@ -332,6 +332,12 @@ export const createCategoryRequestSchema = z.strictObject({
 // admin_create_preset_category (atomic consume + insert); only direct
 // table inserts via the categories_admin policy bypass intents, which no
 // narrower policy could prevent without changing existing admin RLS.
+//
+// Approver policy (owner decision): only a non-OAuth is_owner() session
+// may approve, and the approver must differ from the requester. Owners
+// can read every intent (the approval inbox); requesters see only their
+// own. Intent lifetimes are bounded — 60..3600s TTL enforced by a DB
+// CHECK, with 'expired' materialized lazily by the owner inbox sweep.
 // ---------------------------------------------------------------------------
 
 export const APPROVABLE_OPERATIONS = [
@@ -385,6 +391,12 @@ export const intentIdQuerySchema = z.strictObject({
 });
 export type IntentIdQuery = z.infer<typeof intentIdQuerySchema>;
 
+/** Owner inbox query — status filter; omitted returns all (latest 100). */
+export const listWriteIntentsQuerySchema = z.strictObject({
+  statuses: z.array(z.enum(WRITE_INTENT_STATUSES)).min(1).optional(),
+});
+export type ListWriteIntentsQuery = z.infer<typeof listWriteIntentsQuerySchema>;
+
 export const consumeWriteIntentSchema = z.strictObject({
   intent_id: z.string().uuid(),
   operation: approvableOperationSchema,
@@ -398,12 +410,20 @@ export type ConsumeWriteIntentRequest = z.infer<
 
 export interface WriteIntentSummary {
   intent_id: string;
+  /** The requester (staging admin). The approver must be a different
+   *  user — requester/approver separation is enforced in SQL. */
+  requested_by: string;
+  /** The owner who approved, once status is approved/consumed. */
+  approved_by: string | null;
   operation: ApprovableOperation;
   status: WriteIntentStatus;
   payload_digest: string;
   /** Server-derived preview of the staged payload — a safe
    *  identity/settings projection, never caller-written or recipe text. */
   preview: Record<string, unknown>;
+  /** Fingerprints the intent covers / has spent so far. */
+  total_items: number;
+  consumed_items: number;
   expires_at: string;
   created_at: string;
 }
@@ -426,6 +446,9 @@ export interface StageWriteIntentResult {
 export interface ApproveWriteIntentResult {
   intent_id: string;
   status: "approved";
+  /** The owner who approved — always a different user than the
+   *  requester (SQL-enforced separation). */
+  approved_by: string;
   expires_at: string;
 }
 

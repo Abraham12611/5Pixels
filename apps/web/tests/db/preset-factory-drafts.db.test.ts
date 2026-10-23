@@ -51,6 +51,34 @@ async function makeStaff(client: Client): Promise<string> {
   return userId;
 }
 
+/** Staff + owner flags — approval is owner-only (requester ≠ approver). */
+async function makeOwner(client: Client): Promise<string> {
+  const userId = randomUUID();
+  await client.query("SET session_replication_role = 'replica'");
+  try {
+    await client.query(
+      `INSERT INTO auth.users (
+         id, instance_id, aud, role, email, encrypted_password,
+         email_confirmed_at, created_at, updated_at,
+         raw_app_meta_data, raw_user_meta_data
+       ) VALUES (
+         $1, '00000000-0000-0000-0000-000000000000',
+         'authenticated', 'authenticated', $2, '',
+         NOW(), NOW(), NOW(), '{}'::jsonb, '{}'::jsonb
+       )`,
+      [userId, `dbtest-owner-${userId}@example.invalid`]
+    );
+    await client.query(
+      `INSERT INTO public.profiles (id, email, status, is_admin, is_owner)
+       VALUES ($1, $2, 'active', true, true)`,
+      [userId, `dbtest-owner-${userId}@example.invalid`]
+    );
+  } finally {
+    await client.query("SET session_replication_role = 'origin'");
+  }
+  return userId;
+}
+
 async function makeCategory(client: Client, slug?: string): Promise<string> {
   const id = randomUUID();
   await client.query(
@@ -640,8 +668,11 @@ describe("preset_factory_write_intents", () => {
       expect(staged.status).toBe("pending");
       expect(staged.item_fingerprints).toHaveLength(1);
 
-      const approved = await approveIntent(client, staffId, intentId);
+      // Owner-only approval, by a different user than the requester.
+      const ownerId = await makeOwner(client);
+      const approved = await approveIntent(client, ownerId, intentId);
       expect(approved.status).toBe("approved");
+      expect(approved.approved_by).toBe(ownerId);
 
       const result = await callCreateDraft(
         client,
@@ -703,7 +734,8 @@ describe("preset_factory_write_intents", () => {
         )
       ).rejects.toThrow(/PF_APPROVAL_REQUIRED/);
 
-      await approveIntent(client, staffId, intentId);
+      const ownerId = await makeOwner(client);
+      await approveIntent(client, ownerId, intentId);
 
       // Approved, but the write payload differs from the staged item.
       await expect(
@@ -738,8 +770,10 @@ describe("preset_factory_write_intents", () => {
       });
       expect(seen).toBe(0);
 
+      // Approval is owner-only — an admin (even a different one) is
+      // refused before any intent lookup.
       await expect(approveIntent(client, staffB, intentId)).rejects.toThrow(
-        /PF_APPROVAL_INVALID/
+        /owner required/i
       );
 
       // Direct table writes are denied even for the owning admin.
@@ -841,7 +875,8 @@ describe("preset_factory_write_intents", () => {
       // Still pending → refused.
       await expect(callRpc(intentId)).rejects.toThrow(/PF_APPROVAL_REQUIRED/);
 
-      await approveIntent(client, staffId, intentId);
+      const ownerId = await makeOwner(client);
+      await approveIntent(client, ownerId, intentId);
 
       // A different payload than staged → fingerprint mismatch, no write.
       await expect(
@@ -913,7 +948,8 @@ describe("preset_factory_write_intents", () => {
         [{ name: "Same Name", slug, description: null, sort_order: 0 }],
         "create_categories"
       );
-      await approveIntent(client, staffId, reuseStaged.intent_id as string);
+      const ownerId = await makeOwner(client);
+      await approveIntent(client, ownerId, reuseStaged.intent_id as string);
       const reused = await callCatRpc(
         "Same Name",
         slug,
@@ -946,7 +982,7 @@ describe("preset_factory_write_intents", () => {
         ],
         "create_categories"
       );
-      await approveIntent(client, staffId, conflictStaged.intent_id as string);
+      await approveIntent(client, ownerId, conflictStaged.intent_id as string);
       const conflict = await callCatRpc(
         "Other Name",
         conflictSlug,
@@ -975,7 +1011,8 @@ describe("preset_factory_write_intents", () => {
         "create_categories"
       );
       const intentId = staged.intent_id as string;
-      await approveIntent(client, staffId, intentId);
+      const ownerId = await makeOwner(client);
+      await approveIntent(client, ownerId, intentId);
 
       const created = await asOAuthUser(client, staffId, async () => {
         const res = await client.query(
@@ -1015,7 +1052,8 @@ describe("preset_factory_write_intents", () => {
         draftIntentItem(params),
       ]);
       const intentId = staged.intent_id as string;
-      await approveIntent(client, staffId, intentId);
+      const ownerId = await makeOwner(client);
+      await approveIntent(client, ownerId, intentId);
 
       // A different connector's token cannot spend the approval — the
       // consume RPC binds the stored client_id claim.
@@ -1035,6 +1073,103 @@ describe("preset_factory_write_intents", () => {
           "other-oauth-client"
         )
       ).rejects.toThrow(/PF_APPROVAL_INVALID/);
+    });
+  });
+
+  it("enforces owner-only approval and requester/approver separation", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const staged = await stageIntent(client, staffId, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+      const intentId = staged.intent_id as string;
+
+      // A non-owner admin can never approve — refused before lookup.
+      const staffB = await makeStaff(client);
+      await expect(approveIntent(client, staffB, intentId)).rejects.toThrow(
+        /owner required/i
+      );
+
+      // The requester cannot self-approve, even as an owner.
+      const ownerA = await makeOwner(client);
+      const ownerStaged = await stageIntent(client, ownerA, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+      await expect(
+        approveIntent(client, ownerA, ownerStaged.intent_id as string)
+      ).rejects.toThrow(/separation/i);
+
+      // A second owner approves both.
+      const ownerB = await makeOwner(client);
+      const a = await approveIntent(client, ownerB, intentId);
+      expect(a.status).toBe("approved");
+      expect(a.approved_by).toBe(ownerB);
+      const b = await approveIntent(
+        client,
+        ownerB,
+        ownerStaged.intent_id as string
+      );
+      expect(b.status).toBe("approved");
+    });
+  });
+
+  it("owner inbox lists every requester's intents and materializes expiry", async () => {
+    await withDb(async (client) => {
+      const staffA = await makeStaff(client);
+      const staffB = await makeStaff(client);
+      const ownerId = await makeOwner(client);
+
+      const i1 = await stageIntent(client, staffA, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+      const i2 = await stageIntent(client, staffB, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+
+      // Non-owner callers cannot list.
+      await expect(
+        asUser(client, staffA, async () => {
+          await client.query(`SELECT public.admin_list_write_intents(NULL)`);
+        })
+      ).rejects.toThrow(/owner required/i);
+
+      // Owner sees both intents with requester identity.
+      type InboxRow = {
+        intent_id: string;
+        requested_by: string;
+        status: string;
+      };
+      const inbox = await asUser(client, ownerId, async () => {
+        const res = await client.query(
+          `SELECT public.admin_list_write_intents(NULL) AS r`
+        );
+        return (res.rows[0].r as { intents: InboxRow[] }).intents;
+      });
+      const byId = new Map(inbox.map((r) => [r.intent_id, r]));
+      expect(byId.get(i1.intent_id as string)?.requested_by).toBe(staffA);
+      expect(byId.get(i2.intent_id as string)?.requested_by).toBe(staffB);
+
+      // Backdate one intent past expiry — the next inbox read flips it to
+      // 'expired' persistently.
+      await client.query(
+        `UPDATE public.preset_factory_write_intents
+         SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`,
+        [i1.intent_id]
+      );
+      const inbox2 = await asUser(client, ownerId, async () => {
+        const res = await client.query(
+          `SELECT public.admin_list_write_intents(ARRAY['pending']) AS r`
+        );
+        return (res.rows[0].r as { intents: InboxRow[] }).intents;
+      });
+      expect(inbox2.some((r) => r.intent_id === (i1.intent_id as string))).toBe(
+        false
+      );
+      const persisted = await client.query(
+        `SELECT status FROM public.preset_factory_write_intents WHERE id = $1`,
+        [i1.intent_id]
+      );
+      expect(persisted.rows[0].status).toBe("expired");
     });
   });
 });
