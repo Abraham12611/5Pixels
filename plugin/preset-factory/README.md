@@ -37,20 +37,24 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   builds the token-scoped client, validates the JWT, and re-checks the
   profiles role; the #271 service functions run on it (service role never
   touched; `is_admin()/is_owner()` re-checked inside the RPCs).
-- **Owner-bound, inspectable writes** — a `confirm` flag is *not* enough
-  (the model can set it). A refused write STAGES a server-held pending
-  intent in `preset_factory_write_intents` (dedicated table owned by
-  Engineer A's migration: requester-bound, SECURITY DEFINER RPCs only — no
-  direct `authenticated` INSERT/UPDATE; `admin_audit_logs` is deliberately
-  NOT the store since its admin-wide ALL policy allows row tampering).
-  `/admin/preset-factory/approve?intent=…` displays the REAL staged items —
-  names, slugs, types, visibility/safety/composition/model settings —
-  and minting runs the atomic claim RPC FIRST (single conditional
-  `UPDATE … RETURNING`; exactly-one-row check) then signs an HMAC token
-  bound to the CLAIMED row's {owner, operation, digest, 10-min expiry}.
-  One intent = one mint, enforced atomically; tokens are repeatable until
-  expiry (safe retries — the write itself is idempotent via the ledger),
-  not one-use.
+- **Owner-bound, DB-enforced writes** — a `confirm` flag is *not* enough
+  (the model can set it). A refused write STAGES a pending intent via A's
+  `stageWriteIntent` — SQL fingerprints the exact canonical items and
+  computes `payload_digest`. `/admin/preset-factory/approve?intent=…` reads
+  `getWriteIntent` (caller-bound) to display the REAL staged preview, then
+  `approveWriteIntent` performs the atomic `pending→approved` transition —
+  refused inside the RPC for OAuth callers, non-owners, expired or
+  non-pending intents. Only then is an HMAC `approval_token` minted,
+  binding {owner, operation, intent_id, SQL digest, 10-min expiry}.
+  - **Drafts**: the adapter forwards `approval_intent_id` into
+    `createPresetDrafts` — A's draft RPC is **database-gated**: OAuth-issued
+    JWTs (client_id claim) are rejected `approval_required` unless the
+    intent covers each item's server-computed fingerprint, and it consumes
+    them internally. Web/session JWTs are unaffected (unchanged admin UI).
+  - **Categories**: can't be DB-gated (`categories_admin` policy allows
+    direct admin inserts) — the adapter consumes each created category's
+    approved fingerprint via `consumeWriteIntent`; SQL rejects fingerprints
+    the intent doesn't cover.
 - **Audit** — every tool call writes `mcp.{tool}.{outcome}` to
   `admin_audit_logs` with the verified `admin_user_id`.
 - **Rate limits** — soft per-user buckets (120 reads, 20 writes per window;
@@ -58,16 +62,21 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
 
 ### Security boundary (explicit)
 
-`approval_token` gates **the MCP tool surface only**. It is not a new
-privilege and does not restrict direct database access: an admin's own
-Supabase JWT (OAuth or web-session) already carries the PostgREST/RPC
-rights the admin UI uses — including `admin_create_preset_drafts` — and
-OAuth scopes do not narrow RLS. The guarantee is precisely: *no
-MCP-origin write happens without an owner-inspected, atomically-claimed
-approval*. Whether DB-level enforcement distinguishing MCP-origin writes
-from direct admin access is needed is an open design question flagged to
-Engineer A on #271; until answered otherwise, treat the approval gate as
-an agent-channel control, not a database one.
+The HMAC `approval_token` is a **ChatGPT-layer confirmation** — it proves a
+write call corresponds to a specific owner-approved intent. The real
+authorization is A's **database gate**: OAuth-issued tokens calling
+`admin_create_preset_draft` (directly or via this adapter) are refused
+without a matching approved+unexpired intent covering each item's
+server-computed fingerprint — approval for OAuth-origin draft creation is
+enforced in Postgres, not in this adapter.
+
+Residual boundary: **category creation is not DB-gated** — the
+`categories_admin` RLS policy already permits direct admin inserts, so a
+DB gate could not restrict OAuth writes anyway. Category intents are
+consumed at the tool layer (`consumeWriteIntent`); a direct OAuth
+PostgREST insert into `categories` bypasses the intent entirely, exactly
+as the admin UI always could. Web/session JWTs skip the draft gate too —
+unchanged behavior for the admin UI.
 
 ## Tool inventory
 
@@ -96,9 +105,10 @@ credit-spending tool. Do not add them without explicit owner authorization.
    URL** to `https://<site>/oauth/consent`.
 3. Set `PRESET_FACTORY_APPROVAL_SECRET` (openssl rand -hex 32) — without it
    reads work but every write refuses.
-4. **Deploy Engineer A's `preset_factory_write_intents` migration** — the
-   stage/claim RPCs the approval flow depends on. Until it lands every
-   write fails closed at staging (reads still work).
+4. **Deploy Engineer A's `preset_factory_write_intents` migration**
+   (`20261109000001`) — the stage/approve/consume RPCs + OAuth draft gate
+   the approval flow depends on. Until it lands every write fails closed
+   at staging (reads still work).
 5. In ChatGPT → Settings → Connectors → Advanced → create a custom connector
    pointing at `https://<site>/api/mcp`. On first call the connector receives
    a 401 with `resource_metadata`, discovers OAuth metadata via the
@@ -136,9 +146,10 @@ credit-spending tool. Do not add them without explicit owner authorization.
 Static checks only — the following are implemented but **UNVERIFIED** and
 must not be described as working until the owner runs the live checklist:
 
-- **Engineer A's `preset_factory_write_intents` migration does not exist
-  yet** — the stage/claim RPC contract was posted on #271 and B-side code
-  calls exactly those names; every write fails closed until it lands.
+- **Engineer A's `preset_factory_write_intents` migration**
+  (`20261109000001`) must be applied to the target project — the code calls
+  exactly A's shipped RPCs, but every write fails closed until it exists
+  on the database.
 - Supabase OAuth 2.1 server availability, the consent redirect into
   `/oauth/consent`, and the exact `client_id` claim value on issued tokens
   (code targets the documented claim).

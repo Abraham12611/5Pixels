@@ -21,6 +21,8 @@ import type {
   CatalogItemSummary,
   CatalogQuery,
   CategorySummary,
+  ConsumeWriteIntentRequest,
+  ConsumeWriteIntentResult,
   CreateCategoryRequest,
   CreateCategoryResult,
   FactoryResult,
@@ -28,8 +30,11 @@ import type {
   PresetBatchResult,
   ReviewLinkEntry,
   ReviewLinksQuery,
+  StageWriteIntentRequest,
+  StageWriteIntentResult,
 } from "@/lib/preset-factory/contract";
 import {
+  consumeWriteIntent,
   createPresetCategory,
   createPresetDrafts,
   getPresetBatchStatus,
@@ -37,6 +42,7 @@ import {
   listCompatibleModelOptions,
   listPresetCatalog,
   listPresetCategories,
+  stageWriteIntent,
   validatePresetBatch,
   type PresetFactoryContext,
 } from "@/lib/preset-factory/service";
@@ -65,8 +71,23 @@ export interface PresetFactoryBackend {
 
   createCategory(input: CreateCategoryRequest): Promise<FactoryResult<CreateCategoryResult>>;
 
-  /** The ONLY persistence path — atomic draft-only RPC per item. */
+  /** The ONLY persistence path — atomic draft-only RPC per item. The
+   *  batch envelope carries `approval_intent_id` for OAuth-issued callers:
+   *  the RPC verifies the intent and consumes each item's SQL fingerprint
+   *  internally. */
   createPresetDrafts(batch: unknown): Promise<FactoryResult<PresetBatchResult>>;
+
+  /** Stage a pending write intent — SQL fingerprints the canonical items,
+   *  so the approval binds to exactly what would be written. */
+  stageWriteIntent(
+    request: StageWriteIntentRequest
+  ): Promise<FactoryResult<StageWriteIntentResult>>;
+
+  /** Tool-level per-fingerprint consumption for writes the DB can't gate
+   *  (categories). Called by the adapter after each successful create. */
+  consumeWriteIntent(
+    request: ConsumeWriteIntentRequest
+  ): Promise<FactoryResult<ConsumeWriteIntentResult>>;
 
   getBatchStatus(
     query: BatchStatusQuery
@@ -91,6 +112,8 @@ export function directPresetFactoryBackend(
     validatePresetBatch: (batch) => validatePresetBatch(ctx, batch),
     createCategory: (input) => createPresetCategory(ctx, input),
     createPresetDrafts: (batch) => createPresetDrafts(ctx, batch),
+    stageWriteIntent: (request) => stageWriteIntent(ctx, request),
+    consumeWriteIntent: (request) => consumeWriteIntent(ctx, request),
     getBatchStatus: (query) => getPresetBatchStatus(ctx, query),
     getReviewLinks: (query) => getPresetReviewLinks(ctx, query),
   };

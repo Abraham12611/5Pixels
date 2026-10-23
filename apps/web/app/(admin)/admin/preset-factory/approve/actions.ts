@@ -2,52 +2,55 @@
 
 import { createClient } from "@/lib/supabase/server";
 import {
-  claimWriteIntent,
-  mintApprovalToken,
-  type StoredWriteIntent,
-} from "@/lib/mcp/preset-factory/approval";
+  approveWriteIntent,
+  createPresetFactoryContext,
+  getWriteIntent,
+} from "@/lib/preset-factory/service";
+import { mintApprovalToken } from "@/lib/mcp/preset-factory/approval";
+import type { ApprovableOperation } from "@/lib/preset-factory/contract";
 
 /**
  * Owner write-approval mint (#272).
  *
- * The ONLY way to mint a write-approval token: pass a staged intent id.
- * The action calls A's atomic claim RPC FIRST — a single conditional
- * UPDATE … RETURNING bound to `requester = auth.uid()`, `status='pending'`,
- * unexpired — and verifies exactly one row transitioned before signing.
- * The token binds the digest/operation RETURNED BY THE CLAIM, never any
- * request-supplied value. Concurrent mints cannot both succeed (the second
- * claim sees status='claimed' and returns zero rows), and a token is never
- * minted before the claim is durable.
+ * A's intent contract is the authority: this action runs the atomic
+ * `admin_approve_write_intent` RPC — a single pending→approved transition
+ * bound to the owning admin, refusing OAuth-issued callers inside SQL —
+ * and only mints the ChatGPT-layer HMAC token AFTER `status='approved'`
+ * is returned. The token binds {owner id, operation, intent_id, and the
+ * intent's SQL-computed `payload_digest`}; concurrent approvals and stale
+ * intents fail at the RPC, never at a JS check.
  */
 export async function mintWriteApproval(opts: {
   intentId: string;
 }): Promise<{ token?: string; expires_at?: string; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_admin, is_owner")
-    .eq("id", user.id)
-    .single();
-  if (!(profile?.is_admin || profile?.is_owner)) {
-    return { error: "Admin or owner privileges are required." };
+  // Cookie-session factory context — the ONLY context approveWriteIntent
+  // accepts (the RPC refuses OAuth-issued callers by design).
+  const ctxRes = await createPresetFactoryContext(supabase);
+  if (!ctxRes.ok) return { error: ctxRes.error.message };
+  const ctx = ctxRes.data;
+
+  // Caller-bound read: establishes the operation + SQL-computed digest the
+  // token will bind, and surfaces a clear error for missing/foreign intents
+  // before the state transition is attempted.
+  const intent = await getWriteIntent(ctx, { intent_id: opts.intentId });
+  if (!intent.ok) return { error: intent.error.message };
+
+  // Atomic pending → approved transition (server-enforced; refused for
+  // OAuth callers, non-owners, expired or non-pending intents).
+  const approved = await approveWriteIntent(ctx, { intent_id: opts.intentId });
+  if (!approved.ok) return { error: approved.error.message };
+  if (approved.data.status !== "approved") {
+    return { error: "Approval transition did not complete." };
   }
-
-  // Atomic claim FIRST — one pending→claimed transition per intent, or
-  // zero rows and no token. The returned row carries the trusted digest.
-  const claimed = await claimWriteIntent(supabase, opts.intentId, user.id);
-  if (!claimed.ok) return { error: claimed.error };
-  const intent: StoredWriteIntent = claimed.intent;
 
   try {
     const { token, expires_at } = mintApprovalToken({
-      userId: user.id,
-      operation: intent.operation,
-      digest: intent.digest,
+      userId: ctx.userId,
+      operation: intent.data.intent.operation as ApprovableOperation,
+      intentId: opts.intentId,
+      digest: intent.data.intent.payload_digest,
     });
     return { token, expires_at };
   } catch (err) {

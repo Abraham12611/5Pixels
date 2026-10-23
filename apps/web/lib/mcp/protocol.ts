@@ -137,7 +137,7 @@ export class McpDispatch {
           capabilities: { tools: { listChanged: false } },
           serverInfo: MCP_SERVER_INFO,
           instructions:
-            "5Pixels Preset Factory — draft-only preset authoring. Write tools require an owner-minted approval token bound to the exact payload; no generation, testing or publishing capability exists here.",
+            "5Pixels Preset Factory — draft-only preset authoring. Write tools require a staged write-intent approved by the owner in the admin UI (database-enforced for OAuth callers); no generation, testing or publishing capability exists here.",
         });
       }
       case "ping":

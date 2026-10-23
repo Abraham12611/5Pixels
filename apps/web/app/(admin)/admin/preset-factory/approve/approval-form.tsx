@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import type { WriteIntentSummary } from "@/lib/preset-factory/contract";
 import type {
   IntentItemPreview,
-  StoredWriteIntent,
+  IntentSummary,
 } from "@/lib/mcp/preset-factory/approval";
 import { mintWriteApproval } from "./actions";
 
@@ -70,17 +71,16 @@ function ItemRow({ it }: { it: IntentItemPreview }) {
 }
 
 /**
- * Itemized approval preview (#272) — the owner sees the REAL staged
- * request (read back from the server-held intent, not model text):
- * each preset's name/slug/type/visibility/safety/composition/model
- * settings, or each category. This is a LIMITED SUMMARY by design:
- * private instruction templates, negative prompts, model_config
- * internals, product-field copy and asset payloads are deliberately
- * never rendered here — approving means trusting the staged digest,
- * not independently verifying hidden recipe content (review that in
- * the draft editor after creation).
+ * Itemized approval preview (#272) — the owner sees the staged intent's
+ * stored preview (read back from `preset_factory_write_intents`, not model
+ * text): each preset's name/slug/type/visibility/safety/composition/model
+ * settings, or each category. This is a LIMITED SUMMARY by design: private
+ * instruction templates, negative prompts, model_config internals, field
+ * copy and asset payloads are never stored or rendered — approving means
+ * trusting the SQL-bound payload fingerprint, not independently verifying
+ * hidden recipe content (review that in the draft editor after creation).
  */
-export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
+export function ApprovalForm({ intent }: { intent: WriteIntentSummary }) {
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,13 +91,17 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
     intent.operation === "create_draft_batch"
       ? "Create preset draft batch"
       : "Create preset categories";
-  const items = intent.summary.items ?? [];
-  const categories = intent.summary.categories ?? [];
+  const summary = (intent.preview ?? {}) as unknown as IntentSummary;
+  const items = summary.items ?? [];
+  const categories = summary.categories ?? [];
+  const [now] = useState(() => Date.now());
+  const expired = new Date(intent.expires_at).getTime() <= now;
+  const approvable = intent.status === "pending" && !expired;
 
   const mint = () => {
     setError(null);
     start(async () => {
-      const res = await mintWriteApproval({ intentId: intent.intentId });
+      const res = await mintWriteApproval({ intentId: intent.intent_id });
       if (res.error) {
         setError(res.error);
         return;
@@ -123,11 +127,18 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-text-secondary">Items</dt>
-          <dd className="text-cream-50">{intent.summary.total_items}</dd>
+          <dd className="text-cream-50">{summary.total_items ?? items.length + categories.length}</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-text-secondary">Status</dt>
+          <dd className="text-cream-50">
+            {intent.status}
+            {expired && intent.status === "pending" && " (expired)"}
+          </dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-text-secondary">Request expires</dt>
-          <dd className="text-cream-50">{new Date(intent.expiresAt).toLocaleString()}</dd>
+          <dd className="text-cream-50">{new Date(intent.expires_at).toLocaleString()}</dd>
         </div>
       </dl>
 
@@ -158,16 +169,17 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
 
       <div className="mt-4 space-y-1.5">
         <p className="text-text-secondary text-xs">
-          Payload digest: <span className="font-mono">{intent.digest.slice(0, 24)}…</span>
+          Payload digest (SQL-computed):{" "}
+          <span className="font-mono">{intent.payload_digest.slice(0, 24)}…</span>
           {" "}— confirm these items match what your ChatGPT conversation proposed.
         </p>
         <p className="text-text-secondary text-xs">
           This is a summary of identity and settings only. Private recipe
           material — instruction templates, negative prompts, model-config
-          internals, field copy and linked-asset content — is never shown
-          here and is NOT independently verified by this page. Approving
-          means trusting the staged payload digest; review full recipes in
-          the draft editor after creation.
+          internals, field copy and linked-asset content — is never stored or
+          shown here and is NOT independently verified by this page.
+          Approving binds the SQL fingerprint of the staged payload; review
+          full recipes in the draft editor after creation.
         </p>
       </div>
 
@@ -178,8 +190,8 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
       )}
 
       {!token ? (
-        <Button className="mt-5" disabled={pending} onClick={mint}>
-          Approve exactly this request
+        <Button className="mt-5" disabled={pending || !approvable} onClick={mint}>
+          {approvable ? "Approve exactly this request" : "Not approvable"}
         </Button>
       ) : (
         <div className="mt-5 space-y-3">
@@ -194,9 +206,10 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
             {copied ? "Copied" : "Copy token"}
           </Button>
           <p className="text-text-secondary text-xs">
-            One approval = this exact staged request; the intent is consumed
-            and cannot mint again. The token itself may be retried until
-            expiry — retries are safe because the write is idempotent.
+            This token points at the approved intent — it authorizes only
+            this exact staged request through the connector. It may be
+            retried until expiry; the intent is consumed server-side as each
+            item writes, so replays cannot duplicate drafts.
           </p>
         </div>
       )}

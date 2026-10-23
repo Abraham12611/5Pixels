@@ -7,6 +7,7 @@ import {
   type CreateCategoryRequest,
   type FactoryResult,
   type PresetDraftItem,
+  type StageWriteIntentRequest,
 } from "@/lib/preset-factory/contract";
 import {
   createBearerPresetFactoryContext,
@@ -25,7 +26,6 @@ import {
   approvalRequired,
   buildIntentSummary,
   payloadDigest,
-  recordWriteIntent,
   verifyApprovalToken,
   type ApprovableOperation,
 } from "./approval";
@@ -143,56 +143,68 @@ function normalizeDraftItems(rawItems: RawItem[], batchId: string): NormalizedIt
 }
 
 /**
- * The owner-approval gate shared by both write tools. Computes the digest
- * over the EXACT canonical payload the service will receive (post
- * key-derivation), then verifies the supplied token binds that digest +
- * operation + verified caller. No token → STAGE a server-held pending
- * intent (the owner reviews its real itemized content in the admin UI)
- * and refuse with `approval_required`; bad token → refused.
+ * The owner-approval gate shared by both write tools (A's intent contract):
+ *
+ *   No token → `stageWriteIntent` on the caller's bearer context — SQL
+ *   fingerprints the canonical payload and returns {intent_id, digest,
+ *   item_fingerprints} → refuse with `approval_required` + approval_url.
+ *
+ *   Token → verify the ChatGPT-layer HMAC (binds owner, operation, the
+ *   approved intent id + A's SQL digest) and return the intent id — the
+ *   write then forwards `approval_intent_id` (drafts: the RPC verifies +
+ *   consumes internally) or consumes each fingerprint (categories).
  */
-async function requireApproval(
+async function stageOrVerifyApproval(
   ctx: ToolContext,
+  backend: PresetFactoryBackend,
   operation: ApprovableOperation,
-  canonicalPayload: unknown,
+  stageRequest: StageWriteIntentRequest,
   token: unknown
-): Promise<ToolResultPayload | null> {
-  const digest = payloadDigest(canonicalPayload);
+): Promise<
+  | { approved: true; intentId: string }
+  | { approved: false; result: ToolResultPayload }
+> {
   if (typeof token !== "string" || !token) {
-    const summary = buildIntentSummary(operation, canonicalPayload);
-    const staged = await recordWriteIntent(ctx.caller.supabase, {
-      operation,
-      digest,
-      summary,
-    });
+    const staged = await backend.stageWriteIntent(stageRequest);
     if (!staged.ok) {
-      return toolError(`Write refused: ${staged.error}`, env({
-        error: { code: "approval_staging_failed", message: staged.error },
-      }));
+      return {
+        approved: false,
+        result: toolError(`Write refused: ${staged.error.message}`, env({
+          error: { code: "approval_staging_failed", message: staged.error.message },
+        })),
+      };
     }
-    return toolError(
-      "Owner approval required — a pending approval request was staged.",
-      env({
-        error: approvalRequired({
-          operation,
-          digest,
-          intentId: staged.intentId,
-          siteOrigin: ctx.requestOrigin,
-        }),
-      })
-    );
+    return {
+      approved: false,
+      result: toolError(
+        "Owner approval required — a pending approval request was staged.",
+        env({
+          error: approvalRequired({
+            operation,
+            intentId: staged.data.intent_id,
+            digest: staged.data.digest,
+            itemFingerprints: staged.data.item_fingerprints,
+            expiresAt: staged.data.expires_at,
+            siteOrigin: ctx.requestOrigin,
+          }),
+        })
+      ),
+    };
   }
   const check = verifyApprovalToken(token, {
     userId: ctx.caller.user.id,
     operation,
-    digest,
   });
   if (!check.ok) {
-    return toolError(
-      `Write refused: approval token rejected (${check.reason}). The owner must approve this exact payload in the admin UI.`,
-      env({ error: { code: "approval_invalid", reason: check.reason, digest } })
-    );
+    return {
+      approved: false,
+      result: toolError(
+        `Write refused: approval token rejected (${check.reason}). The owner must approve this request in the admin UI.`,
+        env({ error: { code: "approval_invalid", reason: check.reason } })
+      ),
+    };
   }
-  return null;
+  return { approved: true, intentId: check.intentId };
 }
 
 export function buildToolHandlers(): Map<
@@ -442,25 +454,79 @@ export function buildToolHandlers(): Map<
         },
       });
     }
-    const canonical = {
-      categories: parsedCats
-        .map((r) => (r.parsed.success ? r.parsed.data : null))
-        .filter((c): c is CreateCategoryRequest => c !== null),
-    };
+    const canonicalCategories = parsedCats
+      .map((r) => (r.parsed.success ? r.parsed.data : null))
+      .filter((c): c is CreateCategoryRequest => c !== null)
+      .map((c) => ({
+        name: c.name,
+        slug: c.slug,
+        ...(c.description !== undefined ? { description: c.description } : {}),
+        sort_order: c.sort_order,
+        idempotency_key: c.idempotency_key,
+      }));
 
-    const gate = await requireApproval(ctx, "create_categories", canonical, args.approval_token);
-    if (gate) return gate;
+    const gate = await stageOrVerifyApproval(
+      ctx,
+      b.backend,
+      "create_categories",
+      {
+        operation: "create_categories",
+        categories: canonicalCategories,
+        preview: buildIntentSummary("create_categories", {
+          categories: canonicalCategories,
+        }) as unknown as Record<string, unknown>,
+        ttl_seconds: 900,
+      },
+      args.approval_token
+    );
+    if (!gate.approved) return gate.result;
+    const intentId = gate.intentId;
+
+    // Per-item approved fingerprints, echoed back verbatim from the staged
+    // response (index-aligned with the categories). SQL verifies coverage
+    // on every consume — these are claims, not authority.
+    const fingerprints = Array.isArray(args.item_fingerprints)
+      ? (args.item_fingerprints as string[])
+      : [];
 
     const results = [];
-    for (const c of canonical.categories) {
+    for (const [i, c] of canonicalCategories.entries()) {
       const res = await b.backend.createCategory(c);
-      results.push(
-        res.ok
-          ? { slug: c.slug, status: res.data.status, category: res.data.category, warnings: res.data.warnings }
-          : { slug: c.slug, status: "failed" as const, error: res.error }
-      );
-      // Fail-fast on hard errors is unnecessary — collect all outcomes; the
-      // idempotency ledger makes a retry of the batch safe.
+      if (!res.ok) {
+        results.push({
+          slug: c.slug,
+          status: "failed" as const,
+          error: res.error,
+          approval: { consumed: false },
+        });
+        continue;
+      }
+      // Only an actual CREATE consumes an approval unit — a `reused`
+      // category wrote nothing, so its fingerprint stays unconsumed and
+      // the intent's consumed/total accounting stays truthful.
+      let consumption: { consumed: boolean; error?: string } = { consumed: false };
+      if (res.data.status === "created") {
+        const fp = fingerprints[i];
+        if (typeof fp !== "string" || !fp) {
+          consumption = { consumed: false, error: "item_fingerprints missing for this item" };
+        } else {
+          const consumed = await b.backend.consumeWriteIntent({
+            intent_id: intentId,
+            operation: "create_categories",
+            request_fingerprint: fp,
+          });
+          consumption = consumed.ok
+            ? { consumed: true }
+            : { consumed: false, error: consumed.error.message };
+        }
+      }
+      results.push({
+        slug: c.slug,
+        status: res.data.status,
+        category: res.data.category,
+        warnings: res.data.warnings,
+        approval: consumption,
+      });
     }
     return toolOk(
       env({
@@ -469,6 +535,7 @@ export function buildToolHandlers(): Map<
           created: results.filter((r) => r.status === "created").length,
           reused: results.filter((r) => r.status === "reused").length,
           failed: results.filter((r) => r.status === "failed").length,
+          consumed: results.filter((r) => r.approval.consumed).length,
         },
       })
     );
@@ -496,12 +563,33 @@ export function buildToolHandlers(): Map<
       });
     }
 
-    // The digest binds the EXACT canonical batch the service receives.
+    // The staged intent fingerprints exactly this canonical item set in
+    // SQL — the approval binds what would actually be written.
     const canonical = { batch_id: batchId, items: normalized.items };
-    const gate = await requireApproval(ctx, "create_draft_batch", canonical, args.approval_token);
-    if (gate) return gate;
+    const gate = await stageOrVerifyApproval(
+      ctx,
+      b.backend,
+      "create_draft_batch",
+      {
+        operation: "create_draft_batch",
+        batch_id: batchId,
+        items: normalized.items,
+        preview: buildIntentSummary("create_draft_batch", canonical) as unknown as Record<
+          string,
+          unknown
+        >,
+        ttl_seconds: 900,
+      },
+      args.approval_token
+    );
+    if (!gate.approved) return gate.result;
 
-    const res = await b.backend.createPresetDrafts(canonical);
+    // The approved intent id goes INTO the batch — A's draft RPC verifies
+    // it (OAuth gate) and consumes each item's fingerprint internally.
+    const res = await b.backend.createPresetDrafts({
+      ...canonical,
+      approval_intent_id: gate.intentId,
+    });
     if (!res.ok) return toolError(res.error.message, env(res.error));
     return toolOk(
       env({

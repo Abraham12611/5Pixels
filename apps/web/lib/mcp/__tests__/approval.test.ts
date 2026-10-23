@@ -34,48 +34,54 @@ describe("canonicalJson / payloadDigest", () => {
 
 describe("approval tokens", () => {
   const base = { userId: "u-1", operation: "create_draft_batch" as const };
+  const INTENT = "00000000-0000-4000-8000-0000000000a1";
+  const SQL_DIGEST = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"; // A's SQL md5
 
   it("fails closed when the secret is unset", () => {
-    const res = verifyApprovalToken("anything", { ...base, digest: "x" });
-    expect(res).toEqual({ ok: false, reason: "unconfigured" });
+    const res = verifyApprovalToken("anything", base);
+    expect(res).toEqual({ ok: false, reason: "malformed" });
     expect(() =>
-      mintApprovalToken({ ...base, digest: "x" })
+      mintApprovalToken({ ...base, intentId: INTENT, digest: SQL_DIGEST })
     ).toThrow(/APPROVAL_SECRET/);
   });
 
-  it("mints and verifies a token bound to user + op + digest", () => {
+  it("mints and verifies a token bound to user + op + intent + digest", () => {
     process.env.PRESET_FACTORY_APPROVAL_SECRET = SECRET;
-    const digest = payloadDigest({ batch_id: "b", items: [] });
-    const { token } = mintApprovalToken({ ...base, digest });
-    expect(verifyApprovalToken(token, { ...base, digest })).toEqual({ ok: true });
+    const { token } = mintApprovalToken({ ...base, intentId: INTENT, digest: SQL_DIGEST });
+    expect(verifyApprovalToken(token, base)).toEqual({
+      ok: true,
+      intentId: INTENT,
+      digest: SQL_DIGEST,
+    });
   });
 
-  it("rejects tampering: different digest, user, operation or signature", () => {
+  it("rejects tampering: different user, operation or signature", () => {
     process.env.PRESET_FACTORY_APPROVAL_SECRET = SECRET;
-    const digest = payloadDigest({ batch_id: "b" });
-    const { token } = mintApprovalToken({ ...base, digest });
+    const { token } = mintApprovalToken({ ...base, intentId: INTENT, digest: SQL_DIGEST });
 
     expect(
-      verifyApprovalToken(token, { ...base, digest: payloadDigest({ other: 1 }) })
-    ).toEqual({ ok: false, reason: "digest_mismatch" });
+      verifyApprovalToken(token, { ...base, userId: "u-2" })
+    ).toEqual({ ok: false, reason: "user_mismatch" });
     expect(
-      verifyApprovalToken(token, { ...base, userId: "u-2", digest })
-    ).toEqual({ ok: false, reason: "wrong_user" });
-    expect(
-      verifyApprovalToken(token, { ...base, operation: "create_categories", digest })
-    ).toEqual({ ok: false, reason: "wrong_operation" });
+      verifyApprovalToken(token, { ...base, operation: "create_categories" })
+    ).toEqual({ ok: false, reason: "operation_mismatch" });
 
     const tampered = `${token.slice(0, -2)}xx`;
-    expect(
-      verifyApprovalToken(tampered, { ...base, digest })
-    ).toEqual({ ok: false, reason: "bad_signature" });
+    expect(verifyApprovalToken(tampered, base)).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
   });
 
   it("rejects expired tokens", () => {
     process.env.PRESET_FACTORY_APPROVAL_SECRET = SECRET;
-    const digest = payloadDigest({});
-    const { token } = mintApprovalToken({ ...base, digest, ttlSeconds: -1 });
-    expect(verifyApprovalToken(token, { ...base, digest })).toEqual({
+    const { token } = mintApprovalToken({
+      ...base,
+      intentId: INTENT,
+      digest: SQL_DIGEST,
+      ttlSeconds: -1,
+    });
+    expect(verifyApprovalToken(token, base)).toEqual({
       ok: false,
       reason: "expired",
     });

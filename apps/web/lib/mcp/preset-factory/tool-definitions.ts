@@ -202,7 +202,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_categories",
     description:
-      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the request and receive the approval link to hand the owner. Slug collisions return a conflict with the existing category for reuse.",
+      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the intent and receive the approval link plus item_fingerprints; on the approved re-call, echo item_fingerprints back verbatim so each created category's approved fingerprint is consumed. Slug collisions return a conflict with the existing category for reuse.",
     inputSchema: {
       type: "object",
       required: ["categories"],
@@ -227,7 +227,13 @@ export const TOOL_DEFS: ToolDef[] = [
         approval_token: {
           type: "string",
           description:
-            "Owner-minted approval token bound to this exact payload's digest, the operation and the caller. Obtain it via the approval flow, never fabricate it.",
+            "Owner-minted approval token binding the caller, operation and approved intent id. Obtain it via the approval flow, never fabricate it.",
+        },
+        item_fingerprints: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "The item_fingerprints array echoed verbatim from the staged approval response (index-aligned with categories). Required when approval_token is supplied — the adapter consumes each created category's approved fingerprint; SQL rejects fingerprints the intent does not cover.",
         },
       },
       additionalProperties: false,
@@ -239,7 +245,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_draft_batch",
     description:
-      "Persist a batch of complete preset drafts AFTER the owner approves the validated plan. Flow: (1) plan_preset_batch → (2) validate_preset_batch → (3) present summary to owner → (4) call WITHOUT approval_token to stage a server-held approval request and get the approval link → (5) the owner inspects the real staged items in the admin UI and mints the token → (6) re-call with approval_token and the SAME ids/keys. The atomic RPC forces every product+version to draft — nothing can be published here.",
+      "Persist a batch of complete preset drafts AFTER the owner approves the validated plan. Flow: (1) plan_preset_batch → (2) validate_preset_batch → (3) present summary to owner → (4) call WITHOUT approval_token to stage a server-held approval intent (SQL fingerprints the exact items) and get the approval link → (5) the owner inspects the staged items in the admin UI and approves → (6) re-call with approval_token and the SAME ids/keys — the approved intent id is forwarded to the draft RPC, which verifies and consumes each item's fingerprint. The atomic RPC forces every product+version to draft — nothing can be published here.",
     inputSchema: {
       type: "object",
       required: ["items"],

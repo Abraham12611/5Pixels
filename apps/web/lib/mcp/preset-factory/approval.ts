@@ -1,37 +1,45 @@
 /**
- * Owner-bound write approval (#272).
+ * Owner-bound write approval (#272) — integrated with Engineer A's
+ * database-authoritative write-intent contract (#271 @26761c6).
  *
- * `confirm: true` in a tool call proves nothing — the model itself can set
- * it. Instead, every write requires an `approval_token` that can only be
- * minted inside the authenticated 5Pixels admin UI:
+ * A's model is the authority: `preset_factory_write_intents` rows carry a
+ * SQL-computed `payload_digest` + per-item canonical fingerprints, mutated
+ * only through SECURITY DEFINER RPCs (no direct table writes). The draft
+ * RPC itself gates OAuth-issued tokens on a matching approved intent —
+ * approval is enforced at the database, not just this adapter.
  *
- *   1. A write tool called without a token STAGES a server-held pending
- *      intent (canonical payload digest + sanitized itemized summary in
- *      the dedicated `preset_factory_write_intents` table via A's
- *      SECURITY DEFINER stage RPC, 15-min TTL) and refuses.
- *   2. The owner opens `/admin/preset-factory/approve?intent=<id>` (cookie
- *      session, requireAdmin), reviews the REAL staged items — names,
- *      slugs, types, visibility/safety/composition/model settings; never
- *      recipe text — and clicks Approve → the server action runs the
- *      atomic claim RPC FIRST (exactly one pending→claimed transition)
- *      and only then mints a token bound to the claimed digest.
- *   3. The owner pastes the token back into the conversation; the model
- *      re-calls the write tool with `approval_token`.
+ * This module owns ONLY the ChatGPT-layer confirmation token:
  *
- * The token binds: the approving user's id · the operation · the payload
- * digest · an expiry. Verification is HMAC-SHA256 over the serialized
- * token body — the model can neither mint nor extend one, and a token for
- * a different payload/user/operation is rejected. Tokens are repeatable
- * until expiry (safe retries; writes are idempotent) — see TOKEN SEMANTICS
- * below for the precise boundary.
+ *   1. A write tool called without a token asks A's `stageWriteIntent`
+ *      (bearer context) to stage a pending intent — SQL fingerprints the
+ *      exact canonical payload — and refuses with `approval_required`.
+ *   2. The owner opens `/admin/preset-factory/approve?intent=<id>` —
+ *      `getWriteIntent` shows the stored preview; `approveWriteIntent`
+ *      performs the atomic pending→approved transition (OAuth callers are
+ *      refused inside the RPC, so approval can only come from the cookie
+ *      session). Only after `status='approved'` does the action mint a
+ *      token bound to {owner id, operation, intent_id, A's SQL
+ *      payload_digest, expiry}.
+ *   3. The owner pastes the token back; the model re-calls the write tool.
+ *      The adapter forwards `approval_intent_id` to `createPresetDrafts`
+ *      (the RPC verifies + consumes fingerprints internally) and calls
+ *      `consumeWriteIntent` per created category (categories can't be
+ *      DB-gated — see A's contract doc).
+ *
+ * TOKEN SEMANTICS (honest): the HMAC token is a ChatGPT-layer proof that a
+ * specific owner-approved intent backs this write call — it is NOT the
+ * authorization authority for drafts (the DB gate is) and is NOT one-use:
+ * it is repeatable until its 10-minute expiry so a dropped response can be
+ * retried safely; the intent's own consumed-state plus the idempotency
+ * ledger make replays safe. One mint per approval is enforced because the
+ * pending→approved transition itself is atomic.
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PresetDraftItem } from "@/lib/preset-factory/contract";
 
 export const APPROVAL_TTL_SECONDS = 600;
-const TOKEN_VERSION = "pfa1";
+const TOKEN_VERSION = "pfa2";
 
 export type ApprovableOperation = "create_draft_batch" | "create_categories";
 
@@ -51,105 +59,121 @@ export function canonicalJson(value: unknown): string {
     .join(",")}}`;
 }
 
-/** SHA-256 of the canonical payload — the digest the owner verifies. */
+/** sha256 of the canonical payload — used for deterministic batch_id
+ * derivation ONLY. It is never approval authority: the DB's own canonical
+ * fingerprint decides what an intent covers. */
 export function payloadDigest(payload: unknown): string {
   return createHash("sha256").update(canonicalJson(payload)).digest("hex");
 }
 
-function approvalSecret(): string | null {
+// ---------------------------------------------------------------------------
+// HMAC approval token — binds {approver, operation, intent, SQL digest, exp}
+// ---------------------------------------------------------------------------
+
+function approvalSecret(): string {
   const secret = process.env.PRESET_FACTORY_APPROVAL_SECRET;
-  return secret && secret.length >= 16 ? secret : null;
+  if (!secret) {
+    throw new Error(
+      "PRESET_FACTORY_APPROVAL_SECRET is not configured — write approvals are disabled."
+    );
+  }
+  return secret;
 }
 
-function sign(body: string, secret: string): string {
-  return createHmac("sha256", secret).update(body).digest("hex");
+function sign(body: string): string {
+  return createHmac("sha256", approvalSecret()).update(body).digest("base64url");
 }
 
-function b64url(input: string): string {
-  return Buffer.from(input, "utf8").toString("base64url");
-}
-
-function unb64url(input: string): string {
-  return Buffer.from(input, "base64url").toString("utf8");
-}
-
-interface TokenPayload {
-  uid: string;
-  op: ApprovableOperation;
-  d: string;
-  exp: number;
-}
-
-/**
- * Mint a write-approval token. Only reachable from the authenticated admin
- * server action — never through MCP.
- */
 export function mintApprovalToken(opts: {
   userId: string;
   operation: ApprovableOperation;
+  intentId: string;
+  /** A's SQL-computed `payload_digest` for the staged intent — provenance,
+   *  not a separately calculated check value. */
   digest: string;
   ttlSeconds?: number;
 }): { token: string; expires_at: string } {
-  const secret = approvalSecret();
-  if (!secret) {
-    throw new Error("PRESET_FACTORY_APPROVAL_SECRET is not configured.");
-  }
   const exp = Math.floor(Date.now() / 1000) + (opts.ttlSeconds ?? APPROVAL_TTL_SECONDS);
-  const payload: TokenPayload = { uid: opts.userId, op: opts.operation, d: opts.digest, exp };
-  const body = `${TOKEN_VERSION}.${b64url(JSON.stringify(payload))}`;
-  return {
-    token: `${body}.${sign(body, secret)}`,
-    expires_at: new Date(exp * 1000).toISOString(),
-  };
+  const body = canonicalJson({
+    v: TOKEN_VERSION,
+    uid: opts.userId,
+    op: opts.operation,
+    iid: opts.intentId,
+    dg: opts.digest,
+    exp,
+  });
+  const token = `${TOKEN_VERSION}.${Buffer.from(body, "utf8").toString("base64url")}.${sign(body)}`;
+  return { token, expires_at: new Date(exp * 1000).toISOString() };
 }
 
-export type ApprovalCheck =
-  | { ok: true }
-  | { ok: false; reason: "unconfigured" | "malformed" | "bad_signature" | "expired" | "wrong_user" | "wrong_operation" | "digest_mismatch" };
+export type ApprovalRejection =
+  | "malformed"
+  | "bad_signature"
+  | "expired"
+  | "user_mismatch"
+  | "operation_mismatch";
 
-/**
- * Verify a token against the exact canonical payload about to be written,
- * the authenticated caller, and the operation — fail closed on any drift.
- */
 export function verifyApprovalToken(
   token: string,
-  expected: { userId: string; operation: ApprovableOperation; digest: string }
-): ApprovalCheck {
-  const secret = approvalSecret();
-  if (!secret) return { ok: false, reason: "unconfigured" };
-
+  expected: { userId: string; operation: ApprovableOperation }
+): { ok: true; intentId: string; digest: string } | { ok: false; reason: ApprovalRejection } {
   const parts = token.split(".");
   if (parts.length !== 3 || parts[0] !== TOKEN_VERSION) {
     return { ok: false, reason: "malformed" };
   }
-  const body = `${parts[0]}.${parts[1]}`;
-  const expectedSig = sign(body, secret);
-  const a = Buffer.from(parts[2], "utf8");
-  const b = Buffer.from(expectedSig, "utf8");
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    return { ok: false, reason: "bad_signature" };
-  }
-
-  let payload: TokenPayload;
+  let payload: {
+    v?: string;
+    uid?: string;
+    op?: string;
+    iid?: string;
+    dg?: string;
+    exp?: number;
+  };
   try {
-    payload = JSON.parse(unb64url(parts[1])) as TokenPayload;
+    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
   } catch {
     return { ok: false, reason: "malformed" };
   }
-  if (typeof payload.exp !== "number" || payload.exp <= Date.now() / 1000) {
+  const body = canonicalJson({
+    v: payload.v,
+    uid: payload.uid,
+    op: payload.op,
+    iid: payload.iid,
+    dg: payload.dg,
+    exp: payload.exp,
+  });
+  const expectedSig = Buffer.from(sign(body));
+  const actualSig = Buffer.from(parts[2]);
+  if (
+    expectedSig.length !== actualSig.length ||
+    !timingSafeEqual(expectedSig, actualSig)
+  ) {
+    return { ok: false, reason: "bad_signature" };
+  }
+  if (typeof payload.exp !== "number" || payload.exp * 1000 <= Date.now()) {
     return { ok: false, reason: "expired" };
   }
-  if (payload.uid !== expected.userId) return { ok: false, reason: "wrong_user" };
-  if (payload.op !== expected.operation) return { ok: false, reason: "wrong_operation" };
-  if (payload.d !== expected.digest) return { ok: false, reason: "digest_mismatch" };
-  return { ok: true };
+  if (payload.uid !== expected.userId) return { ok: false, reason: "user_mismatch" };
+  if (payload.op !== expected.operation) {
+    return { ok: false, reason: "operation_mismatch" };
+  }
+  if (typeof payload.iid !== "string" || !payload.iid || typeof payload.dg !== "string") {
+    return { ok: false, reason: "malformed" };
+  }
+  return { ok: true, intentId: payload.iid, digest: payload.dg };
 }
 
 /** Shape returned by write tools when the owner has not approved yet. */
 export function approvalRequired(opts: {
   operation: ApprovableOperation;
-  digest: string;
   intentId: string;
+  /** A's SQL-computed digest over the staged canonical payload. */
+  digest: string;
+  /** Per-item SQL fingerprints — the model echoes these back so the
+   *  adapter can consume each approved unit (categories only; drafts are
+   *  consumed inside A's draft RPC via approval_intent_id). */
+  itemFingerprints: string[];
+  expiresAt: string;
   siteOrigin: string;
 }) {
   const approvalUrl =
@@ -163,53 +187,24 @@ export function approvalRequired(opts: {
       operation: opts.operation,
       intent_id: opts.intentId,
       digest: opts.digest,
+      item_fingerprints: opts.itemFingerprints,
       approval_url: approvalUrl,
-      expires_in_seconds: INTENT_TTL_SECONDS,
+      expires_at: opts.expiresAt,
       instructions_for_owner:
-        "Open the approval link — it shows the exact items this request will write. If they match what you saw here, click Approve and paste the returned token back as approval_token.",
+        "Open the approval link — it shows the exact items this request will write. If they match what you saw here, click Approve and paste the returned token back as approval_token (re-call with the SAME payload).",
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Pending write intents — server-held, user-bound, short-lived, one-shot.
-//
-// Storage: `preset_factory_write_intents`, a dedicated table owned by
-// Engineer A's migration (spec posted on #271) — deliberately NOT
-// `admin_audit_logs`, whose `is_admin()`-wide ALL policy lets any admin
-// mutate any admin's rows. The table has no direct INSERT/UPDATE for
-// `authenticated`; all mutations go through two SECURITY DEFINER RPCs:
-//
-//   preset_factory_stage_write_intent(operation, digest, summary, ttl)
-//     → inserts with requester = auth.uid() server-side; returns intent id.
-//   preset_factory_claim_write_intent(intent_id)
-//     → single conditional UPDATE … RETURNING (requester = auth.uid(),
-//       status='pending', unexpired): the atomic one-shot claim. The mint
-//       action signs ONLY the digest/operation returned by this claim.
-//
-// Reads (approve-page display) use a requester-scoped SELECT policy —
-// a viewer can only ever read their own intents.
-//
-// TOKEN SEMANTICS (honest): one successful mint per intent is enforced
-// atomically by the claim; the resulting token is REPEATABLE until its
-// 10-minute expiry so a dropped response can be retried safely — replay
-// cannot double-write because the underlying draft RPC is idempotent on
-// (batch_id, item idempotency keys, server-computed fingerprint). The
-// token is NOT one-use and does not create a new privilege: it gates the
-// MCP tool surface only. An admin's own Supabase JWT already carries the
-// same PostgREST/RPC rights the admin UI uses — see README § boundary.
+// Owner-facing preview — sanitized summary stored as the intent's `preview`.
+// Identity + visibility/safety/composition settings only; the stage RPC
+// additionally rejects recipe-field names as defense-in-depth.
 // ---------------------------------------------------------------------------
 
-export const INTENT_TTL_SECONDS = 900; // 15 minutes
-const INTENTS_TABLE = "preset_factory_write_intents";
-const STAGE_RPC = "preset_factory_stage_write_intent";
-const CLAIM_RPC = "preset_factory_claim_write_intent";
-export const INTENT_STATUS_PENDING = "pending";
-const INTENT_STATUS_CLAIMED = "claimed";
-
-/** Safe preview of a draft item — identity + VISIBILITY/SAFETY/COMPOSITION
- * settings only, NEVER private recipe text (instruction templates,
- * negative prompts, model_config internals, field copy, asset payloads). */
+/** Safe preview of a draft item — NEVER private recipe text (instruction
+ * templates, negative prompts, model_config internals, field copy, asset
+ * payloads). */
 export interface IntentItemPreview {
   client_item_id: string;
   name: string;
@@ -261,9 +256,9 @@ export interface IntentSummary {
   total_items: number;
 }
 
-/** Build the owner-facing preview from the canonical payload — strips all
- * private recipe material (instruction templates, negative prompts,
- * model_config internals, product-field copy, asset link payloads). */
+/** Build the owner-facing preview from the canonical payload — the same
+ * normalized items the stage RPC fingerprints, so the preview the owner
+ * sees always describes the payload the approval binds. */
 export function buildIntentSummary(
   operation: ApprovableOperation,
   canonical: unknown
@@ -329,163 +324,4 @@ export function buildIntentSummary(
     })
   );
   return { operation, categories, total_items: categories.length };
-}
-
-/**
- * Stage a pending write intent via A's SECURITY DEFINER staging RPC — the
- * server binds `requester = auth.uid()` (never caller-supplied) and the
- * RPC applies the same `is_admin()` gate as the write RPCs. Callers use
- * their own token-scoped client, so a non-admin stage attempt fails at the
- * RPC, not in JS. Fails closed if A's intent migration is not deployed.
- */
-export async function recordWriteIntent(
-  supabase: SupabaseClient,
-  opts: {
-    operation: ApprovableOperation;
-    digest: string;
-    summary: IntentSummary;
-  }
-): Promise<{ ok: true; intentId: string } | { ok: false; error: string }> {
-  const { data, error } = await supabase.rpc(STAGE_RPC, {
-    p_operation: opts.operation,
-    p_digest: opts.digest,
-    p_summary: opts.summary as unknown as Record<string, unknown>,
-    p_ttl_seconds: INTENT_TTL_SECONDS,
-  });
-  if (error || typeof data !== "string") {
-    return {
-      ok: false,
-      error: `Could not stage approval request: ${error?.message ?? "intent RPC unavailable (requires A's preset_factory_write_intents migration)"}`,
-    };
-  }
-  return { ok: true, intentId: data };
-}
-
-export interface StoredWriteIntent {
-  intentId: string;
-  operation: ApprovableOperation;
-  digest: string;
-  summary: IntentSummary;
-  ownerId: string;
-  status: string;
-  expiresAt: string;
-}
-
-interface IntentRow {
-  id: string;
-  requester: string;
-  operation: string;
-  digest: string;
-  summary: IntentSummary;
-  status: string;
-  expires_at: string;
-}
-
-function validateIntentRow(
-  row: IntentRow | null,
-  viewerUserId: string,
-  intentId: string
-): { ok: true; intent: StoredWriteIntent } | { ok: false; error: string } {
-  if (!row) return { ok: false, error: "Approval request not found." };
-  // Defense in depth on top of the requester-scoped SELECT policy.
-  if (row.requester !== viewerUserId) {
-    return { ok: false, error: "This approval request belongs to a different account." };
-  }
-  if (
-    row.operation !== "create_draft_batch" &&
-    row.operation !== "create_categories"
-  ) {
-    return { ok: false, error: "Unknown approval operation." };
-  }
-  if (
-    typeof row.digest !== "string" ||
-    !/^[0-9a-f]{64}$/.test(row.digest) ||
-    !row.summary
-  ) {
-    return { ok: false, error: "Approval request is malformed." };
-  }
-  if (new Date(row.expires_at).getTime() <= Date.now()) {
-    return {
-      ok: false,
-      error: "This approval request has expired — ask the connector to stage a new one.",
-    };
-  }
-  return {
-    ok: true,
-    intent: {
-      intentId,
-      operation: row.operation,
-      digest: row.digest,
-      summary: row.summary,
-      ownerId: row.requester,
-      status: row.status,
-      expiresAt: row.expires_at,
-    },
-  };
-}
-
-/**
- * Load a staged intent for DISPLAY on the approval page (requester-scoped
- * SELECT policy — a viewer can only read their own intents). Only pending,
- * unexpired intents are approvable.
- */
-export async function loadWriteIntent(
-  supabase: SupabaseClient,
-  intentId: string,
-  viewerUserId: string
-): Promise<{ ok: true; intent: StoredWriteIntent } | { ok: false; error: string }> {
-  const { data, error } = await supabase
-    .from(INTENTS_TABLE)
-    .select("id, requester, operation, digest, summary, status, expires_at")
-    .eq("id", intentId)
-    .maybeSingle();
-  if (error) {
-    return { ok: false, error: `Approval request lookup failed: ${error.message}` };
-  }
-  const checked = validateIntentRow(data as IntentRow | null, viewerUserId, intentId);
-  if (!checked.ok) return checked;
-  if (checked.intent.status !== INTENT_STATUS_PENDING) {
-    return {
-      ok: false,
-      error: "This approval request was already used or is no longer pending.",
-    };
-  }
-  return checked;
-}
-
-/**
- * Atomically claim a pending intent — single conditional
- * `UPDATE … RETURNING` inside A's SECURITY DEFINER RPC
- * (requester = auth.uid(), status='pending', unexpired). Returns the
- * CLAIMED row whose digest the caller must sign — never a request-supplied
- * value. Empty result = already claimed, expired, or not yours.
- */
-export async function claimWriteIntent(
-  supabase: SupabaseClient,
-  intentId: string,
-  sessionUserId: string
-): Promise<
-  | { ok: true; intent: StoredWriteIntent }
-  | { ok: false; error: string }
-> {
-  const { data, error } = await supabase.rpc(CLAIM_RPC, {
-    p_intent_id: intentId,
-  });
-  if (error) {
-    return { ok: false, error: `Approval claim failed: ${error.message}` };
-  }
-  const rows = (data ?? []) as IntentRow[];
-  if (rows.length !== 1) {
-    return {
-      ok: false,
-      error:
-        "Approval request is not claimable — already used, expired, or owned by another account.",
-    };
-  }
-  const checked = validateIntentRow(
-    { ...rows[0], status: INTENT_STATUS_CLAIMED },
-    sessionUserId,
-    intentId
-  );
-  return checked;
 }

@@ -8,6 +8,7 @@ import type {
   PresetBatchResult,
   PresetDraftItem,
   ReviewLinkEntry,
+  StageWriteIntentRequest,
 } from "@/lib/preset-factory/contract";
 import type { PresetFactoryBackend } from "./backend";
 
@@ -126,6 +127,34 @@ export function fixtureBackend(): PresetFactoryBackend {
         summary: { total: items.length, created: items.length, reused: 0, validated: 0, failed: 0 },
       };
       return ok(simulated(result));
+    },
+    async stageWriteIntent(request: StageWriteIntentRequest) {
+      const unitCount =
+        request.operation === "create_draft_batch"
+          ? request.items.length
+          : request.categories.length;
+      return ok(
+        simulated({
+          intent_id: SIM("f1"),
+          status: "pending" as const,
+          digest: "sim-digest-not-real",
+          item_fingerprints: Array.from(
+            { length: unitCount },
+            (_, i) => `sim-fp-${i + 1}`
+          ),
+          expires_at: new Date(Date.now() + 900_000).toISOString(),
+        })
+      );
+    },
+    async consumeWriteIntent(request) {
+      return ok(
+        simulated({
+          intent_id: request.intent_id,
+          status: "consumed" as const,
+          consumed: 1,
+          total: 1,
+        })
+      );
     },
     async getBatchStatus(query) {
       const items: BatchStatusItem[] = [...created.values()].map((r) => ({
