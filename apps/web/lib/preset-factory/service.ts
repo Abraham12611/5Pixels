@@ -777,9 +777,22 @@ export async function createPresetCategory(
         .eq("slug", input.slug)
         .single();
       if (winner) {
+        const winning = winner as CategorySummary;
+        // Same slug does not mean same intent — only reuse when the name
+        // matches; a different name under this slug is a real conflict.
+        if (
+          winning.name.trim().toLowerCase() !== input.name.trim().toLowerCase()
+        ) {
+          return fail({
+            code: "category_conflict",
+            message: `Slug "${input.slug}" was claimed concurrently by category "${winning.name}". Reuse it via category_id "${winning.id}" or choose a distinct slug.`,
+            field: "slug",
+            details: { existing: winning },
+          });
+        }
         return ok({
           status: "reused",
-          category: winner as CategorySummary,
+          category: winning,
           warnings: [
             {
               code: "category_conflict",
