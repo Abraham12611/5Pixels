@@ -27,7 +27,6 @@ import {
   payloadDigest,
   verifyApprovalToken,
   type ApprovableOperation,
-  type IntentCategoryPreview,
 } from "./approval";
 import { planPresetBatch, type ProposedPlanItem } from "./planner";
 import { TOOL_DEFS, type ToolDef } from "./tool-definitions";
@@ -154,7 +153,8 @@ function normalizeDraftItems(rawItems: RawItem[], batchId: string): NormalizedIt
  *   Token → verify the ChatGPT-layer HMAC (binds owner, operation, the
  *   approved intent id + A's SQL digest) and return the intent id — the
  *   write then forwards `approval_intent_id` (drafts: the RPC verifies +
- *   consumes internally) or consumes each fingerprint (categories).
+ *   consumes internally) or `admin_create_preset_category` (verifies and
+ *   consumes each payload's fingerprint atomically with the insert).
  */
 async function stageOrVerifyApproval(
   ctx: ToolContext,
@@ -479,82 +479,19 @@ export function buildToolHandlers(): Map<
       args.approval_token
     );
     if (!gate.approved) return gate.result;
-    const intentId = gate.intentId;
 
-    // Rigorous payload binding for the approval: read the staged intent
-    // back (caller-bound) and match each requested category against the
-    // SQL-derived preview — the projection of the fingerprinted units.
-    // A token approved for {A,B} can therefore never create C: C matches
-    // no staged unit, and the echoed item_fingerprints values are never
-    // trusted on their own (the consume RPC additionally rejects any
-    // fingerprint the intent does not cover or that was already used).
-    const intent = await b.backend.getWriteIntent({ intent_id: intentId });
-    if (!intent.ok) {
-      return toolError(
-        `Approval intent unreadable: ${intent.error.message}`,
-        env({ error: intent.error })
-      );
-    }
-    const stagedCategories =
-      (intent.data.intent.preview as { categories?: IntentCategoryPreview[] })
-        .categories ?? [];
-    const fingerprints = Array.isArray(args.item_fingerprints)
-      ? (args.item_fingerprints as string[])
-      : [];
-
+    // Single authorization path: pass the approved intent id into each
+    // create — `admin_create_preset_category` computes THIS payload's
+    // canonical fingerprint, verifies+consumes it against the intent and
+    // inserts atomically. A slug reuse/conflict rolls the claim back to a
+    // savepoint, so only an actual create spends an approved unit; a
+    // payload the intent doesn't cover fails PF_APPROVAL_* — no write.
     const results = [];
     for (const c of canonicalCategories) {
-      const wanted = {
-        name: c.name,
-        slug: c.slug,
-        description: c.description ?? null,
-        sort_order: c.sort_order,
-      };
-      const matchIndex = stagedCategories.findIndex(
-        (s) =>
-          s.name === wanted.name &&
-          s.slug === wanted.slug &&
-          (s.description ?? null) === wanted.description &&
-          (s.sort_order ?? 0) === wanted.sort_order
-      );
-      const fingerprint = matchIndex >= 0 ? fingerprints[matchIndex] : undefined;
-
-      // Consume BEFORE inserting — authorization precedes the write. If
-      // the category turns out to already exist (`reused`, no write), the
-      // consumed unit is honestly reported as such.
-      let approval: { consumed: boolean; error?: string } = { consumed: false };
-      if (matchIndex < 0 || typeof fingerprint !== "string" || !fingerprint) {
-        approval = {
-          consumed: false,
-          error:
-            matchIndex < 0
-              ? "category does not match any staged approval unit"
-              : "item_fingerprints missing for the matched staged item",
-        };
-        results.push({
-          slug: c.slug,
-          status: "failed" as const,
-          error: { code: "approval_payload_mismatch", message: approval.error },
-          approval,
-        });
-        continue;
-      }
-      const consumed = await b.backend.consumeWriteIntent({
-        intent_id: intentId,
-        operation: "create_categories",
-        request_fingerprint: fingerprint,
+      const res = await b.backend.createCategory({
+        ...c,
+        approval_intent_id: gate.intentId,
       });
-      if (!consumed.ok) {
-        results.push({
-          slug: c.slug,
-          status: "failed" as const,
-          error: consumed.error,
-          approval: { consumed: false, error: consumed.error.message },
-        });
-        continue;
-      }
-
-      const res = await b.backend.createCategory(c);
       results.push(
         res.ok
           ? {
@@ -562,13 +499,13 @@ export function buildToolHandlers(): Map<
               status: res.data.status,
               category: res.data.category,
               warnings: res.data.warnings,
-              approval: { consumed: true },
+              approval: { consumed: res.data.status === "created" },
             }
           : {
               slug: c.slug,
               status: "failed" as const,
               error: res.error,
-              approval: { consumed: true },
+              approval: { consumed: false },
             }
       );
     }

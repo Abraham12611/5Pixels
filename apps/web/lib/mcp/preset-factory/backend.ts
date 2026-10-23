@@ -21,27 +21,21 @@ import type {
   CatalogItemSummary,
   CatalogQuery,
   CategorySummary,
-  ConsumeWriteIntentRequest,
-  ConsumeWriteIntentResult,
   CreateCategoryRequest,
   CreateCategoryResult,
   FactoryResult,
-  IntentIdQuery,
   ModelOption,
   PresetBatchResult,
   ReviewLinkEntry,
   ReviewLinksQuery,
   StageWriteIntentRequest,
   StageWriteIntentResult,
-  WriteIntentSummary,
 } from "@/lib/preset-factory/contract";
 import {
-  consumeWriteIntent,
   createPresetCategory,
   createPresetDrafts,
   getPresetBatchStatus,
   getPresetReviewLinks,
-  getWriteIntent,
   listCompatibleModelOptions,
   listPresetCatalog,
   listPresetCategories,
@@ -72,6 +66,9 @@ export interface PresetFactoryBackend {
   /** Schema + domain validation. Pure — writes nothing. */
   validatePresetBatch(batch: unknown): Promise<FactoryResult<PresetBatchResult>>;
 
+  /** Atomic when `approval_intent_id` is set: `admin_create_preset_category`
+   *  verifies THIS payload's fingerprint against the approved intent,
+   *  consumes it and inserts in one transaction. */
   createCategory(input: CreateCategoryRequest): Promise<FactoryResult<CreateCategoryResult>>;
 
   /** The ONLY persistence path — atomic draft-only RPC per item. The
@@ -80,24 +77,12 @@ export interface PresetFactoryBackend {
    *  internally. */
   createPresetDrafts(batch: unknown): Promise<FactoryResult<PresetBatchResult>>;
 
-  /** Stage a pending write intent — SQL fingerprints the canonical items,
-   *  so the approval binds to exactly what would be written. */
+  /** Stage a pending write intent — SQL fingerprints the canonical items
+   *  AND derives the owner preview, so the approval binds to exactly what
+   *  would be written. */
   stageWriteIntent(
     request: StageWriteIntentRequest
   ): Promise<FactoryResult<StageWriteIntentResult>>;
-
-  /** Caller-bound read of a staged intent — used to bind each requested
-   *  category payload to the SQL-derived staged units before consuming. */
-  getWriteIntent(
-    query: IntentIdQuery
-  ): Promise<FactoryResult<{ intent: WriteIntentSummary }>>;
-
-  /** Tool-level per-fingerprint consumption for writes the DB can't gate
-   *  (categories). Called BEFORE each insert, after the payload has been
-   *  matched against the staged preview. */
-  consumeWriteIntent(
-    request: ConsumeWriteIntentRequest
-  ): Promise<FactoryResult<ConsumeWriteIntentResult>>;
 
   getBatchStatus(
     query: BatchStatusQuery
@@ -123,8 +108,6 @@ export function directPresetFactoryBackend(
     createCategory: (input) => createPresetCategory(ctx, input),
     createPresetDrafts: (batch) => createPresetDrafts(ctx, batch),
     stageWriteIntent: (request) => stageWriteIntent(ctx, request),
-    getWriteIntent: (query) => getWriteIntent(ctx, query),
-    consumeWriteIntent: (request) => consumeWriteIntent(ctx, request),
     getBatchStatus: (query) => getPresetBatchStatus(ctx, query),
     getReviewLinks: (query) => getPresetReviewLinks(ctx, query),
   };

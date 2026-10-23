@@ -180,9 +180,10 @@ export function approvalRequired(opts: {
   intentId: string;
   /** A's SQL-computed digest over the staged canonical payload. */
   digest: string;
-  /** Per-item SQL fingerprints — the model echoes these back so the
-   *  adapter can consume each approved unit (categories only; drafts are
-   *  consumed inside A's draft RPC via approval_intent_id). */
+  /** Per-item SQL fingerprints — informational transparency for the
+   *  approver; nothing echoes them back. Both write paths consume them
+   *  inside SQL: the draft RPC via `approval_intent_id`, the category RPC
+   *  by computing each payload's fingerprint itself. */
   itemFingerprints: string[];
   expiresAt: string;
   siteOrigin: string;

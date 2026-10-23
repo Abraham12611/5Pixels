@@ -46,14 +46,15 @@ catalog inspection, planning, validation and approved draft creation.
    `approval_token`, so the tool STAGES a server-held approval intent (SQL
    SHA-256-fingerprints the exact payload and derives the owner preview
    from the payload itself) and refuses, returning an `approval_url`
-   + `item_fingerprints`. Give the owner the link: the admin UI shows them
-   the REAL staged items (names, slugs, visibility/safety/model settings —
-   a summary, not the hidden recipe text). They approve and paste back the
-   10-minute token. Re-call with `approval_token`, the SAME ids/keys, and —
-   for categories — `item_fingerprints` echoed back verbatim in the staged
-   order; each category is checked against the approved set before it is
-   written. Never fabricate the token or ask for approval of anything you
-   did not stage.
+   + `item_fingerprints` (informational — nothing echoes them back). Give
+   the owner the link: the admin UI shows them the REAL staged items
+   (names, slugs, visibility/safety/model settings — a summary, not the
+   hidden recipe text). They approve and paste back the 10-minute token.
+   Re-call with `approval_token` and the SAME ids/keys — the database
+   verifies each payload's fingerprint against the approved intent,
+   consumes it and writes atomically; an unstaged category is refused.
+   Never fabricate the token or ask for approval of anything you did not
+   stage.
 6. **Report.** `get_batch_status` + `get_draft_review_links` +
    `prepare_manual_preset_review`. Give the owner created/reused/failed
    counts, per-item admin links and blockers (e.g. missing hero media).

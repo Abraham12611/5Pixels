@@ -202,7 +202,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "create_categories",
     description:
-      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the intent and receive the approval link plus item_fingerprints; on the approved re-call, echo item_fingerprints back verbatim so each created category's approved fingerprint is consumed. Slug collisions return a conflict with the existing category for reuse.",
+      "Create ONLY the explicitly owner-approved proposed categories. Requires approval_token — a short-lived token the owner mints in the 5Pixels admin UI after inspecting the staged request's real item list. Call WITHOUT the token first to stage the intent and receive the approval link; on the approved re-call just pass the SAME categories — the database verifies each category's exact payload fingerprint against the approved intent, consumes it and inserts atomically. A category that was not staged is refused. Slug collisions return a conflict with the existing category for reuse (no approval is spent).",
     inputSchema: {
       type: "object",
       required: ["categories"],
@@ -228,12 +228,6 @@ export const TOOL_DEFS: ToolDef[] = [
           type: "string",
           description:
             "Owner-minted approval token binding the caller, operation and approved intent id. Obtain it via the approval flow, never fabricate it.",
-        },
-        item_fingerprints: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            "The item_fingerprints array echoed verbatim from the staged approval response (index-aligned with categories). Required when approval_token is supplied — the adapter matches each requested category against the SQL-derived staged preview and consumes that unit's fingerprint BEFORE inserting; staged-payload mismatches and already-consumed fingerprints fail closed in SQL.",
         },
       },
       additionalProperties: false,

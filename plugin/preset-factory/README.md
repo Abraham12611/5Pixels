@@ -58,16 +58,14 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
     intent covers each item's server-computed SHA-256 fingerprint, and it
     consumes them internally. Web/session JWTs are unaffected (unchanged
     admin UI).
-  - **Categories**: can't be DB-gated (`categories_admin` policy allows
-    direct admin inserts) — the adapter instead binds each requested
-    category to the approval rigorously: it reads the staged intent back,
-    matches the category's {name, slug, description, sort_order} against the
-    SQL-derived staged units, then calls `consumeWriteIntent` **before**
-    inserting. A token approved for categories {A,B} can never create a
-    different category C — C matches no staged unit and the consume RPC
-    additionally rejects any fingerprint the intent doesn't cover, already
-    consumed, or staged under a different OAuth client_id. Payload
-    mismatch = fail closed, no write.
+  - **Categories**: same DB gate via `admin_create_preset_category` — the
+    adapter passes `approval_intent_id` into each `createCategory` call and
+    SQL computes the payload's own fingerprint, verifies it against the
+    approved intent, consumes it and inserts **atomically** — an unstaged
+    category is refused `PF_APPROVAL_*` and can never be written. Slug
+    reuse/conflict rolls the claim back to a savepoint, so only an actual
+    create spends an approved unit. No caller-supplied fingerprints exist
+    anywhere in the flow.
 - **Audit** — every tool call writes `mcp.{tool}.{outcome}` to
   `admin_audit_logs` with the verified `admin_user_id`.
 - **Rate limits** — soft per-user buckets (120 reads, 20 writes per window;
@@ -83,13 +81,14 @@ without a matching approved+unexpired intent covering each item's
 server-computed fingerprint — approval for OAuth-origin draft creation is
 enforced in Postgres, not in this adapter.
 
-Residual boundary: **category creation is not DB-gated** — the
-`categories_admin` RLS policy already permits direct admin inserts, so a
-DB gate could not restrict OAuth writes anyway. Category intents are
-consumed at the tool layer (`consumeWriteIntent`); a direct OAuth
-PostgREST insert into `categories` bypasses the intent entirely, exactly
-as the admin UI always could. Web/session JWTs skip the draft gate too —
-unchanged behavior for the admin UI.
+Category writes are **also DB-gated for OAuth tokens**: OAuth-issued
+callers must route through `admin_create_preset_category` with an
+approved intent — SQL verifies+consumes the exact payload fingerprint
+atomically with the insert. Residual boundary: a direct OAuth **PostgREST
+insert into `categories`** still bypasses the intent via the existing
+`categories_admin` policy (unchanged pre-existing behavior, same as a
+direct PostgREST call before this feature). Web/session JWTs skip both
+gates — unchanged behavior for the admin UI.
 
 ## Tool inventory
 
