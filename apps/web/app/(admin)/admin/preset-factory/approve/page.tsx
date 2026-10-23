@@ -6,11 +6,14 @@ import { ApprovalForm } from "./approval-form";
 /**
  * Owner write-approval mint (#272).
  *
- * The connector's write tools stage a server-held pending intent (stored
- * in admin_audit_logs) and refuse. The owner lands here via `?intent=<id>`,
- * sees the REAL itemized request — names, slugs, types, categories, model
- * config, counts, never private recipe text — and mints a token bound to
- * the stored payload digest only if it matches what ChatGPT proposed.
+ * The connector's write tools stage a server-held pending intent in the
+ * dedicated `preset_factory_write_intents` table (requester-scoped SELECT;
+ * mutations only via A's SECURITY DEFINER RPCs) and refuse. The owner
+ * lands here via `?intent=<id>`, sees the REAL itemized request — names,
+ * slugs, types, visibility/safety/composition/model settings — and mints
+ * a token bound to the stored payload digest only if it matches what
+ * ChatGPT proposed. Limited summary: private recipe material is never
+ * shown and not independently verified here.
  */
 export default async function PresetFactoryApprovePage({
   searchParams,

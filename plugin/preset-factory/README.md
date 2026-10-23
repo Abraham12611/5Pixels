@@ -39,16 +39,35 @@ ChatGPT connector ──MCP (streamable HTTP, JSON-RPC)──▶ /api/mcp
   touched; `is_admin()/is_owner()` re-checked inside the RPCs).
 - **Owner-bound, inspectable writes** — a `confirm` flag is *not* enough
   (the model can set it). A refused write STAGES a server-held pending
-  intent (sanitized itemized summary + canonical digest in
-  `admin_audit_logs`, 15-min TTL). `/admin/preset-factory/approve?intent=…`
-  displays the REAL staged items — names, slugs, types, model config,
-  counts; never private recipe text — and mints an HMAC token bound to the
-  stored {owner, operation, digest, 10-min expiry} only after re-validating
-  the intent. No URL-supplied or model-supplied digest is ever signed.
+  intent in `preset_factory_write_intents` (dedicated table owned by
+  Engineer A's migration: requester-bound, SECURITY DEFINER RPCs only — no
+  direct `authenticated` INSERT/UPDATE; `admin_audit_logs` is deliberately
+  NOT the store since its admin-wide ALL policy allows row tampering).
+  `/admin/preset-factory/approve?intent=…` displays the REAL staged items —
+  names, slugs, types, visibility/safety/composition/model settings —
+  and minting runs the atomic claim RPC FIRST (single conditional
+  `UPDATE … RETURNING`; exactly-one-row check) then signs an HMAC token
+  bound to the CLAIMED row's {owner, operation, digest, 10-min expiry}.
+  One intent = one mint, enforced atomically; tokens are repeatable until
+  expiry (safe retries — the write itself is idempotent via the ledger),
+  not one-use.
 - **Audit** — every tool call writes `mcp.{tool}.{outcome}` to
   `admin_audit_logs` with the verified `admin_user_id`.
 - **Rate limits** — soft per-user buckets (120 reads, 20 writes per window;
   per-instance on serverless).
+
+### Security boundary (explicit)
+
+`approval_token` gates **the MCP tool surface only**. It is not a new
+privilege and does not restrict direct database access: an admin's own
+Supabase JWT (OAuth or web-session) already carries the PostgREST/RPC
+rights the admin UI uses — including `admin_create_preset_drafts` — and
+OAuth scopes do not narrow RLS. The guarantee is precisely: *no
+MCP-origin write happens without an owner-inspected, atomically-claimed
+approval*. Whether DB-level enforcement distinguishing MCP-origin writes
+from direct admin access is needed is an open design question flagged to
+Engineer A on #271; until answered otherwise, treat the approval gate as
+an agent-channel control, not a database one.
 
 ## Tool inventory
 
@@ -77,17 +96,20 @@ credit-spending tool. Do not add them without explicit owner authorization.
    URL** to `https://<site>/oauth/consent`.
 3. Set `PRESET_FACTORY_APPROVAL_SECRET` (openssl rand -hex 32) — without it
    reads work but every write refuses.
-4. In ChatGPT → Settings → Connectors → Advanced → create a custom connector
+4. **Deploy Engineer A's `preset_factory_write_intents` migration** — the
+   stage/claim RPCs the approval flow depends on. Until it lands every
+   write fails closed at staging (reads still work).
+5. In ChatGPT → Settings → Connectors → Advanced → create a custom connector
    pointing at `https://<site>/api/mcp`. On first call the connector receives
    a 401 with `resource_metadata`, discovers OAuth metadata via the
    `.well-known` routes, and runs the PKCE authorization-code flow: the
    owner signs in, lands on `/oauth/consent`, and approves or denies.
-5. Paste `plugin/preset-factory/INSTRUCTIONS.md` into the connector's
+6. Paste `plugin/preset-factory/INSTRUCTIONS.md` into the connector's
    instructions field.
-6. **Required in production:** set `PRESET_FACTORY_MCP_CLIENT_IDS` to the
+7. **Required in production:** set `PRESET_FACTORY_MCP_CLIENT_IDS` to the
    registered OAuth client id — without it every /api/mcp request fails
    closed. Locally it may stay unset for development.
-7. Dev fallback: paste a short-lived Supabase access token as a static
+8. Dev fallback: paste a short-lived Supabase access token as a static
    Bearer credential. It expires — OAuth is the intended path.
 
 ## Env vars
@@ -114,15 +136,18 @@ credit-spending tool. Do not add them without explicit owner authorization.
 Static checks only — the following are implemented but **UNVERIFIED** and
 must not be described as working until the owner runs the live checklist:
 
+- **Engineer A's `preset_factory_write_intents` migration does not exist
+  yet** — the stage/claim RPC contract was posted on #271 and B-side code
+  calls exactly those names; every write fails closed until it lands.
 - Supabase OAuth 2.1 server availability, the consent redirect into
   `/oauth/consent`, and the exact `client_id` claim value on issued tokens
   (code targets the documented claim).
 - ChatGPT connector compatibility — registration, PKCE and discovery are
   wired per spec but never exercised end-to-end.
-- The approval round-trip (stage → review → mint → write) against a live
-  Supabase instance, including `admin_audit_logs` intent-row reads.
+- The approval round-trip (stage → review → atomic claim → mint → write)
+  against a live Supabase instance.
 - Whether the owner account's `is_admin`/`is_owner` flags satisfy all RLS
-  paths (owner-without-admin fails closed on `is_admin()`-gated reads by
+  paths (owner-without-admin fails closed on `is_admin()`-gated paths by
   design; owners are expected to hold `is_admin` per app convention).
 
 Live end-to-end checklist for the owner is in "Setup" above; every step is

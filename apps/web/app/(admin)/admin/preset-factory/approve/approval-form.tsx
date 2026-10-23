@@ -2,14 +2,83 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import type { StoredWriteIntent } from "@/lib/mcp/preset-factory/approval";
+import type {
+  IntentItemPreview,
+  StoredWriteIntent,
+} from "@/lib/mcp/preset-factory/approval";
 import { mintWriteApproval } from "./actions";
+
+function ItemRow({ it }: { it: IntentItemPreview }) {
+  const safetyBits = [
+    it.safety.allowed_nsfw != null &&
+      `nsfw:${it.safety.allowed_nsfw ? "allowed" : "blocked"}`,
+    it.safety.block_public_figures != null &&
+      `public-figures:${it.safety.block_public_figures ? "blocked" : "allowed"}`,
+    it.safety.block_minors != null &&
+      `minors:${it.safety.block_minors ? "blocked" : "allowed"}`,
+    it.safety.policy_version && `policy:${it.safety.policy_version}`,
+  ].filter(Boolean);
+
+  return (
+    <li className="px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <span className="text-cream-50 text-sm font-medium">{it.name}</span>
+        <span className="text-text-secondary font-mono text-xs">{it.slug}</span>
+        <span className="text-text-secondary text-xs uppercase">{it.type}</span>
+        <span className="text-text-secondary text-xs">{it.visibility}</span>
+      </div>
+      {it.short_description && (
+        <p className="text-text-secondary mt-1 text-xs">{it.short_description}</p>
+      )}
+      <div className="text-text-secondary mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+        <span>model: {it.provider}/{it.model}</span>
+        <span>category: {it.category_id ?? "none"}</span>
+        {it.parent_preset_id && (
+          <span>
+            variant of {it.parent_preset_id}
+            {it.variant_display_name ? ` (${it.variant_display_name})` : ""}
+          </span>
+        )}
+        {it.standalone_discoverable && <span>standalone</span>}
+        {it.featured_rank != null && <span>featured #{it.featured_rank}</span>}
+        {it.style_archetype && <span>archetype: {it.style_archetype}</span>}
+        {it.identity_preservation && (
+          <span>identity: {it.identity_preservation}</span>
+        )}
+        {it.layout_template && <span>layout: {it.layout_template}</span>}
+        {it.input_mode && <span>input: {it.input_mode}</span>}
+        {it.input_image_range && <span>images: {it.input_image_range}</span>}
+        {it.credit_cost != null && <span>credits: {it.credit_cost}</span>}
+        {safetyBits.length > 0 && <span>safety: {safetyBits.join(", ")}</span>}
+        {it.post_process.format && (
+          <span>
+            output: {it.post_process.format}
+            {it.post_process.quality != null && ` q${it.post_process.quality}`}
+            {it.post_process.crop ? " cropped" : ""}
+          </span>
+        )}
+        {it.output_sizes.length > 0 && (
+          <span>
+            sizes: {it.output_sizes.map((s) => `${s.width}x${s.height}`).join(", ")}
+          </span>
+        )}
+        <span>{it.field_count} fields</span>
+        <span>{it.asset_link_count} linked assets</span>
+      </div>
+    </li>
+  );
+}
 
 /**
  * Itemized approval preview (#272) — the owner sees the REAL staged
  * request (read back from the server-held intent, not model text):
- * each preset's name/slug/type/category/model/counts, or each category.
- * Private instruction templates are deliberately never rendered here.
+ * each preset's name/slug/type/visibility/safety/composition/model
+ * settings, or each category. This is a LIMITED SUMMARY by design:
+ * private instruction templates, negative prompts, model_config
+ * internals, product-field copy and asset payloads are deliberately
+ * never rendered here — approving means trusting the staged digest,
+ * not independently verifying hidden recipe content (review that in
+ * the draft editor after creation).
  */
 export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
   const [token, setToken] = useState<string | null>(null);
@@ -65,25 +134,7 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
       {items.length > 0 && (
         <ul className="divide-cream-100/10 border-cream-100/10 mt-5 divide-y rounded-xl border">
           {items.map((it) => (
-            <li key={it.client_item_id} className="px-4 py-3">
-              <div className="flex flex-wrap items-baseline gap-x-3">
-                <span className="text-cream-50 text-sm font-medium">{it.name}</span>
-                <span className="text-text-secondary font-mono text-xs">{it.slug}</span>
-                <span className="text-text-secondary text-xs uppercase">{it.type}</span>
-              </div>
-              <div className="text-text-secondary mt-1 flex flex-wrap gap-x-4 text-xs">
-                <span>model: {it.provider}/{it.model}</span>
-                <span>category: {it.category_id ?? "none"}</span>
-                {it.parent_preset_id && <span>variant of {it.parent_preset_id}</span>}
-                <span>{it.field_count} fields</span>
-                <span>{it.asset_link_count} linked assets</span>
-                {it.output_sizes.length > 0 && (
-                  <span>
-                    sizes: {it.output_sizes.map((s) => `${s.width}x${s.height}`).join(", ")}
-                  </span>
-                )}
-              </div>
-            </li>
+            <ItemRow key={it.client_item_id} it={it} />
           ))}
         </ul>
       )}
@@ -105,12 +156,20 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
         </ul>
       )}
 
-      <p className="text-text-secondary mt-4 text-xs">
-        Payload digest: <span className="font-mono">{intent.digest.slice(0, 24)}…</span>
-        {" "}— confirm these items match what your ChatGPT conversation proposed.
-        Private instruction templates are never shown here; verify them in the
-        draft editor after creation.
-      </p>
+      <div className="mt-4 space-y-1.5">
+        <p className="text-text-secondary text-xs">
+          Payload digest: <span className="font-mono">{intent.digest.slice(0, 24)}…</span>
+          {" "}— confirm these items match what your ChatGPT conversation proposed.
+        </p>
+        <p className="text-text-secondary text-xs">
+          This is a summary of identity and settings only. Private recipe
+          material — instruction templates, negative prompts, model-config
+          internals, field copy and linked-asset content — is never shown
+          here and is NOT independently verified by this page. Approving
+          means trusting the staged payload digest; review full recipes in
+          the draft editor after creation.
+        </p>
+      </div>
 
       {error && (
         <p className="text-destructive mt-4 text-sm" role="alert">
@@ -135,8 +194,9 @@ export function ApprovalForm({ intent }: { intent: StoredWriteIntent }) {
             {copied ? "Copied" : "Copy token"}
           </Button>
           <p className="text-text-secondary text-xs">
-            One approval = this exact staged request. A changed payload needs
-            a fresh approval round-trip.
+            One approval = this exact staged request; the intent is consumed
+            and cannot mint again. The token itself may be retried until
+            expiry — retries are safe because the write is idempotent.
           </p>
         </div>
       )}

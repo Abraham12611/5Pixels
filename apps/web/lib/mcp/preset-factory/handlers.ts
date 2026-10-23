@@ -160,7 +160,6 @@ async function requireApproval(
   if (typeof token !== "string" || !token) {
     const summary = buildIntentSummary(operation, canonicalPayload);
     const staged = await recordWriteIntent(ctx.caller.supabase, {
-      userId: ctx.caller.user.id,
       operation,
       digest,
       summary,

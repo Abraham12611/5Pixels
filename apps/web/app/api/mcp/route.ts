@@ -37,6 +37,43 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const tools = buildToolHandlers();
 
+/**
+ * Bounded body read — enforces the byte cap on the WIRE bytes, not on
+ * decoded text length (`.length` counts UTF-16 code units, undercounting
+ * multi-byte payloads). Reads the request stream chunk-by-chunk and aborts
+ * as soon as the cap is exceeded, so oversized chunked bodies (which may
+ * not declare Content-Length) cannot exhaust memory.
+ */
+async function readBoundedBody(
+  request: NextRequest
+): Promise<{ ok: true; body: string } | { ok: false }> {
+  const reader = request.body?.getReader();
+  if (!reader) return { ok: true, body: "" };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return { ok: false };
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, body: new TextDecoder("utf-8").decode(merged) };
+}
+
 function resourceMetadataUrl(req: NextRequest): string {
   return new URL("/.well-known/oauth-protected-resource", req.nextUrl.origin).toString();
 }
@@ -88,15 +125,17 @@ export async function POST(request: NextRequest) {
     return rejected(400, `Unsupported MCP-Protocol-Version (supported: ${MCP_PROTOCOL_VERSIONS.join(", ")})`);
   }
 
-  // Body cap — enforce before parsing; chunked bodies are measured raw.
+  // Body cap — cheap early reject on declared length, then a bounded
+  // byte-accurate stream read (chunked bodies may not declare it).
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > MAX_BODY_BYTES) {
     return rejected(413, "Request body too large");
   }
-  const rawBody = await request.text();
-  if (rawBody.length > MAX_BODY_BYTES) {
+  const read = await readBoundedBody(request);
+  if (!read.ok) {
     return rejected(413, "Request body too large");
   }
+  const rawBody = read.body;
 
   const auth = await authenticateMcpRequest(request);
   if (!auth.ok) {

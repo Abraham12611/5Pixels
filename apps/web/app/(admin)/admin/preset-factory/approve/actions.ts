@@ -2,20 +2,22 @@
 
 import { createClient } from "@/lib/supabase/server";
 import {
-  consumeWriteIntent,
-  loadWriteIntent,
+  claimWriteIntent,
   mintApprovalToken,
   type StoredWriteIntent,
 } from "@/lib/mcp/preset-factory/approval";
 
 /**
- * Owner write-approval actions (#272).
+ * Owner write-approval mint (#272).
  *
  * The ONLY way to mint a write-approval token: pass a staged intent id.
- * The action loads the SERVER-HELD pending intent, re-validates ownership/
- * freshness/pending state for the signed-in admin, then signs a token bound
- * to the stored digest — there is no way to sign an arbitrary digest, URL
- * parameter, or model-supplied payload.
+ * The action calls A's atomic claim RPC FIRST — a single conditional
+ * UPDATE … RETURNING bound to `requester = auth.uid()`, `status='pending'`,
+ * unexpired — and verifies exactly one row transitioned before signing.
+ * The token binds the digest/operation RETURNED BY THE CLAIM, never any
+ * request-supplied value. Concurrent mints cannot both succeed (the second
+ * claim sees status='claimed' and returns zero rows), and a token is never
+ * minted before the claim is durable.
  */
 export async function mintWriteApproval(opts: {
   intentId: string;
@@ -35,9 +37,11 @@ export async function mintWriteApproval(opts: {
     return { error: "Admin or owner privileges are required." };
   }
 
-  const loaded = await loadWriteIntent(supabase, opts.intentId, user.id);
-  if (!loaded.ok) return { error: loaded.error };
-  const intent: StoredWriteIntent = loaded.intent;
+  // Atomic claim FIRST — one pending→claimed transition per intent, or
+  // zero rows and no token. The returned row carries the trusted digest.
+  const claimed = await claimWriteIntent(supabase, opts.intentId, user.id);
+  if (!claimed.ok) return { error: claimed.error };
+  const intent: StoredWriteIntent = claimed.intent;
 
   try {
     const { token, expires_at } = mintApprovalToken({
@@ -45,10 +49,6 @@ export async function mintWriteApproval(opts: {
       operation: intent.operation,
       digest: intent.digest,
     });
-    // One intent → one mint. If the consume update is somehow lost the
-    // token still can't be replayed past expiry, but the pending→approved
-    // transition is the replay guard that shows up in review.
-    await consumeWriteIntent(supabase, opts.intentId);
     return { token, expires_at };
   } catch (err) {
     return {

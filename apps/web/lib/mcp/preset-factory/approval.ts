@@ -7,19 +7,23 @@
  *
  *   1. A write tool called without a token STAGES a server-held pending
  *      intent (canonical payload digest + sanitized itemized summary in
- *      `admin_audit_logs`, admin-only RLS, 15-min TTL) and refuses.
+ *      the dedicated `preset_factory_write_intents` table via A's
+ *      SECURITY DEFINER stage RPC, 15-min TTL) and refuses.
  *   2. The owner opens `/admin/preset-factory/approve?intent=<id>` (cookie
  *      session, requireAdmin), reviews the REAL staged items — names,
- *      slugs, types, model config, counts; never recipe text — and clicks
- *      Approve → the server action re-validates the stored intent and
- *      mints a token bound to its digest.
+ *      slugs, types, visibility/safety/composition/model settings; never
+ *      recipe text — and clicks Approve → the server action runs the
+ *      atomic claim RPC FIRST (exactly one pending→claimed transition)
+ *      and only then mints a token bound to the claimed digest.
  *   3. The owner pastes the token back into the conversation; the model
  *      re-calls the write tool with `approval_token`.
  *
  * The token binds: the approving user's id · the operation · the payload
  * digest · an expiry. Verification is HMAC-SHA256 over the serialized
  * token body — the model can neither mint nor extend one, and a token for
- * a different payload/user/operation is rejected.
+ * a different payload/user/operation is rejected. Tokens are repeatable
+ * until expiry (safe retries; writes are idempotent) — see TOKEN SEMANTICS
+ * below for the precise boundary.
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
@@ -168,32 +172,76 @@ export function approvalRequired(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Pending write intents — server-held, user-bound, short-lived.
+// Pending write intents — server-held, user-bound, short-lived, one-shot.
 //
-// A refused write STAGES an intent row instead of asking the owner to trust
-// a model-rendered summary: the canonical payload's sanitized summary and
-// its digest are stored in `admin_audit_logs` (admin-only RLS, no new
-// schema), keyed by a fresh intent id. The approval page reads the row back
-// and displays the REAL itemized request; minting validates the stored row
-// (ownership, freshness, pending state) — never a caller-supplied digest.
+// Storage: `preset_factory_write_intents`, a dedicated table owned by
+// Engineer A's migration (spec posted on #271) — deliberately NOT
+// `admin_audit_logs`, whose `is_admin()`-wide ALL policy lets any admin
+// mutate any admin's rows. The table has no direct INSERT/UPDATE for
+// `authenticated`; all mutations go through two SECURITY DEFINER RPCs:
+//
+//   preset_factory_stage_write_intent(operation, digest, summary, ttl)
+//     → inserts with requester = auth.uid() server-side; returns intent id.
+//   preset_factory_claim_write_intent(intent_id)
+//     → single conditional UPDATE … RETURNING (requester = auth.uid(),
+//       status='pending', unexpired): the atomic one-shot claim. The mint
+//       action signs ONLY the digest/operation returned by this claim.
+//
+// Reads (approve-page display) use a requester-scoped SELECT policy —
+// a viewer can only ever read their own intents.
+//
+// TOKEN SEMANTICS (honest): one successful mint per intent is enforced
+// atomically by the claim; the resulting token is REPEATABLE until its
+// 10-minute expiry so a dropped response can be retried safely — replay
+// cannot double-write because the underlying draft RPC is idempotent on
+// (batch_id, item idempotency keys, server-computed fingerprint). The
+// token is NOT one-use and does not create a new privilege: it gates the
+// MCP tool surface only. An admin's own Supabase JWT already carries the
+// same PostgREST/RPC rights the admin UI uses — see README § boundary.
 // ---------------------------------------------------------------------------
 
 export const INTENT_TTL_SECONDS = 900; // 15 minutes
-const INTENT_ACTION = "mcp.write_intent";
-const INTENT_ENTITY = "preset_factory_write_intent";
-const INTENT_PENDING = "pending";
-const INTENT_APPROVED = "approved";
+const INTENTS_TABLE = "preset_factory_write_intents";
+const STAGE_RPC = "preset_factory_stage_write_intent";
+const CLAIM_RPC = "preset_factory_claim_write_intent";
+export const INTENT_STATUS_PENDING = "pending";
+const INTENT_STATUS_CLAIMED = "claimed";
 
-/** Safe preview of a draft item — names/settings only, NEVER recipe text. */
+/** Safe preview of a draft item — identity + VISIBILITY/SAFETY/COMPOSITION
+ * settings only, NEVER private recipe text (instruction templates,
+ * negative prompts, model_config internals, field copy, asset payloads). */
 export interface IntentItemPreview {
   client_item_id: string;
   name: string;
   slug: string;
   type: string;
+  short_description: string | null;
   category_id: string | null;
   parent_preset_id: string | null;
+  variant_display_name: string | null;
+  visibility: string;
+  standalone_discoverable: boolean;
+  featured_rank: number | null;
+  /** Composition hints — safe scalars, not recipe text. */
+  style_archetype: string | null;
+  identity_preservation: string | null;
+  layout_template: string | null;
   provider: string;
   model: string;
+  input_mode: string | null;
+  input_image_range: string | null;
+  safety: {
+    allowed_nsfw: boolean | null;
+    block_public_figures: boolean | null;
+    block_minors: boolean | null;
+    policy_version: string | null;
+  };
+  post_process: {
+    format: string | null;
+    quality: number | null;
+    crop: boolean | null;
+  };
+  credit_cost: number | null;
   output_sizes: { width: number; height: number }[];
   field_count: number;
   asset_link_count: number;
@@ -214,29 +262,58 @@ export interface IntentSummary {
 }
 
 /** Build the owner-facing preview from the canonical payload — strips all
- * private recipe material (instruction templates, negative prompts). */
+ * private recipe material (instruction templates, negative prompts,
+ * model_config internals, product-field copy, asset link payloads). */
 export function buildIntentSummary(
   operation: ApprovableOperation,
   canonical: unknown
 ): IntentSummary {
   if (operation === "create_draft_batch") {
     const items = ((canonical as { items?: PresetDraftItem[] }).items ?? []).map(
-      (i): IntentItemPreview => ({
-        client_item_id: i.client_item_id,
-        name: i.product?.name ?? "?",
-        slug: i.product?.slug ?? "?",
-        type: i.product?.type ?? "?",
-        category_id: i.product?.category_id ?? null,
-        parent_preset_id: i.product?.parent_preset_id ?? null,
-        provider: i.version?.provider_strategy?.primary_provider ?? "?",
-        model: i.version?.provider_strategy?.primary_model ?? "?",
-        output_sizes: (i.version?.output_sizes ?? []).map((s) => ({
-          width: s.width,
-          height: s.height,
-        })),
-        field_count: i.fields?.length ?? 0,
-        asset_link_count: i.asset_links?.length ?? 0,
-      })
+      (i): IntentItemPreview => {
+        const cap = i.version?.input_capability;
+        return {
+          client_item_id: i.client_item_id,
+          name: i.product?.name ?? "?",
+          slug: i.product?.slug ?? "?",
+          type: i.product?.type ?? "?",
+          short_description: i.product?.short_description ?? null,
+          category_id: i.product?.category_id ?? null,
+          parent_preset_id: i.product?.parent_preset_id ?? null,
+          variant_display_name: i.product?.variant_display_name ?? null,
+          visibility: i.product?.visibility ?? "public",
+          standalone_discoverable: i.product?.standalone_discoverable ?? false,
+          featured_rank: i.product?.featured_rank ?? null,
+          style_archetype: i.product?.filter_config?.style_archetype ?? null,
+          identity_preservation:
+            i.product?.filter_config?.identity_preservation ?? null,
+          layout_template: i.product?.poster_config?.layout_template ?? null,
+          provider: i.version?.provider_strategy?.primary_provider ?? "?",
+          model: i.version?.provider_strategy?.primary_model ?? "?",
+          input_mode: cap?.input_mode ?? null,
+          input_image_range:
+            cap != null ? `${cap.input_min_images}–${cap.input_max_images}` : null,
+          safety: {
+            allowed_nsfw: i.version?.safety_config?.allowed_nsfw ?? null,
+            block_public_figures:
+              i.version?.safety_config?.block_public_figures ?? null,
+            block_minors: i.version?.safety_config?.block_minors ?? null,
+            policy_version: i.version?.safety_config?.policy_version ?? null,
+          },
+          post_process: {
+            format: i.version?.post_process_config?.format ?? null,
+            quality: i.version?.post_process_config?.quality ?? null,
+            crop: i.version?.post_process_config?.crop ?? null,
+          },
+          credit_cost: i.version?.credit_cost ?? null,
+          output_sizes: (i.version?.output_sizes ?? []).map((s) => ({
+            width: s.width,
+            height: s.height,
+          })),
+          field_count: i.fields?.length ?? 0,
+          asset_link_count: i.asset_links?.length ?? 0,
+        };
+      }
     );
     return { operation, items, total_items: items.length };
   }
@@ -254,34 +331,34 @@ export function buildIntentSummary(
   return { operation, categories, total_items: categories.length };
 }
 
-/** Stage a pending write intent. The row is written through the caller's
- * own scoped client — admin-only RLS means a non-admin caller can't stage. */
+/**
+ * Stage a pending write intent via A's SECURITY DEFINER staging RPC — the
+ * server binds `requester = auth.uid()` (never caller-supplied) and the
+ * RPC applies the same `is_admin()` gate as the write RPCs. Callers use
+ * their own token-scoped client, so a non-admin stage attempt fails at the
+ * RPC, not in JS. Fails closed if A's intent migration is not deployed.
+ */
 export async function recordWriteIntent(
   supabase: SupabaseClient,
   opts: {
-    userId: string;
     operation: ApprovableOperation;
     digest: string;
     summary: IntentSummary;
   }
 ): Promise<{ ok: true; intentId: string } | { ok: false; error: string }> {
-  const intentId = crypto.randomUUID();
-  const { error } = await supabase.from("admin_audit_logs").insert({
-    admin_user_id: opts.userId,
-    action: `${INTENT_ACTION}.${opts.operation}`,
-    entity_type: INTENT_ENTITY,
-    entity_id: intentId,
-    after: {
-      digest: opts.digest,
-      summary: opts.summary,
-      expires_at: new Date(Date.now() + INTENT_TTL_SECONDS * 1000).toISOString(),
-    },
-    reason: INTENT_PENDING,
+  const { data, error } = await supabase.rpc(STAGE_RPC, {
+    p_operation: opts.operation,
+    p_digest: opts.digest,
+    p_summary: opts.summary as unknown as Record<string, unknown>,
+    p_ttl_seconds: INTENT_TTL_SECONDS,
   });
-  if (error) {
-    return { ok: false, error: `Could not stage approval request: ${error.message}` };
+  if (error || typeof data !== "string") {
+    return {
+      ok: false,
+      error: `Could not stage approval request: ${error?.message ?? "intent RPC unavailable (requires A's preset_factory_write_intents migration)"}`,
+    };
   }
-  return { ok: true, intentId };
+  return { ok: true, intentId: data };
 }
 
 export interface StoredWriteIntent {
@@ -290,13 +367,67 @@ export interface StoredWriteIntent {
   digest: string;
   summary: IntentSummary;
   ownerId: string;
+  status: string;
   expiresAt: string;
 }
 
+interface IntentRow {
+  id: string;
+  requester: string;
+  operation: string;
+  digest: string;
+  summary: IntentSummary;
+  status: string;
+  expires_at: string;
+}
+
+function validateIntentRow(
+  row: IntentRow | null,
+  viewerUserId: string,
+  intentId: string
+): { ok: true; intent: StoredWriteIntent } | { ok: false; error: string } {
+  if (!row) return { ok: false, error: "Approval request not found." };
+  // Defense in depth on top of the requester-scoped SELECT policy.
+  if (row.requester !== viewerUserId) {
+    return { ok: false, error: "This approval request belongs to a different account." };
+  }
+  if (
+    row.operation !== "create_draft_batch" &&
+    row.operation !== "create_categories"
+  ) {
+    return { ok: false, error: "Unknown approval operation." };
+  }
+  if (
+    typeof row.digest !== "string" ||
+    !/^[0-9a-f]{64}$/.test(row.digest) ||
+    !row.summary
+  ) {
+    return { ok: false, error: "Approval request is malformed." };
+  }
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    return {
+      ok: false,
+      error: "This approval request has expired — ask the connector to stage a new one.",
+    };
+  }
+  return {
+    ok: true,
+    intent: {
+      intentId,
+      operation: row.operation,
+      digest: row.digest,
+      summary: row.summary,
+      ownerId: row.requester,
+      status: row.status,
+      expiresAt: row.expires_at,
+    },
+  };
+}
+
 /**
- * Load + validate a staged intent for the approval page. Enforces:
- * the row is a pending intent, belongs to the viewing user, and has not
- * expired — anything else is refused.
+ * Load a staged intent for DISPLAY on the approval page (requester-scoped
+ * SELECT policy — a viewer can only read their own intents). Only pending,
+ * unexpired intents are approvable.
  */
 export async function loadWriteIntent(
   supabase: SupabaseClient,
@@ -304,61 +435,57 @@ export async function loadWriteIntent(
   viewerUserId: string
 ): Promise<{ ok: true; intent: StoredWriteIntent } | { ok: false; error: string }> {
   const { data, error } = await supabase
-    .from("admin_audit_logs")
-    .select("entity_id, admin_user_id, action, reason, after, created_at")
-    .eq("entity_type", INTENT_ENTITY)
-    .eq("entity_id", intentId)
+    .from(INTENTS_TABLE)
+    .select("id, requester, operation, digest, summary, status, expires_at")
+    .eq("id", intentId)
     .maybeSingle();
-  if (error || !data) {
-    return { ok: false, error: "Approval request not found." };
+  if (error) {
+    return { ok: false, error: `Approval request lookup failed: ${error.message}` };
   }
-  if (data.admin_user_id !== viewerUserId) {
-    return { ok: false, error: "This approval request belongs to a different account." };
+  const checked = validateIntentRow(data as IntentRow | null, viewerUserId, intentId);
+  if (!checked.ok) return checked;
+  if (checked.intent.status !== INTENT_STATUS_PENDING) {
+    return {
+      ok: false,
+      error: "This approval request was already used or is no longer pending.",
+    };
   }
-  if (typeof data.action !== "string" || !data.action.startsWith(`${INTENT_ACTION}.`)) {
-    return { ok: false, error: "Not a write-approval request." };
-  }
-  if (data.reason !== INTENT_PENDING) {
-    return { ok: false, error: "This approval request was already used or is no longer pending." };
-  }
-  const body = (data.after ?? {}) as {
-    digest?: string;
-    summary?: IntentSummary;
-    expires_at?: string;
-  };
-  const expiresAt = typeof body.expires_at === "string" ? body.expires_at : null;
-  if (!expiresAt || new Date(expiresAt).getTime() <= Date.now()) {
-    return { ok: false, error: "This approval request has expired — ask the connector to stage a new one." };
-  }
-  const operation = data.action.slice(INTENT_ACTION.length + 1) as ApprovableOperation;
-  if (operation !== "create_draft_batch" && operation !== "create_categories") {
-    return { ok: false, error: "Unknown approval operation." };
-  }
-  if (typeof body.digest !== "string" || !/^[0-9a-f]{64}$/.test(body.digest) || !body.summary) {
-    return { ok: false, error: "Approval request is malformed." };
-  }
-  return {
-    ok: true,
-    intent: {
-      intentId,
-      operation,
-      digest: body.digest,
-      summary: body.summary,
-      ownerId: data.admin_user_id as string,
-      expiresAt,
-    },
-  };
+  return checked;
 }
 
-/** Mark a staged intent consumed so the same row cannot mint twice. */
-export async function consumeWriteIntent(
+/**
+ * Atomically claim a pending intent — single conditional
+ * `UPDATE … RETURNING` inside A's SECURITY DEFINER RPC
+ * (requester = auth.uid(), status='pending', unexpired). Returns the
+ * CLAIMED row whose digest the caller must sign — never a request-supplied
+ * value. Empty result = already claimed, expired, or not yours.
+ */
+export async function claimWriteIntent(
   supabase: SupabaseClient,
-  intentId: string
-): Promise<void> {
-  await supabase
-    .from("admin_audit_logs")
-    .update({ reason: INTENT_APPROVED })
-    .eq("entity_type", INTENT_ENTITY)
-    .eq("entity_id", intentId)
-    .eq("reason", INTENT_PENDING);
+  intentId: string,
+  sessionUserId: string
+): Promise<
+  | { ok: true; intent: StoredWriteIntent }
+  | { ok: false; error: string }
+> {
+  const { data, error } = await supabase.rpc(CLAIM_RPC, {
+    p_intent_id: intentId,
+  });
+  if (error) {
+    return { ok: false, error: `Approval claim failed: ${error.message}` };
+  }
+  const rows = (data ?? []) as IntentRow[];
+  if (rows.length !== 1) {
+    return {
+      ok: false,
+      error:
+        "Approval request is not claimable — already used, expired, or owned by another account.",
+    };
+  }
+  const checked = validateIntentRow(
+    { ...rows[0], status: INTENT_STATUS_CLAIMED },
+    sessionUserId,
+    intentId
+  );
+  return checked;
 }

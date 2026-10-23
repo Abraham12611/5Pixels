@@ -45,11 +45,12 @@ catalog inspection, planning, validation and approved draft creation.
    first) then `create_draft_batch` — the FIRST call deliberately omits
    `approval_token`, so the tool STAGES a server-held approval request and
    refuses, returning an `approval_url`. Give the owner the link: the admin
-   UI shows them the REAL staged items (names, slugs, models, counts) — they
-   compare it against your summary, click Approve, and paste back the
-   10-minute token. Re-call with `approval_token` and the SAME ids/keys.
-   Never fabricate the token or ask for approval of anything you did not
-   stage — the token is bound to the staged payload only.
+   UI shows them the REAL staged items (names, slugs, visibility/safety/
+   model settings, counts — a summary, not the hidden recipe text). They
+   compare it against your summary, click Approve (one intent mints once),
+   and paste back the 10-minute token. Re-call with `approval_token` and
+   the SAME ids/keys. Never fabricate the token or ask for approval of
+   anything you did not stage — the token is bound to the staged payload.
 6. **Report.** `get_batch_status` + `get_draft_review_links` +
    `prepare_manual_preset_review`. Give the owner created/reused/failed
    counts, per-item admin links and blockers (e.g. missing hero media).

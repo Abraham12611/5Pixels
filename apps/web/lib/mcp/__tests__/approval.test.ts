@@ -90,11 +90,20 @@ describe("buildIntentSummary", () => {
         {
           client_item_id: "item-1",
           idempotency_key: "k",
-          product: { name: "Neon Bloom", slug: "neon-bloom", type: "filter", category_id: "c1" },
+          product: {
+            name: "Neon Bloom",
+            slug: "neon-bloom",
+            type: "filter",
+            category_id: "c1",
+            visibility: "public",
+            filter_config: { style_archetype: "neon-noir", identity_preservation: "high" },
+          },
           version: {
             private_instruction_template: "SECRET RECIPE TEXT — must never appear",
             private_negative_instruction: "also-secret",
             provider_strategy: { primary_provider: "fal", primary_model: "nano-banana-2" },
+            safety_config: { allowed_nsfw: false, block_public_figures: true, block_minors: true },
+            post_process_config: { format: "webp", quality: 90, crop: false },
             output_sizes: [{ width: 1024, height: 1024 }],
           },
           fields: [{}, {}],
@@ -109,6 +118,10 @@ describe("buildIntentSummary", () => {
       type: "filter",
       provider: "fal",
       model: "nano-banana-2",
+      visibility: "public",
+      style_archetype: "neon-noir",
+      safety: { allowed_nsfw: false, block_minors: true },
+      post_process: { format: "webp" },
       field_count: 2,
       asset_link_count: 1,
     });
