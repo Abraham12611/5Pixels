@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Client } from "pg";
 import { describe, expect, it } from "vitest";
-import { asAnon, asService, asUser, withDb, withDbClients } from "./helpers/db";
+import {
+  asAnon,
+  asOAuthUser,
+  asService,
+  asUser,
+  withDb,
+  withDbClients,
+} from "./helpers/db";
 import { makeUser } from "./helpers/fixtures";
 
 /**
@@ -86,6 +93,7 @@ interface DraftCallOpts {
   clientItemId?: string;
   idempotencyKey?: string;
   requestFingerprint?: string;
+  approvalIntentId?: string | null;
 }
 
 function draftParams(slug: string, opts: DraftCallOpts = {}): unknown[] {
@@ -121,18 +129,22 @@ function draftParams(slug: string, opts: DraftCallOpts = {}): unknown[] {
     // Caller-asserted marker — required non-empty; the RPC stores its own
     // canonical payload hash, so this value is never trusted.
     opts.requestFingerprint ?? `fp-${randomUUID()}`,
+    opts.approvalIntentId ?? null,
   ];
 }
 
 async function callCreateDraft(
   client: Client,
   userId: string,
-  params: unknown[]
+  params: unknown[],
+  oauth = false
 ): Promise<Record<string, unknown>> {
-  return asUser(client, userId, async () => {
+  const run = (fn: () => Promise<Record<string, unknown>>) =>
+    oauth ? asOAuthUser(client, userId, fn) : asUser(client, userId, fn);
+  return run(async () => {
     const res = await client.query(
       `SELECT public.admin_create_preset_draft(
-         $1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9
+         $1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10
        ) AS result`,
       params
     );
@@ -551,6 +563,195 @@ describe("admin_create_preset_draft", () => {
         return res.rows[0].n;
       });
       expect(otherRows).toBe(0);
+    });
+  });
+});
+
+describe("preset_factory_write_intents", () => {
+  /** Builds the canonical p_items element matching draftParams' first 5 args. */
+  function draftIntentItem(params: unknown[]) {
+    return {
+      product: JSON.parse(params[0] as string),
+      metadata: JSON.parse(params[1] as string),
+      version: JSON.parse(params[2] as string),
+      fields: JSON.parse(params[3] as string),
+      asset_links: JSON.parse(params[4] as string),
+    };
+  }
+
+  async function stageIntent(
+    client: Client,
+    userId: string,
+    items: unknown[],
+    operation = "create_draft_batch"
+  ): Promise<Record<string, unknown>> {
+    return asOAuthUser(client, userId, async () => {
+      const res = await client.query(
+        `SELECT public.admin_stage_write_intent($1, $2::jsonb, $3::jsonb)
+         AS result`,
+        [operation, JSON.stringify(items), "{}"]
+      );
+      return res.rows[0].result as Record<string, unknown>;
+    });
+  }
+
+  async function approveIntent(
+    client: Client,
+    userId: string,
+    intentId: string
+  ): Promise<Record<string, unknown>> {
+    return asUser(client, userId, async () => {
+      const res = await client.query(
+        `SELECT public.admin_approve_write_intent($1) AS result`,
+        [intentId]
+      );
+      return res.rows[0].result as Record<string, unknown>;
+    });
+  }
+
+  it("OAuth draft write without an intent is refused; web token is not", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const slug = () => `dbtest-o-${randomUUID().slice(0, 8)}`;
+
+      await expect(
+        callCreateDraft(client, staffId, draftParams(slug()), true)
+      ).rejects.toThrow(/PF_APPROVAL_REQUIRED/);
+
+      // Ordinary admin UI path (no client_id claim) is unchanged.
+      const webResult = await callCreateDraft(
+        client,
+        staffId,
+        draftParams(slug())
+      );
+      expect(webResult.reused).toBe(false);
+    });
+  });
+
+  it("stage → approve → OAuth write consumes the intent end to end", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const params = draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`);
+
+      const staged = await stageIntent(client, staffId, [
+        draftIntentItem(params),
+      ]);
+      const intentId = staged.intent_id as string;
+      expect(staged.status).toBe("pending");
+      expect(staged.item_fingerprints).toHaveLength(1);
+
+      const approved = await approveIntent(client, staffId, intentId);
+      expect(approved.status).toBe("approved");
+
+      const result = await callCreateDraft(
+        client,
+        staffId,
+        draftParams("unused", { approvalIntentId: intentId }).map(
+          (v, i) => (i < 5 ? params[i] : v) // same payload, fresh envelope ids
+        ),
+        true
+      );
+      expect(result.reused).toBe(false);
+
+      // Fully consumed: a second item against the same intent fails.
+      await expect(
+        callCreateDraft(
+          client,
+          staffId,
+          draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`, {
+            approvalIntentId: intentId,
+          }),
+          true
+        )
+      ).rejects.toThrow(/PF_APPROVAL_PAYLOAD_MISMATCH/);
+    });
+  });
+
+  it("refuses OAuth-issued approval calls — approval needs a UI session", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const staged = await stageIntent(client, staffId, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+      await expect(
+        asOAuthUser(client, staffId, async () => {
+          await client.query(`SELECT public.admin_approve_write_intent($1)`, [
+            staged.intent_id,
+          ]);
+        })
+      ).rejects.toThrow(/PF_APPROVAL_INVALID/);
+    });
+  });
+
+  it("unapproved intent blocks the write; wrong payload fingerprint mismatches", async () => {
+    await withDb(async (client) => {
+      const staffId = await makeStaff(client);
+      const staged = await stageIntent(client, staffId, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+      const intentId = staged.intent_id as string;
+
+      // Still pending → required.
+      await expect(
+        callCreateDraft(
+          client,
+          staffId,
+          draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`, {
+            approvalIntentId: intentId,
+          }),
+          true
+        )
+      ).rejects.toThrow(/PF_APPROVAL_REQUIRED/);
+
+      await approveIntent(client, staffId, intentId);
+
+      // Approved, but the write payload differs from the staged item.
+      await expect(
+        callCreateDraft(
+          client,
+          staffId,
+          draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`, {
+            approvalIntentId: intentId,
+          }),
+          true
+        )
+      ).rejects.toThrow(/PF_APPROVAL_PAYLOAD_MISMATCH/);
+    });
+  });
+
+  it("one admin cannot read or approve another admin's intent", async () => {
+    await withDb(async (client) => {
+      const staffA = await makeStaff(client);
+      const staffB = await makeStaff(client);
+      const staged = await stageIntent(client, staffA, [
+        draftIntentItem(draftParams(`dbtest-o-${randomUUID().slice(0, 8)}`)),
+      ]);
+      const intentId = staged.intent_id as string;
+
+      const seen = await asUser(client, staffB, async () => {
+        const res = await client.query(
+          `SELECT COUNT(*)::int AS n FROM public.preset_factory_write_intents
+           WHERE id = $1`,
+          [intentId]
+        );
+        return res.rows[0].n;
+      });
+      expect(seen).toBe(0);
+
+      await expect(approveIntent(client, staffB, intentId)).rejects.toThrow(
+        /PF_APPROVAL_INVALID/
+      );
+
+      // Direct table writes are denied even for the owning admin.
+      await expect(
+        asUser(client, staffA, async () => {
+          await client.query(
+            `UPDATE public.preset_factory_write_intents
+             SET status = 'approved' WHERE id = $1`,
+            [intentId]
+          );
+        })
+      ).rejects.toThrow();
     });
   });
 });

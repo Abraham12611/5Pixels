@@ -60,14 +60,19 @@ export async function asRole<T>(
   client: Client,
   role: JwtRole,
   userId: string | null,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
+  extraClaims?: Record<string, unknown>
 ): Promise<T> {
   await client.query("BEGIN");
   try {
     // PostgREST always forwards a `role` claim (anon JWTs included); set it
     // unconditionally so auth.role() resolves like a real API request.
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [
-      JSON.stringify(userId ? { sub: userId, role } : { role }),
+      JSON.stringify({
+        ...(userId ? { sub: userId } : {}),
+        role,
+        ...extraClaims,
+      }),
     ]);
     await client.query(`SET LOCAL ROLE ${role}`);
     const result = await fn();
@@ -85,6 +90,21 @@ export function asUser<T>(
   fn: () => Promise<T>
 ): Promise<T> {
   return asRole(client, "authenticated", userId, fn);
+}
+
+/**
+ * Authenticated request carrying an OAuth-server `client_id` claim —
+ * simulates an MCP/connector-issued token (the Supabase OAuth server
+ * stamps client_id; web/session tokens don't).
+ */
+export function asOAuthUser<T>(
+  client: Client,
+  userId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  return asRole(client, "authenticated", userId, fn, {
+    client_id: "test-oauth-client",
+  });
 }
 
 export function asService<T>(client: Client, fn: () => Promise<T>): Promise<T> {

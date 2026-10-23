@@ -177,7 +177,8 @@ Item statuses: `validated` | `failed`. Warnings flag publish blockers
 ### `create_preset_drafts` → `createPresetDrafts(ctx, batch)` → `PresetBatchResult`
 
 ```ts
-// batch: { batch_id: string(1..120), items: DraftItem[1..25] }
+// batch: { batch_id: string(1..120), approval_intent_id?: uuid,
+//          items: DraftItem[1..25] }
 
 item = {
   client_item_id: string,            // echoed back in results
@@ -250,6 +251,71 @@ item = {
 - **Batch guards.** ≤25 items; `client_item_id`, `idempotency_key`, and
   `product.slug` must be unique inside the batch — violations fail the whole
   request with `duplicate_item_key` before anything is written.
+
+## Write-approval intents (OAuth-boundary decision)
+
+A Supabase OAuth-server-issued access token is a full user-scoped admin
+JWT — it can call `admin_create_preset_draft` through PostgREST directly
+and bypass any approval logic living only in the MCP adapter. Approval is
+therefore enforced **at the database layer**, keyed on the token itself:
+
+- Supabase's OAuth server stamps a `client_id` claim on issued tokens;
+  ordinary web/session JWTs do not carry one.
+- `admin_create_preset_draft` refuses OAuth-issued calls (`client_id`
+  present) with `approval_required` unless `p_approval_intent_id` names an
+  intent that (a) belongs to the calling admin, (b) is `approved` and
+  unexpired, and (c) covers the item's **server-computed canonical
+  fingerprint** — the same md5 used for idempotency, so a staged approval
+  binds to the exact payload SQL writes, never to a caller-asserted hash.
+- Web/session tokens skip the gate entirely: ordinary admin UI creation is
+  unchanged.
+- Categories are **not** DB-gated: the existing `categories_admin FOR ALL
+is_admin()` policy permits direct inserts by any admin JWT, so a DB gate
+  on our path would not actually restrict OAuth writes. Category intents
+  use the same store but are consumed at the tool layer by the adapter.
+- Replaying a `reused` item needs no approval — no write occurs.
+
+### `preset_factory_write_intents`
+
+`pending → approved → consumed` (+ terminal `expired` / `cancelled`).
+Caller-bound SELECT-only RLS (an admin sees only their own intents); all
+mutations go through `SECURITY DEFINER` RPCs — no insert/update/delete
+policy exists for any role, and direct table writes are revoked.
+
+| RPC                                                             | Role                                                                                                                                                 |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin_stage_write_intent(operation, items, preview, ttl)`      | OAuth or UI caller; computes fingerprints + digest in SQL, records `pending`                                                                         |
+| `admin_approve_write_intent(intent_id)`                         | **UI session only** — OAuth tokens refused; atomic `pending→approved` claim                                                                          |
+| `admin_consume_write_intent(intent_id, operation, fingerprint)` | Called internally by the draft RPC; also tool-level for categories. Atomic single-fingerprint claim; intent flips `consumed` when all units are used |
+
+Safe preview only: `preview` carries names/slugs/counts — recipe fields are
+rejected at stage time and private instructions are never stored.
+
+### `stage_write_intent` → `stageWriteIntent(ctx, request)`
+
+```ts
+{ operation: 'create_draft_batch', batch_id?, items: DraftItem[],
+  preview?: { title?, item_names?, item_slugs?, item_count?, note? },
+  ttl_seconds? = 900 /* clamped 60..3600 */ }
+// → { intent_id, status:'pending', digest, item_fingerprints[], expires_at }
+```
+
+`items` are canonicalized through the same payload builder the write path
+uses, so stage-time and write-time fingerprints match by construction. The
+adapter then shows the owner an approval URL; the owner approves in the
+admin UI, and the write proceeds with `approval_intent_id` on the batch.
+
+### `get_write_intent` / `approve_write_intent` / `consume_write_intent`
+
+`getWriteIntent(ctx, { intent_id })` → caller-bound intent summary for the
+approval page. `approveWriteIntent(ctx, { intent_id })` → `{ intent_id,
+status:'approved', expires_at }`; refused for OAuth callers.
+`consumeWriteIntent(ctx, { intent_id, operation, request_fingerprint })` →
+`{ consumed, total, status }`; used by the adapter for tool-gated
+operations only (the draft RPC consumes internally).
+
+Errors: `approval_required`, `approval_expired`,
+`approval_payload_mismatch`, `approval_invalid`.
 
 ### `get_batch_status` → `getPresetBatchStatus(ctx, { batch_id })`
 
@@ -366,7 +432,10 @@ Human verification checklist (owner-run):
 - `createProduct`/`updateProduct`/`duplicateProduct`/`publish*` paths are
   untouched — no regression to the #233 atomic-write flows and no overlap
   with PR #266's `products.ts` edits (this change adds no calls there).
-- The only new DB surface: `preset_factory_operations` (admin-read-only
-  ledger) + `admin_create_preset_draft` (authenticated EXECUTE, internally
-  admin-gated). No grants to `anon`; migration-file only, hosted DB
+- New DB surface: `preset_factory_operations` (admin-read-only ledger),
+  `preset_factory_write_intents` (caller-bound SELECT only — all
+  transitions via definer RPCs), `admin_stage/approve/consume_write_intent`,
+  and `admin_create_preset_draft` (authenticated EXECUTE, internally
+  admin-gated + OAuth-gated). The 9-arg overload is dropped so no ungated
+  signature survives. No grants to `anon`; migration-files only, hosted DB
   untouched pending owner authorization.
