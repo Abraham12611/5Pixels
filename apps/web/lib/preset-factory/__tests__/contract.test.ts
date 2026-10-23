@@ -218,6 +218,39 @@ describe("presetDraftItemSchema", () => {
     );
     expect(result.success).toBe(false);
   });
+
+  it("rejects internal_only:false on private *_reference links", () => {
+    const result = presetDraftItemSchema.safeParse(
+      validFilterItem({
+        asset_links: [
+          {
+            asset_id: uuid(5),
+            role: "style_reference",
+            internal_only: false,
+          },
+        ],
+      })
+    );
+    expect(result.success).toBe(false);
+
+    // Same role without the flag is fine — enforced true downstream.
+    const ok = presetDraftItemSchema.safeParse(
+      validFilterItem({
+        asset_links: [{ asset_id: uuid(5), role: "style_reference" }],
+      })
+    );
+    expect(ok.success).toBe(true);
+
+    // Non-reference roles may still opt into internal_only either way.
+    const example = presetDraftItemSchema.safeParse(
+      validFilterItem({
+        asset_links: [
+          { asset_id: uuid(5), role: "example_result", internal_only: false },
+        ],
+      })
+    );
+    expect(example.success).toBe(true);
+  });
 });
 
 describe("presetDraftBatchSchema", () => {

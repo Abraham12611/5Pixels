@@ -31,16 +31,42 @@ is_owner()` on `auth.uid()` inside the database. A client-supplied role
 ## Authentication / context
 
 Every operation takes a `PresetFactoryContext`: a **user-scoped** Supabase
-client (cookie session OR a bearer-token client Engineer B builds from its
-verified MCP auth) plus the resolved caller identity. The MCP server never
-holds the service-role key and never issues SQL — it calls these functions.
+client plus the resolved caller identity. The MCP server never holds the
+service-role key and never issues SQL — it calls these functions.
+
+**Integration model (agreed with coordinator):** Engineer B imports this
+service + `contract.ts` **directly inside the Next.js server** (a
+same-process adapter for its MCP transport). There are no separate
+`/api/admin/preset-factory/*` HTTP routes; `preset-factory.v1` is the
+canonical contract and B adapts its wire types to it.
+
+**Roles.** The gate is `profiles.is_admin OR is_owner`, matching
+`requireAdmin` and the `admin_*` RPCs. Note that effective RLS on
+`products`/`categories`/`admin_audit_logs`/`product_assets` is
+`is_admin()`-only: an owner-only caller (`is_owner` without `is_admin`)
+passes context creation and RPC authorization but **fails closed** on
+RLS-bound reads/writes (lookup errors, not silent privilege). Owners are
+expected to also hold `is_admin`; no existing broad policy was changed.
+
+**Transports:**
 
 ```ts
-// B-side, per request:
-const ctxResult = await createPresetFactoryContext(userScopedSupabase);
-if (!ctxResult.ok) return ctxResult; // { ok:false, error:{code:'unauthorized'|'forbidden'} }
-const ctx = ctxResult.data;
+// Cookie session — server actions / same-origin routes:
+const ctx = await createPresetFactoryContext(await createServerClient());
+
+// Bearer token — MCP adapter path. The caller's Supabase access token is
+// validated against GoTrue and carried on every RLS-bound request:
+const ctx = await createBearerPresetFactoryContext(accessToken);
+// equivalently: build your own bearer client and pass the JWT for
+// server-side validation:
+const ctx = await createPresetFactoryContext(userScopedSupabase, {
+  bearerToken: accessToken,
+});
 ```
+
+A caller-supplied user id is never trusted: `getUser(jwt)` verifies the
+token with GoTrue, and `auth.uid()` inside the RPCs re-resolves it from the
+request JWT.
 
 ## Error envelope
 
@@ -193,18 +219,24 @@ item = {
   success; it is not transaction-scoped.
 - **Idempotent retry.** Replaying the same `(admin_user_id, idempotency_key)`
   returns `status:'reused'` with the originally created `product_id` /
-  `version_id` — safe after a lost response or reconnect. The service stores
-  a sha256 fingerprint of each item payload and checks it before any
-  validation: replaying a key with a *different* payload fails that item
-  with `idempotency_conflict` instead of silently returning the original.
+  `version_id` — safe after a lost response or reconnect. The RPC computes a
+  canonical payload fingerprint itself (md5 over normalised `jsonb::text`)
+  and stores it on the ledger row; a key replayed with a _different_
+  payload fails with `idempotency_conflict` — unconditionally, so a forged
+  or missing fingerprint can never bypass the check. The caller-supplied
+  `p_request_fingerprint` is required non-empty as a submission marker but
+  is never trusted for the comparison.
 - **Item validation before write.** Per item: schema, slug conflict +
   similar-slug warning, category existence/active, single-level family
   rules, verified route/model, route-capability fit (multi-image budget
   counts linked `*_reference` assets), and asset
   ownership/visibility/media-kind constraints.
-- **Asset rules.** Only public, undeleted, unrejected `preset-media` assets.
-  `preview_video` → video, `preview_gif` → GIF, all other roles → image.
-  `*_reference` links bind to the new version and default `internal_only`.
+- **Asset rules.** Only public, undeleted, unrejected/unflagged
+  `preset-media` assets. `preview_video` → video, `preview_gif` → GIF, all
+  other roles → image. `*_reference` links bind to the new version and are
+  **always** `internal_only` — enforced by schema refine, service coercion,
+  and a `CASE` in the RPC (the public product_assets SELECT policy would
+  otherwise expose them once the product goes active).
 - **Family.** `parent_preset_id` must reference a same-type root preset,
   not retired; variant fields require a parent (Zod + DB trigger + CHECKs).
 - **Batch guards.** ≤25 items; `client_item_id`, `idempotency_key`, and
@@ -215,7 +247,9 @@ item = {
 
 Reads the idempotency ledger → per-item `{ client_item_id,
 idempotency_key, status:'created', product_id, version_id, review_path,
-created_at }`. Only successfully created items persist rows; failed items
+created_at }`. The ledger is **caller-bound**: query and RLS policy both
+require `admin_user_id = auth.uid()`, so an admin can only read their own
+operation rows. Only successfully created items persist rows; failed items
 are reported in the `create_preset_drafts` response, not the ledger.
 
 ### `get_review_links` → `getPresetReviewLinks(ctx, { product_ids })`

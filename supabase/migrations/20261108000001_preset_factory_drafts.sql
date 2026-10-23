@@ -34,10 +34,11 @@ CREATE TABLE public.preset_factory_operations (
   status TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created')),
   product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
   version_id UUID REFERENCES public.product_versions(id) ON DELETE SET NULL,
-  -- sha256 of the submitted payload: a key replayed with a *different*
-  -- payload deterministically conflicts instead of silently returning
-  -- the original product.
-  request_fingerprint TEXT,
+  -- Canonical payload hash computed *inside* the RPC (md5 over the
+  -- normalised jsonb text) — never a caller-asserted value. A key replayed
+  -- with a different payload deterministically conflicts instead of
+  -- silently returning the original product.
+  request_fingerprint TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (admin_user_id, idempotency_key)
 );
@@ -47,12 +48,15 @@ CREATE INDEX idx_preset_factory_operations_batch
 
 ALTER TABLE public.preset_factory_operations ENABLE ROW LEVEL SECURITY;
 
--- Admins may read operation rows (batch status/review tooling); all writes
--- go through the definer RPC — there is intentionally no insert/update/
--- delete policy for ordinary roles.
-CREATE POLICY "preset_factory_operations_admin_select"
+-- Caller-bound reads: an admin sees only their own operation rows (batch
+-- status/review tooling); all writes go through the definer RPC — there is
+-- intentionally no insert/update/delete policy for ordinary roles.
+CREATE POLICY "preset_factory_operations_owner_select"
   ON public.preset_factory_operations
-  FOR SELECT USING (public.is_admin());
+  FOR SELECT USING (
+    admin_user_id = auth.uid()
+    AND (public.is_admin() OR public.is_owner())
+  );
 
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
   ON public.preset_factory_operations FROM PUBLIC, anon, authenticated;
@@ -70,7 +74,7 @@ CREATE OR REPLACE FUNCTION public.admin_create_preset_draft(
   p_batch_id TEXT,
   p_client_item_id TEXT,
   p_idempotency_key TEXT,
-  p_request_fingerprint TEXT DEFAULT NULL
+  p_request_fingerprint TEXT
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -91,12 +95,30 @@ DECLARE
   v_asset public.assets;
   v_slot TEXT;
   v_slot_asset_id UUID;
+  -- Canonical payload fingerprint computed here, never trusted from the
+  -- caller. jsonb::text output is key-order-normalised so semantically
+  -- identical payloads hash identically regardless of key order.
+  v_fingerprint CONSTANT TEXT := md5(
+    concat_ws(chr(31),
+      p_product::text,
+      COALESCE(p_metadata, '{}'::jsonb)::text,
+      p_version::text,
+      COALESCE(p_fields, '[]'::jsonb)::text,
+      COALESCE(p_asset_links, '[]'::jsonb)::text
+    )
+  );
   v_ref_roles CONSTANT TEXT[] := ARRAY[
     'style_reference', 'composition_reference', 'layout_reference'
   ];
 BEGIN
   IF v_user_id IS NULL OR NOT (public.is_admin() OR public.is_owner()) THEN
     RAISE EXCEPTION 'Forbidden: admin or owner required';
+  END IF;
+
+  -- The caller-asserted fingerprint is required but only used as a
+  -- submission marker; the stored/compared fingerprint is computed above.
+  IF NULLIF(btrim(p_request_fingerprint), '') IS NULL THEN
+    RAISE EXCEPTION 'PF_BAD_REQUEST: request fingerprint is required';
   END IF;
 
   -- Idempotency: claim (admin, key) first. A replaying caller blocks on the
@@ -111,7 +133,7 @@ BEGIN
     )
     VALUES (
       v_user_id, p_batch_id, p_client_item_id, p_idempotency_key, 'created',
-      p_request_fingerprint
+      v_fingerprint
     )
     RETURNING id INTO v_op_id;
   EXCEPTION
@@ -123,9 +145,10 @@ BEGIN
       IF v_existing.product_id IS NULL THEN
         RAISE EXCEPTION 'PF_IDEMPOTENCY_CONFLICT: key was claimed without a result';
       END IF;
-      IF p_request_fingerprint IS NOT NULL
-         AND v_existing.request_fingerprint IS NOT NULL
-         AND v_existing.request_fingerprint <> p_request_fingerprint THEN
+      -- Unconditional comparison: the stored fingerprint is always the
+      -- server-computed canonical hash, so a replayed key can never ride a
+      -- NULL fingerprint past this check.
+      IF v_existing.request_fingerprint IS DISTINCT FROM v_fingerprint THEN
         RAISE EXCEPTION
           'PF_IDEMPOTENCY_CONFLICT: idempotency key replayed with a different payload';
       END IF;
@@ -313,10 +336,13 @@ BEGIN
       (l->>'asset_id')::UUID,
       l->>'role',
       COALESCE((l->>'sort_order')::INT, 0),
-      COALESCE(
-        (l->>'internal_only')::BOOLEAN,
-        (l->>'role') = ANY(v_ref_roles)
-      ),
+      -- Reference-role assets are private recipe material: internal_only is
+      -- forced true regardless of caller input (public SELECT policy would
+      -- otherwise leak them once the product goes active).
+      CASE
+        WHEN (l->>'role') = ANY(v_ref_roles) THEN TRUE
+        ELSE COALESCE((l->>'internal_only')::BOOLEAN, FALSE)
+      END,
       COALESCE(l->'rights_metadata', '{}'::jsonb)
     FROM jsonb_array_elements(p_asset_links) AS l;
   END IF;
