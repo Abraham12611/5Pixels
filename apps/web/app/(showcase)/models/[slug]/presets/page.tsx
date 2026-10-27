@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPublicProducts } from "@/lib/db/explore";
 import { MODEL_LINES, resolveModelSection } from "@/lib/marketing/model-lines";
 import { ProductCard } from "@/components/consumer/product-card";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import { CompactFooter } from "@/components/marketing/compact-footer";
 
 interface ModelPresetsRouteProps {
@@ -56,57 +57,67 @@ export default async function ModelPresetsPage({
 
   return (
     <>
-      <main className="px-4 pt-8 pb-16 sm:px-6 md:pt-12 lg:px-10">
-        <Link
-          href={line.pageHref}
-          prefetch={false}
-          className="text-text-secondary hover:text-cream-50 inline-flex items-center gap-1.5 text-xs font-medium transition"
-        >
-          <ArrowLeft size={13} weight="bold" aria-hidden />
-          About {line.name}
-        </Link>
-        <h1 className="text-cream-50 mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-          {line.name} presets
-        </h1>
-        <p className="text-text-secondary mt-3 max-w-2xl text-sm leading-relaxed md:text-base">
-          {line.description}
-        </p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          {ctaProduct ? (
-            <Link
-              href={`/presets/${ctaProduct.slug}`}
-              className="bg-lime-400 text-ink-950 hover:bg-lime-300 focus-visible:outline-lime-300 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
-            >
-              <Lightning size={15} weight="fill" aria-hidden />
-              Start creating
-            </Link>
-          ) : null}
+      <PresetQuickViewHost
+        isAuthenticated={isAuthenticated}
+        returnPath={line.presetsHref}
+      >
+        <main className="px-4 pt-8 pb-16 sm:px-6 md:pt-12 lg:px-10">
           <Link
             href={line.pageHref}
             prefetch={false}
-            className="border-cream-100/20 text-cream-50 hover:border-lime-500/50 hover:text-lime-400 focus-visible:outline-lime-400 inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="text-text-secondary hover:text-cream-50 inline-flex items-center gap-1.5 text-xs font-medium transition"
           >
-            Learn about {line.name}
+            <ArrowLeft size={13} weight="bold" aria-hidden />
+            About {line.name}
           </Link>
-        </div>
+          <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-[#D1FE17] uppercase sm:text-3xl md:text-4xl">
+                {line.name} presets
+              </h1>
+              <p className="text-text-secondary mt-2 max-w-2xl text-sm leading-relaxed md:text-base">
+                {line.description}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {ctaProduct ? (
+                <Link
+                  href={`/presets/${ctaProduct.slug}`}
+                  className="text-ink-950 inline-flex h-10 items-center gap-2 rounded-lg bg-[#D1FE17] px-4 text-sm font-semibold transition hover:bg-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-300"
+                >
+                  <Lightning size={15} weight="fill" aria-hidden />
+                  Start generating
+                </Link>
+              ) : null}
+              <Link
+                href={line.pageHref}
+                prefetch={false}
+                className="bg-charcoal-850 border-cream-100/15 text-cream-50 hover:bg-charcoal-800 hover:border-cream-100/30 inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-400"
+              >
+                Learn about {line.name}
+              </Link>
+            </div>
+          </div>
 
-        {/* Full aspect-natural masonry — unclipped, every preset in the line */}
-        <div
-          aria-label={`All ${line.name} presets`}
-          className="mt-8 columns-2 gap-3 md:mt-10 md:columns-3 md:gap-4 xl:columns-4 [&>*]:mb-3 [&>*]:break-inside-avoid md:[&>*]:mb-4"
-        >
-          {section.products.map((product, i) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              isAuthenticated={isAuthenticated}
-              returnPath={line.presetsHref}
-              priority={i < 4}
-              variant="grid"
-            />
-          ))}
-        </div>
-      </main>
+          {/* Full aspect-natural masonry — unclipped, every preset in the line */}
+          <div
+            data-explore-masonry=""
+            aria-label={`All ${line.name} presets`}
+            className="mt-8 columns-2 gap-2 md:mt-10 md:columns-3 lg:columns-4 xl:columns-5 [&>*]:mb-2 [&>*]:break-inside-avoid"
+          >
+            {section.products.map((product, i) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                isAuthenticated={isAuthenticated}
+                returnPath={line.presetsHref}
+                priority={i < 4}
+                variant="grid"
+              />
+            ))}
+          </div>
+        </main>
+      </PresetQuickViewHost>
       {/* Compact bar only — mirrors the reference's slim footer on grid
           pages; hidden on mobile where the chrome is already minimal. */}
       {!isAuthenticated && <CompactFooter className="max-md:hidden" />}

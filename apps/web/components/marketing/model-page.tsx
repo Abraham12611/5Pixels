@@ -5,6 +5,7 @@ import { PresetShelf } from "./preset-shelf";
 import {
   isImageMimeType,
   publicAssetUrl,
+  resolveProductAspectRatio,
   selectCatalogMediaAsset,
 } from "@/lib/catalog/media";
 import { cn } from "@/lib/utils";
@@ -111,9 +112,9 @@ export function ModelPage({
         </div>
       </section>
 
-      {/* Showcase strip — same clipped-rail feel as the landing carousel */}
+      {/* Showcase strip — natural aspect ratio per preset */}
       <section aria-label="Showcase" className="pt-8 md:pt-12">
-        <div className="scrollbar-none flex gap-3 overflow-x-auto px-4 sm:px-6 md:gap-4 lg:px-10">
+        <div className="scrollbar-none flex items-stretch gap-3 overflow-x-auto px-4 sm:px-6 md:gap-4 lg:px-10">
           {showcase.map((product) => {
             const asset = selectCatalogMediaAsset(
               product.public_assets,
@@ -123,12 +124,14 @@ export function ModelPage({
               asset && isImageMimeType(asset.mime_type)
                 ? publicAssetUrl(asset.bucket, asset.storage_key)
                 : null;
+            const aspect = resolveProductAspectRatio(product, asset);
             return (
               <Link
                 key={product.id}
                 href={`/presets/${product.slug}`}
                 prefetch={false}
-                className="bg-charcoal-850 border-cream-100/10 hover:border-lime-500/40 focus-visible:outline-lime-400 relative aspect-[4/5] w-36 shrink-0 overflow-hidden rounded-xl border focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-44 md:w-52"
+                style={{ aspectRatio: aspect }}
+                className="bg-charcoal-850 border-cream-100/10 hover:border-lime-500/40 focus-visible:outline-lime-400 relative h-52 shrink-0 overflow-hidden rounded-xl border focus-visible:outline-2 focus-visible:outline-offset-2 sm:h-60 md:h-64"
               >
                 {url ? (
                   <Image
