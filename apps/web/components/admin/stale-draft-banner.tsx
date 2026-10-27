@@ -25,7 +25,12 @@ interface StaleDraftBannerProps {
    * Explicit conflict resolution (#251): `recreate` rebases the work onto a
    * fresh draft cloned from live; `!recreate` only discards the stale drafts.
    */
-  resolve: (productId: string, recreate: boolean) => Promise<string | null>;
+  resolve: (
+    productId: string,
+    recreate: boolean
+  ) => Promise<
+    { ok: true; data: string | null } | { ok: false; error: string }
+  >;
 }
 
 /**
@@ -55,15 +60,15 @@ export function StaleDraftBanner({
     setError(undefined);
     startTransition(async () => {
       try {
-        await resolve(productId, confirm === "rebase");
+        const result = await resolve(productId, confirm === "rebase");
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
         setConfirm(null);
         router.refresh();
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Could not resolve stale drafts. Please try again."
-        );
+      } catch {
+        setError("Could not resolve stale drafts. Please try again.");
       }
     });
   };
