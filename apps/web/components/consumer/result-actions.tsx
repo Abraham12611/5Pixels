@@ -28,6 +28,7 @@ import {
   markGenerationDownloaded,
   setGenerationSaved,
 } from "@/lib/library/actions";
+import { useUiReview } from "@/lib/ui-review/context";
 import { cn } from "@/lib/utils";
 
 interface ResultActionsProps {
@@ -79,6 +80,7 @@ export function ResultActions({
   initialShareId,
   initialSaved,
 }: ResultActionsProps) {
+  const uiReview = useUiReview();
   const [shareOpen, setShareOpen] = useState(false);
   const [iosHintOpen, setIosHintOpen] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
@@ -186,6 +188,11 @@ export function ResultActions({
 
   const handleRegenerate = () => {
     setRegenError("");
+    if (uiReview) {
+      // Inspector mount — regeneration would spend real credits.
+      setRegenError("Preview only — regenerate is disabled.");
+      return;
+    }
     startTransition(async () => {
       const result = await regenerateGeneration(generationId);
       if (result?.error) setRegenError(result.error);
@@ -196,6 +203,11 @@ export function ResultActions({
   const handleSave = () => {
     const next = !saved;
     setSaved(next);
+    if (uiReview) {
+      // Inspector mount — fake ids would only fail server-side anyway.
+      if (next) toast("Saved to Library");
+      return;
+    }
     startTransition(async () => {
       const result = await setGenerationSaved(generationId, next);
       if (!result.success) {
