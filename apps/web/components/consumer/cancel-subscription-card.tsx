@@ -212,12 +212,9 @@ export function CancelSubscriptionCard({
                 </div>
               </fieldset>
 
-              {/* Retention offer — Medium-style lime coupon card */}
-              <div className="border-lime-500/30 bg-lime-500/[0.06] relative mt-5 overflow-hidden rounded-[12px] border p-4">
-                <span
-                  aria-hidden="true"
-                  className="bg-lime-500/50 absolute inset-x-0 top-0 h-px"
-                />
+              {/* Retention offer — lime coupon card (dashed edge = coupon,
+                  the one brightly-accented block in the dialog) */}
+              <div className="border-lime-500/50 bg-lime-500/[0.07] relative mt-5 rounded-xl border border-dashed p-4">
                 <p className="text-cream-50 flex items-center gap-1.5 text-sm font-semibold">
                   <Sparkle size={14} weight="fill" className="text-lime-400" />
                   Stay and get {credits.toLocaleString()} free credits
@@ -234,7 +231,7 @@ export function CancelSubscriptionCard({
                 </p>
               )}
 
-              <div className="mt-5 flex flex-col gap-2.5">
+              <div className="mt-5 flex flex-col items-center gap-3">
                 <Button
                   type="button"
                   variant="brand"
@@ -244,15 +241,14 @@ export function CancelSubscriptionCard({
                 >
                   Keep my plan — get {credits.toLocaleString()} credits
                 </Button>
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  className="w-full"
                   disabled={busy}
                   onClick={continueToCancel}
+                  className="text-text-muted hover:text-cream-100 text-sm transition-colors disabled:opacity-50"
                 >
                   Continue to cancel
-                </Button>
+                </button>
               </div>
             </>
           )}

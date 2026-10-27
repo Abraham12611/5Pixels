@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, LockSimple } from "@phosphor-icons/react";
+import { LockSimple } from "@phosphor-icons/react";
 import {
   Dialog,
   DialogContent,
@@ -16,12 +16,20 @@ import { Button } from "@/components/ui/button";
 import { PlanRow } from "@/components/promo/plan-row";
 import { SaveLine } from "@/components/promo/save-line";
 import { OfferBadge } from "@/components/promo/offer-badge";
-import { ReferralCard } from "@/components/promo/referral-card";
+import {
+  cleanWeeklyPlanName,
+  ExitStep,
+  OfferHeading,
+  PlansStep,
+  ReferralStep,
+  WeeklyPairStep,
+  WeeklyPassCards,
+  type OfferDeadlineDisplay,
+} from "@/components/promo/offer-steps";
 import { CreditTopUp } from "@/components/consumer/credit-top-up";
 import type { CreditPack } from "@/lib/billing/credit-packs";
 import { recordOfferEvent } from "@/lib/offers/actions";
 import { formatPrice } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { OfferAssignment } from "@/lib/offers/engine";
 import type { PlanForPurchase } from "@/lib/db/plans";
 import type { BlockedSegment, ResumePlan } from "@/lib/billing/segments";
@@ -33,16 +41,14 @@ interface TopUpInfo {
 }
 
 type View = "main" | "topup" | "offer";
-
-
+type FreePlanMode = "weekly" | "pro";
 
 /**
  * Blocked-credit surface (06 §3.4) — one component for desktop dialog and
- * mobile sheet. The body morphs per segment: subscribers get the top-up only,
- * weekly buyers "Get another week", lapsed users a reactivation card, and
- * free/new users the campaign offer ladder. Cancel transitions into the offer
- * step inside the same overlay when the segment is offer-eligible — never a
- * stacked modal. The create setup stays mounted behind it.
+ * mobile sheet. The body morphs per segment: subscribers get the focused
+ * 2×2 credit top-up, weekly buyers "Ready for another week?", lapsed users a
+ * reactivation card, and free/new users a clean separated weekly-vs-Pro
+ * comparison or campaign offer ladder.
  */
 export function BlockedCreditSurface({
   open,
@@ -87,10 +93,27 @@ export function BlockedCreditSurface({
   const steps = offer?.steps.slice(0, 3) ?? [];
   const startsOnOffer = offerEligible && segment === "new_user" && steps.length > 0;
 
+  const weekly = plans.filter((p) => p.type === "weekly_trial").slice(0, 2);
+  const annual = plans.filter((p) => p.type === "annual")[0] ?? null;
+  const monthly = plans
+    .filter((p) => p.type === "monthly")
+    .filter((p) => [2000, 5000].includes(p.price_cents))
+    .slice(0, 2);
+
+  const initialSelectedPlanId =
+    segment === "lapsed"
+      ? (resumePlan?.id ?? null)
+      : segment === "weekly_buyer"
+        ? (weekly[weekly.length - 1]?.id ?? weekly[0]?.id ?? null)
+        : null;
+
   const [view, setView] = useState<View>(startsOnOffer ? "offer" : "main");
+  const [planMode, setPlanMode] = useState<FreePlanMode>(
+    weekly.length > 0 ? "weekly" : "pro"
+  );
   const [stepIndex, setStepIndex] = useState(0);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(
-    resumePlan?.id ?? null
+    initialSelectedPlanId
   );
   const [wasOpen, setWasOpen] = useState(open);
   const impressionSent = useRef(false);
@@ -105,7 +128,8 @@ export function BlockedCreditSurface({
     setWasOpen(open);
     if (open) {
       setStepIndex(0);
-      setSelectedPlanId(resumePlan?.id ?? null);
+      setPlanMode(weekly.length > 0 ? "weekly" : "pro");
+      setSelectedPlanId(initialSelectedPlanId);
       setView(startsOnOffer ? "offer" : "main");
     }
   }
@@ -190,17 +214,11 @@ export function BlockedCreditSurface({
     checkoutFormRef.current?.submit();
   }
 
-  const weekly = plans.filter((p) => p.type === "weekly_trial").slice(0, 2);
-  const annual = plans.filter((p) => p.type === "annual")[0] ?? null;
-  const monthly = plans
-    .filter((p) => p.type === "monthly")
-    .filter((p) => [2000, 5000].includes(p.price_cents))
-    .slice(0, 2);
   const monthlyAnchor = annual
     ? (monthly.find((m) => m.credits_grant === annual.credits_grant) ??
       monthly[0] ??
       null)
-    : null;
+    : (monthly[0] ?? null);
   const effectiveMonthlyCents = annual
     ? Math.round(annual.price_cents / 12)
     : 0;
@@ -212,15 +230,31 @@ export function BlockedCreditSurface({
       })
     : null;
 
+  // Free-history CTA label — restates the selected deal honestly (including
+  // annual billing total when an annual plan is selected).
+  const freeSelected = [...weekly, ...(annual ? [annual] : []), ...monthly].find(
+    (p) => p.id === selectedPlanId
+  );
+  const freeContinueLabel = !freeSelected
+    ? "Choose a plan"
+    : freeSelected.type === "annual"
+      ? `Continue with ${freeSelected.name} — ${formatPrice(effectiveMonthlyCents)}/mo (${formatPrice(freeSelected.price_cents)}/yr)`
+      : freeSelected.type === "monthly"
+        ? `Continue with ${freeSelected.name} — ${formatPrice(freeSelected.price_cents)}/mo`
+        : `Continue with ${cleanWeeklyPlanName(freeSelected.name)} — ${formatPrice(freeSelected.price_cents)}`;
+
+  const selectedWeeklyBuyerPlan =
+    weekly.find((p) => p.id === selectedPlanId) ?? null;
+
   const contextCard = (
-    <div className="border-cream-100/10 bg-charcoal-800 flex items-center gap-3 rounded-lg border p-3">
+    <div className="border-cream-100/10 bg-charcoal-800/70 flex items-center gap-3 rounded-xl border p-3">
       {presetThumbUrl ? (
         <Image
           src={presetThumbUrl}
           alt=""
           width={40}
           height={50}
-          className="h-12 w-10 shrink-0 rounded-md object-cover"
+          className="h-12 w-10 shrink-0 rounded-lg object-cover"
           unoptimized
         />
       ) : null}
@@ -228,97 +262,16 @@ export function BlockedCreditSurface({
         <p className="text-cream-50 truncate text-sm font-semibold">
           {presetName}
         </p>
-        <p className="text-text-muted text-xs">
-          Your setup is saved while you decide.
-        </p>
+        <p className="text-text-muted text-xs">Your setup is saved</p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="text-cream-50 text-xs font-medium tabular-nums">
-          {required} {required === 1 ? "credit" : "credits"}
+        <p className="text-cream-50 text-xs font-semibold tabular-nums">
+          {required} needed
         </p>
-        <p className="text-error text-xs tabular-nums">
-          you have {balance}
+        <p className="text-text-muted text-xs tabular-nums">
+          {balance} available
         </p>
       </div>
-    </div>
-  );
-
-  const weeklyCards = (
-    <div className="grid grid-cols-2 gap-3">
-      {weekly.map((plan, i) => {
-        const name = plan.name
-          .replace("Weekly Trial — ", "")
-          .replace(" Monthly", "");
-        const selected = selectedPlanId === plan.id;
-        return (
-          <button
-            key={plan.id}
-            type="button"
-            onClick={() => setSelectedPlanId(plan.id)}
-            aria-pressed={selected}
-            className={cn(
-              "relative rounded-xl p-4 text-left transition-colors",
-              i === 1
-                ? "bg-lime-400 text-ink-950"
-                : "border-cream-100/10 bg-charcoal-850 text-cream-50 border",
-              selected && i !== 1 && "border-lime-400/70 ring-lime-400/40 ring-1",
-              selected && i === 1 && "ring-cream-50/70 ring-2"
-            )}
-          >
-            {i === 1 && (
-              <span className="bg-ink-950 text-lime-400 absolute -top-2 right-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest">
-                Popular
-              </span>
-            )}
-            <p
-              className={cn(
-                "font-display text-lg leading-tight",
-                i === 1 ? "text-ink-950" : "text-cream-50"
-              )}
-            >
-              {name}
-            </p>
-            <p
-              className={cn(
-                "font-display mt-1 text-2xl font-bold",
-                i === 1 ? "text-ink-950" : "text-cream-50"
-              )}
-            >
-              {formatPrice(plan.price_cents)}
-              <span
-                className={cn(
-                  "ml-1 align-middle text-[11px] font-normal",
-                  i === 1 ? "text-ink-950/60" : "text-text-muted"
-                )}
-              >
-                one week
-              </span>
-            </p>
-            <p
-              className={cn(
-                "mt-1 text-xs font-semibold",
-                i === 1 ? "text-ink-950/80" : "text-text-secondary"
-              )}
-            >
-              {plan.credits_grant.toLocaleString()} credits
-            </p>
-            <span
-              className={cn(
-                "absolute bottom-3 right-3 flex h-5 w-5 items-center justify-center rounded-full border",
-                selected
-                  ? i === 1
-                    ? "border-ink-950 bg-ink-950 text-lime-400"
-                    : "border-lime-400 bg-lime-400 text-ink-950"
-                  : i === 1
-                    ? "border-ink-950/30"
-                    : "border-cream-100/25"
-              )}
-            >
-              {selected && <Check size={12} weight="bold" />}
-            </span>
-          </button>
-        );
-      })}
     </div>
   );
 
@@ -326,18 +279,13 @@ export function BlockedCreditSurface({
     <>
       {segment === "subscriber" || segment === "canceling" ? (
         <div className="space-y-4">
-          <div>
-            <h2 className="text-cream-50 text-lg font-semibold">
-              You&rsquo;re out of credits
-            </h2>
-            <p className="text-text-secondary mt-1 text-sm">
-              {activePlanName
-                ? `Your ${activePlanName} credits ran out — top up to keep going.`
-                : "Top up to keep going — packs never expire."}
-            </p>
-          </div>
+          <OfferHeading
+            eyebrow="Add credits"
+            title="Keep creating."
+            sub="Add credits to finish your look. Choose an amount below."
+          />
           {segment === "canceling" && (
-            <p className="border-warning/25 bg-warning/10 text-warning rounded-lg border px-3.5 py-2.5 text-xs">
+            <p className="border-warning/25 bg-warning/10 text-warning rounded-xl border px-3.5 py-2.5 text-xs">
               Your {activePlanName ?? "plan"} plan ends {endsLabel} — restart on
               your{" "}
               <Link
@@ -362,32 +310,29 @@ export function BlockedCreditSurface({
         </div>
       ) : segment === "lapsed" ? (
         <div className="space-y-4">
-          <div>
-            <h2 className="text-cream-50 text-lg font-semibold">
-              Pick up where you left off
-            </h2>
-            <p className="text-text-secondary mt-1 text-sm">
-              {resumePlan
+          <OfferHeading
+            eyebrow="Welcome back"
+            title="Your look is ready to finish."
+            sub={
+              resumePlan
                 ? `Your ${resumePlan.name} plan ended — restart it or top up just for this one.`
-                : "Restart a plan or top up just for this one."}
-            </p>
-          </div>
+                : "Restart a plan or top up just for this one."
+            }
+          />
           {resumePlan && (
             <PlanRow
               name={resumePlan.name}
               cadence={
                 resumePlan.interval === "annual"
-                  ? "per month, billed annually"
-                  : "per month, billed monthly"
+                  ? `per month · ${formatPrice(resumePlan.priceCents)} billed annually`
+                  : "per month · billed monthly"
               }
               priceCents={
                 resumePlan.interval === "annual"
                   ? Math.round(resumePlan.priceCents / 12)
                   : resumePlan.priceCents
               }
-              priceCaption={
-                resumePlan.interval === "annual" ? "per month" : "per month"
-              }
+              priceCaption="per month"
               bullets={[
                 {
                   icon: "credits",
@@ -428,30 +373,29 @@ export function BlockedCreditSurface({
         </div>
       ) : segment === "weekly_buyer" ? (
         <div className="space-y-4">
-          <div>
-            <p className="text-promo text-[10px] font-bold uppercase tracking-[0.2em]">
-              Weekly pass
-            </p>
-            <h2 className="text-cream-50 mt-1 text-lg font-semibold">
-              Get another week
-            </h2>
-            <p className="text-text-secondary mt-1 text-sm">
-              One-time purchases — no subscription, doesn&rsquo;t renew.
-            </p>
-          </div>
-          {weeklyCards}
+          <OfferHeading
+            eyebrow="7-day pass"
+            title="Ready for another week?"
+            sub="Get credits for 7 days. Pay once, doesn't renew."
+          />
+          <WeeklyPassCards
+            plans={weekly}
+            selectedId={selectedPlanId}
+            onSelect={setSelectedPlanId}
+          />
           <Button
             variant="brand"
             size="lg"
             className="w-full"
-            disabled={!selectedPlanId}
-            onClick={() => selectedPlanId && void acceptPlan(selectedPlanId)}
+            disabled={!selectedWeeklyBuyerPlan}
+            onClick={() =>
+              selectedWeeklyBuyerPlan &&
+              void acceptPlan(selectedWeeklyBuyerPlan.id)
+            }
           >
-            {selectedPlanId
-              ? `Get a week — ${formatPrice(
-                  weekly.find((p) => p.id === selectedPlanId)?.price_cents ?? 0
-                )}`
-              : "Pick a week"}
+            {selectedWeeklyBuyerPlan
+              ? `Continue with ${cleanWeeklyPlanName(selectedWeeklyBuyerPlan.name)} — ${formatPrice(selectedWeeklyBuyerPlan.price_cents)}`
+              : "Choose a pass"}
           </Button>
           <button
             type="button"
@@ -462,82 +406,140 @@ export function BlockedCreditSurface({
           </button>
         </div>
       ) : (
-        /* free_history — and new_user fallback when no campaign is live */
+        /* free_history — separated weekly-vs-Pro decision */
         <div className="space-y-4">
-          <div>
-            <h2 className="text-cream-50 text-lg font-semibold">
-              You need credits to generate
-            </h2>
-            <p className="text-text-secondary mt-1 text-sm">
-              {presetName} and your photo are saved — pick a plan to continue.
-            </p>
-          </div>
-          {weekly.length > 0 && weeklyCards}
-          {(annual || monthlyAnchor) && (
-            <div className="space-y-2.5">
-              {annual && (
-                <div>
-                  <PlanRow
-                    name={annual.name}
-                    cadence="per month, billed annually"
-                    priceCents={effectiveMonthlyCents}
-                    anchorCents={monthlyAnchor?.price_cents}
-                    priceCaption="per month"
-                    bullets={[
-                      {
-                        icon: "credits",
-                        text: `${annual.credits_grant.toLocaleString()} credits every month`,
-                      },
-                    ]}
-                    headerTab="Best value"
-                    headerTone="promo"
-                    selected={selectedPlanId === annual.id}
-                    onSelect={() => setSelectedPlanId(annual.id)}
-                  />
+          <OfferHeading
+            eyebrow={
+              planMode === "pro" && weekly.length > 0
+                ? "Pro membership"
+                : "Flexible access"
+            }
+            title="Choose how you create."
+            sub={
+              planMode === "pro" && weekly.length > 0
+                ? "Monthly credits that refresh automatically. Cancel anytime."
+                : `${presetName} needs ${required} ${required === 1 ? "credit" : "credits"}. Your settings and photo are saved.`
+            }
+          />
+
+          {planMode === "weekly" && weekly.length > 0 ? (
+            <>
+              <WeeklyPassCards
+                plans={weekly}
+                selectedId={selectedPlanId}
+                onSelect={setSelectedPlanId}
+              />
+              <Button
+                variant="brand"
+                size="lg"
+                className="w-full"
+                disabled={!selectedPlanId}
+                onClick={() =>
+                  selectedPlanId && void acceptPlan(selectedPlanId)
+                }
+              >
+                {freeContinueLabel}
+              </Button>
+
+              {(annual || monthlyAnchor) && (
+                <div className="border-cream-100/10 bg-charcoal-800/40 flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5">
+                  <span className="text-text-secondary text-xs">
+                    Need more credits regularly?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlanMode("pro");
+                      setSelectedPlanId(
+                        annual?.id ?? monthlyAnchor?.id ?? null
+                      );
+                    }}
+                    className="text-lime-400 hover:text-lime-300 shrink-0 text-xs font-semibold transition-colors"
+                  >
+                    Explore Pro plans →
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {(annual || monthlyAnchor) && (
+                <div className="space-y-2.5">
+                  {annual && (
+                    <div>
+                      <PlanRow
+                        name={annual.name}
+                        cadence={`per month · ${formatPrice(annual.price_cents)} billed annually`}
+                        priceCents={effectiveMonthlyCents}
+                        anchorCents={monthlyAnchor?.price_cents}
+                        priceCaption="per month"
+                        bullets={[
+                          {
+                            icon: "credits",
+                            text: `${annual.credits_grant.toLocaleString()} credits every month`,
+                          },
+                          { icon: "check", text: "Every preset and poster" },
+                        ]}
+                        headerTab="Best value"
+                        headerTone="lime"
+                        selected={selectedPlanId === annual.id}
+                        onSelect={() => setSelectedPlanId(annual.id)}
+                      />
+                      {monthlyAnchor && (
+                        <SaveLine
+                          className="mt-1.5 pl-1"
+                          annualCents={annual.price_cents}
+                          monthlyCents={monthlyAnchor.price_cents * 12}
+                        />
+                      )}
+                    </div>
+                  )}
                   {monthlyAnchor && (
-                    <SaveLine
-                      className="mt-1.5 pl-1"
-                      annualCents={annual.price_cents}
-                      monthlyCents={monthlyAnchor.price_cents * 12}
+                    <PlanRow
+                      name={monthlyAnchor.name}
+                      cadence="per month · billed monthly"
+                      priceCents={monthlyAnchor.price_cents}
+                      priceCaption="per month"
+                      bullets={[
+                        {
+                          icon: "credits",
+                          text: `${monthlyAnchor.credits_grant.toLocaleString()} credits every month`,
+                          dimmed: Boolean(annual),
+                        },
+                      ]}
+                      selected={selectedPlanId === monthlyAnchor.id}
+                      onSelect={() => setSelectedPlanId(monthlyAnchor.id)}
+                      dimmed={Boolean(annual)}
                     />
                   )}
                 </div>
               )}
-              {monthlyAnchor && (
-                <PlanRow
-                  name={monthlyAnchor.name}
-                  cadence="per month, billed monthly"
-                  priceCents={monthlyAnchor.price_cents}
-                  priceCaption="per month"
-                  bullets={[
-                    {
-                      icon: "credits",
-                      text: `${monthlyAnchor.credits_grant.toLocaleString()} credits every month`,
-                      dimmed: true,
-                    },
-                  ]}
-                  selected={selectedPlanId === monthlyAnchor.id}
-                  onSelect={() => setSelectedPlanId(monthlyAnchor.id)}
-                  dimmed
-                />
+              <Button
+                variant="brand"
+                size="lg"
+                className="w-full"
+                disabled={!selectedPlanId}
+                onClick={() =>
+                  selectedPlanId && void acceptPlan(selectedPlanId)
+                }
+              >
+                {freeContinueLabel}
+              </Button>
+              {weekly.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlanMode("weekly");
+                    setSelectedPlanId(null);
+                  }}
+                  className="text-lime-400 hover:text-lime-300 block w-full text-center text-xs font-medium transition-colors"
+                >
+                  ← Back to 7-day passes
+                </button>
               )}
-            </div>
+            </>
           )}
-          <Button
-            variant="brand"
-            size="lg"
-            className="w-full"
-            disabled={!selectedPlanId}
-            onClick={() => selectedPlanId && void acceptPlan(selectedPlanId)}
-          >
-            {selectedPlanId
-              ? `Continue — ${formatPrice(
-                  [...weekly, ...(annual ? [annual] : []), ...monthly].find(
-                    (p) => p.id === selectedPlanId
-                  )?.price_cents ?? 0
-                )}`
-              : "Choose a plan"}
-          </Button>
+
           <button
             type="button"
             onClick={() => setView("topup")}
@@ -564,127 +566,50 @@ export function BlockedCreditSurface({
 
   const offerBody = (
     <>
-      <OfferBadge tone="promo">Special offer</OfferBadge>
-      <div key={step?.position ?? 0} className="animate-fade-in mt-4">
+      {step?.kind === "discount" && (
+        <div className="mb-3">
+          <OfferBadge tone="promo">Special offer</OfferBadge>
+        </div>
+      )}
+      <div key={step?.position ?? 0} className="animate-fade-in">
         {step?.kind === "weekly_pair" && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-cream-50 text-lg font-semibold">
-                {(step.payload.headline as string) ?? "Start with a week"}
-              </h2>
-              <p className="text-text-secondary mt-1 text-sm">
-                One-time purchases — no subscription.
-              </p>
-            </div>
-            <div className="space-y-2.5">
-              {weekly.map((plan) => (
-                <button
-                  key={plan.id}
-                  type="button"
-                  onClick={() => void acceptPlan(plan.id)}
-                  className="border-cream-100/10 bg-charcoal-850 hover:border-lime-500/40 flex w-full items-center justify-between rounded-xl border p-4 text-left transition-colors"
-                >
-                  <span>
-                    <span className="text-cream-50 block text-sm font-semibold">
-                      {plan.name.replace("Weekly Trial — ", "")}
-                    </span>
-                    <span className="text-text-muted text-xs">
-                      {plan.credits_grant.toLocaleString()} credits · one week
-                    </span>
-                  </span>
-                  <span className="font-display text-cream-50 text-lg font-bold">
-                    {formatPrice(plan.price_cents)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <WeeklyPairStep
+            plans={weekly}
+            headline={step.payload.headline as string | undefined}
+            onAccept={(id) => void acceptPlan(id)}
+          />
         )}
         {(step?.kind === "plans" || step?.kind === "discount") && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-cream-50 text-lg font-semibold">
-                {(step.payload.headline as string) ?? "Unlock every look"}
-              </h2>
-              {step.kind === "discount" &&
-                typeof step.payload.ends_at === "string" && (
-                <p className="text-promo mt-1 text-xs font-semibold">
-                  Offer ends{" "}
-                  {new Date(step.payload.ends_at as string).toLocaleDateString(
-                    undefined,
-                    { month: "short", day: "numeric" }
-                  )}
-                </p>
-              )}
-            </div>
-            {annual && (
-              <div>
-                <PlanRow
-                  name={annual.name}
-                  cadence="per month, billed annually"
-                  priceCents={effectiveMonthlyCents}
-                  anchorCents={monthlyAnchor?.price_cents}
-                  priceCaption="per month"
-                  bullets={[
-                    {
-                      icon: "credits",
-                      text: `${annual.credits_grant.toLocaleString()} credits every month`,
-                    },
-                    { icon: "check", text: "Every preset and poster" },
-                  ]}
-                  headerTab="Best value"
-                  headerTone="promo"
-                  selected={selectedPlanId === annual.id}
-                  onSelect={() => setSelectedPlanId(annual.id)}
-                />
-              </div>
-            )}
-            {monthlyAnchor && (
-              <PlanRow
-                name={monthlyAnchor.name}
-                cadence="per month, billed monthly"
-                priceCents={monthlyAnchor.price_cents}
-                priceCaption="per month"
-                bullets={[
-                  {
-                    icon: "credits",
-                    text: `${monthlyAnchor.credits_grant.toLocaleString()} credits every month`,
-                    dimmed: true,
-                  },
-                ]}
-                selected={selectedPlanId === monthlyAnchor.id}
-                onSelect={() => setSelectedPlanId(monthlyAnchor.id)}
-                dimmed
-              />
-            )}
-            <Button
-              variant="brand"
-              size="lg"
-              className="w-full"
-              disabled={!selectedPlanId}
-              onClick={() => selectedPlanId && void acceptPlan(selectedPlanId)}
-            >
-              {selectedPlanId
-                ? `Continue — ${formatPrice(
-                    [...(annual ? [annual] : []), ...monthly].find(
-                      (p) => p.id === selectedPlanId
-                    )?.price_cents ?? 0
-                  )}`
-                : "Choose a plan"}
-            </Button>
-          </div>
+          <PlansStep
+            eyebrow={step.kind === "discount" ? "Limited time" : "Pro membership"}
+            headline={
+              (step.payload.headline as string) ??
+              (step.kind === "discount"
+                ? "Limited-time discount"
+                : "Unlock every look")
+            }
+            annual={annual}
+            monthly={monthly}
+            selected={selectedPlanId}
+            onSelect={setSelectedPlanId}
+            onAccept={(id) => void acceptPlan(id)}
+            deadlineDisplay={
+              step.kind === "discount" && step.payload.ends_at
+                ? ((step.payload.deadline_display as OfferDeadlineDisplay) ??
+                  "date")
+                : "none"
+            }
+            endsAt={(step.payload.ends_at as string) ?? null}
+          />
         )}
         {step?.kind === "topup" &&
           (topUp ? (
             <div className="space-y-4">
-              <div>
-                <h2 className="text-cream-50 text-lg font-semibold">
-                  Just this once
-                </h2>
-                <p className="text-text-secondary mt-1 text-sm">
-                  One-time credits — never expire.
-                </p>
-              </div>
+              <OfferHeading
+                eyebrow="One-time credits"
+                title="Keep creating."
+                sub="Add credits to finish your look. Choose an amount below."
+              />
               <CreditTopUp
                 packs={topUp.packs}
                 creditsPerTransformation={topUp.creditsPerTransformation}
@@ -692,46 +617,19 @@ export function BlockedCreditSurface({
             </div>
           ) : null)}
         {step?.kind === "referral" && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-cream-50 text-lg font-semibold">
-                Or get credits on us
-              </h2>
-              <p className="text-text-secondary mt-1 text-sm">
-                Refer a friend — this one&rsquo;s on us.
-              </p>
-            </div>
-            <ReferralCard
-              referralUrl={
-                referralCode
-                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/r/${referralCode}`
-                  : null
-              }
-              referralCode={referralCode}
-              refereeReward="their first result on us"
-              referrerReward="30% of their plan's credits when they subscribe"
-            />
-          </div>
+          <ReferralStep referralCode={referralCode} />
         )}
         {step?.kind === "exit" && (
-          <div className="py-8 text-center">
-            <h2 className="text-cream-50 text-lg font-semibold">No pressure</h2>
-            <p className="text-text-secondary mt-2 text-sm">
-              Your photo and settings are saved — pick a plan whenever
-              you&rsquo;re ready.
-            </p>
-            <Button
-              variant="secondary"
-              className="mt-5"
-              onClick={close}
-            >
-              Back to your look
-            </Button>
-          </div>
+          <ExitStep
+            title="No pressure"
+            description="Your photo and settings are saved — pick a plan whenever you're ready."
+            buttonLabel="Back to your look"
+            onDismiss={close}
+          />
         )}
       </div>
       {step?.kind !== "exit" && (
-        <div className="mt-5 text-center">
+        <div className="mt-4 text-center">
           <button
             type="button"
             onClick={declineOffer}
@@ -746,12 +644,11 @@ export function BlockedCreditSurface({
 
   const topupBody = (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-cream-50 text-lg font-semibold">Buy credits</h2>
-        <p className="text-text-secondary mt-1 text-sm">
-          One-time packs — credits never expire.
-        </p>
-      </div>
+      <OfferHeading
+        eyebrow="Add credits"
+        title="Keep creating."
+        sub="Add credits to finish your look. Choose an amount below."
+      />
       {topUp ? (
         <CreditTopUp
           packs={topUp.packs}
@@ -772,21 +669,25 @@ export function BlockedCreditSurface({
     </div>
   );
 
+  const showFooterNote =
+    segment !== "subscriber" && segment !== "canceling";
+
   const footer =
     view === "main" ? (
-      <div className="mt-5 space-y-2">
-        <Button
+      <div className="mt-4 space-y-2">
+        <button
           type="button"
-          variant="ghost"
-          className="w-full"
           onClick={cancelMain}
+          className="text-text-muted hover:text-cream-100 block w-full text-center text-sm transition-colors"
         >
           Not now
-        </Button>
-        <p className="text-text-muted flex items-center justify-center gap-1.5 text-[11px]">
-          <LockSimple size={12} weight="bold" />
-          Secure checkout · weekly passes are one-time purchases
-        </p>
+        </button>
+        {showFooterNote && (
+          <p className="text-text-muted flex items-center justify-center gap-1.5 text-[11px]">
+            <LockSimple size={11} weight="bold" />
+            Secure checkout · One-time or cancel anytime
+          </p>
+        )}
       </div>
     ) : null;
 
@@ -851,7 +752,7 @@ export function BlockedCreditSurface({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} className="max-w-lg">
+    <Dialog open={open} onOpenChange={onOpenChange} className="max-w-[560px]">
       <DialogContent>
         <DialogTitle className="sr-only">Add credits to generate</DialogTitle>
         <DialogDescription className="sr-only">

@@ -149,8 +149,8 @@ export function Sheet({
       className={cn(
         "animate-overlay-in fixed inset-0 flex justify-center",
         tier === "full" ? "items-stretch sm:items-center" : "items-end",
-        tier !== "full" && "bg-ink-950/80",
-        tier === "full" && "bg-ink-950 sm:bg-ink-950/80",
+        tier !== "full" && "bg-ink-950/80 backdrop-blur-sm",
+        tier === "full" && "bg-ink-950 sm:bg-ink-950/80 sm:backdrop-blur-sm",
         nested ? LAYER_CLASS.nestedOverlay : LAYER_CLASS.overlay
       )}
     >
