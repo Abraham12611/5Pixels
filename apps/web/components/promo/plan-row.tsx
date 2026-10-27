@@ -39,7 +39,7 @@ export function PlanRow({
   bullets,
   moreBullets,
   headerTab,
-  headerTone = "promo",
+  headerTone = "lime",
   selected,
   onSelect,
   dimmed = false,
@@ -65,51 +65,54 @@ export function PlanRow({
     <div
       className={cn(
         "relative transition-all",
-        headerTab && "mt-3",
-        dimmed && "opacity-70"
+        dimmed && !selected && "opacity-80"
       )}
     >
-      {headerTab && (
-        <span className="absolute -top-2.5 right-4 z-10">
-          <OfferBadge tone={headerTone} className="shadow-md">
-            {headerTab}
-          </OfferBadge>
-        </span>
-      )}
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
         className={cn(
-          "flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition-all",
+          "flex w-full items-start gap-3.5 rounded-2xl border p-4 text-left transition-all",
           selected
-            ? "border-lime-500/60 bg-charcoal-800 ring-1 ring-lime-500/30"
+            ? "border-lime-400 bg-lime-500/[0.06] ring-1 ring-lime-400/25"
             : "border-cream-100/10 bg-charcoal-800/60 hover:border-cream-100/25"
         )}
       >
         <span
           aria-hidden
           className={cn(
-            "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+            "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
             selected
-              ? "border-lime-500 bg-lime-500 text-ink-950"
-              : "border-cream-100/25"
+              ? "border-lime-400 bg-lime-400 text-ink-950"
+              : "border-cream-100/25 bg-charcoal-900/50"
           )}
         >
           {selected && <Check size={12} weight="bold" />}
         </span>
 
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="flex flex-wrap items-center gap-2">
             <span className="text-cream-50 font-display text-lg font-bold leading-tight">
               {name}
             </span>
+            {headerTab && (
+              <OfferBadge
+                tone={headerTone}
+                className={cn(
+                  headerTone === "lime" &&
+                    "border-lime-400/30 bg-lime-400/15 text-lime-300 border"
+                )}
+              >
+                {headerTab}
+              </OfferBadge>
+            )}
           </span>
           <span className="text-text-secondary mt-0.5 block text-xs">
             {cadence}
           </span>
 
-          <span className="mt-3 block space-y-1.5">
+          <span className="mt-2.5 block space-y-1">
             {[...bullets, ...(expanded ? (moreBullets ?? []) : [])].map(
               (b, i) => (
                 <span
@@ -142,7 +145,7 @@ export function PlanRow({
                   setExpanded((v) => !v);
                 }
               }}
-              className="text-text-muted hover:text-cream-100 mt-3 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
+              className="text-text-muted hover:text-cream-100 mt-2.5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
             >
               {expanded ? "Show less" : "Learn more"}
               <CaretDown
@@ -159,7 +162,6 @@ export function PlanRow({
           anchorCents={anchorCents}
           caption={priceCaption}
           selected={selected}
-          tone="lime"
           className="shrink-0"
         />
       </button>

@@ -319,9 +319,14 @@ export const POPUP_REGISTRY: PopupEntry[] = [
     render: () => (
       <Mountable>
         {(open, setOpen) => (
-          <Dialog open={open} onOpenChange={setOpen} className="max-w-sm">
-            <DialogTitle className="sr-only">Credit top-up</DialogTitle>
-            <DialogContent className="p-0">
+          <Dialog open={open} onOpenChange={setOpen} className="max-w-[520px]">
+            <DialogContent>
+              <DialogTitle className="font-display text-cream-50 text-2xl font-bold">
+                Keep creating.
+              </DialogTitle>
+              <p className="text-text-secondary mt-1 mb-4 text-sm">
+                Add credits to finish your look. Choose an amount below.
+              </p>
               <CreditTopUp packs={CREDIT_PACKS} creditsPerTransformation={3} />
             </DialogContent>
           </Dialog>
@@ -357,11 +362,11 @@ export const POPUP_REGISTRY: PopupEntry[] = [
     render: () => (
       <div className="mx-auto w-full max-w-lg">
         <TrialBanner
-          headline="Try Pro free for a week"
-          description="Unlimited previews, 2000 credits, cancel anytime."
+          headline="A little more room to create."
+          description="Try Pro free for 7 days. Unlimited previews and 2,000 credits."
           priceCents={0}
           ctaLabel="Start free week"
-          badge="New"
+          badge="NEW"
           onCta={noop}
         />
       </div>

@@ -24,20 +24,18 @@ describe("CreditTopUp", () => {
     render(<CreditTopUp {...props} />);
     expect(screen.getByText("606 credits")).toBeInTheDocument();
     expect(screen.getByText("6,060 credits")).toBeInTheDocument();
-    // $50 pack = 3,030 credits / 5 = 606 transformations
-    expect(
-      screen.getByText("≈ up to 606 transformations")
-    ).toBeInTheDocument();
+    // $50 pack = 3,030 credits / 5 = 606 looks
+    expect(screen.getByText("≈ 606 looks")).toBeInTheDocument();
   });
 
-  it("selects a pack, then the CTA restates the deal", () => {
+  it("preselects the popular pack and updates the single CTA on selection", () => {
     render(<CreditTopUp {...props} />);
-    const cta = screen.getByRole("button", { name: "Get credits" });
-    expect(cta).toBeDisabled();
+    const cta = screen.getByRole("button", { name: "Continue — $50" });
+    expect(cta).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("radio", { name: /3,030 credits/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /606 credits/i }));
     expect(
-      screen.getByRole("button", { name: /get 3,030 credits — \$50/i })
+      screen.getByRole("button", { name: "Continue — $10" })
     ).toBeEnabled();
   });
 
@@ -63,7 +61,7 @@ describe("CreditTopUp", () => {
 
   it("omits the ≈N claim when nothing is quotable", () => {
     render(<CreditTopUp packs={packs} creditsPerTransformation={null} />);
-    expect(screen.queryByText(/≈ up to/)).toBeNull();
+    expect(screen.queryByText(/≈/)).toBeNull();
     expect(screen.getByText("606 credits")).toBeInTheDocument();
   });
 
@@ -71,14 +69,14 @@ describe("CreditTopUp", () => {
     render(
       <CreditTopUp
         {...props}
-        packs={[{ ...packs[0], checkoutReady: false }]}
+        packs={[{ ...packs[0]!, checkoutReady: false }]}
       />
     );
     const card = screen.getByRole("radio", { name: /606 credits/i });
     expect(card).toBeDisabled();
     fireEvent.click(card);
     expect(
-      screen.getByRole("button", { name: "Get credits" })
+      screen.getByRole("button", { name: "Choose a credit pack" })
     ).toBeDisabled();
   });
 
