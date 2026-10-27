@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateProfile, type PublicProfile } from "@/lib/profile/actions";
+import { useUiReview } from "@/lib/ui-review/context";
 import type { DefaultAvatar } from "@/lib/profile/default-avatars";
 import { AvatarUploader } from "./avatar-uploader";
 import { Button } from "@/components/ui/button";
@@ -82,10 +83,19 @@ export function EditAccountDialog({
     setError(null);
   };
 
+  const uiReview = useUiReview();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSaving(true);
+    if (uiReview) {
+      // Inspector mount — simulate a successful save, never mutate the
+      // admin's real profile.
+      setSaving(false);
+      onOpenChange(false);
+      return;
+    }
     const result = await updateProfile({
       display_name: displayName.trim() || undefined,
       avatar_asset_id: avatarAssetId,

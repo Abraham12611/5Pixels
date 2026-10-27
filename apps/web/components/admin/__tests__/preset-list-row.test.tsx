@@ -6,7 +6,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-const noop = vi.fn().mockResolvedValue(undefined);
+const noop = vi.fn().mockResolvedValue({ ok: true });
 
 function renderRow(
   name = "Vintage Film",
