@@ -201,6 +201,19 @@ describe("ensurePromptRecipe", () => {
     expect(second.model).toBe("nvidia/nemotron-3.5-lightning:free");
   });
 
+  it("escalates to paid fallbacks only after every free model fails", async () => {
+    chatMock.mockImplementation((args: { model: string }) =>
+      args.model.endsWith(":free")
+        ? Promise.reject(new Error("OpenRouter request failed with 429"))
+        : Promise.resolve(GOOD_RECIPE)
+    );
+    expect(await ensurePromptRecipe("prod-1")).toBe("generated");
+    // 3 free-model vision attempts failed, then first paid model won.
+    expect(chatMock).toHaveBeenCalledTimes(4);
+    const fourth = chatMock.mock.calls[3]![0] as { model: string };
+    expect(fourth.model).toBe("qwen/qwen3.8-omni-flash");
+  });
+
   it("rejects output that leaks the private recipe verbatim", async () => {
     chatMock
       .mockResolvedValueOnce(
@@ -226,8 +239,9 @@ describe("ensurePromptRecipe", () => {
       return Promise.resolve(GOOD_RECIPE);
     });
     expect(await ensurePromptRecipe("prod-1")).toBe("generated");
-    // 3 vision attempts failed, then first text-only attempt succeeded.
-    expect(chatMock).toHaveBeenCalledTimes(4);
+    // 9 vision attempts (3 free + 6 paid) failed, then the first
+    // text-only attempt succeeded.
+    expect(chatMock).toHaveBeenCalledTimes(10);
   });
 
   it("works without an image when the product has no hero/poster asset", async () => {

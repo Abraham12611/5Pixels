@@ -75,7 +75,7 @@ export async function generatePromptRecipeDraft(
       return {
         ok: false,
         error:
-          "Every model failed or produced unusable output — try again shortly.",
+          "Every model failed or produced unusable output (free and paid fallbacks) — check the OpenRouter key balance, or try again shortly.",
       };
     }
     return { ok: true, recipe };
