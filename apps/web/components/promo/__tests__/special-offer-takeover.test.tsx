@@ -102,9 +102,9 @@ describe("SpecialOfferTakeover", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeInTheDocument();
     // Compact card — not the old fixed inset-0 bg-ink-950 takeover.
-    expect(dialog.className).toContain("max-w-[500px]");
-    expect(screen.getByText("Special offer")).toBeInTheDocument();
-    expect(screen.getByText("Start with a weekly pass")).toBeInTheDocument();
+    expect(dialog.className).toContain("max-w-[560px]");
+    expect(screen.getAllByText("Special offer").length).toBeGreaterThan(0);
+    expect(screen.getByText("Your first week starts here.")).toBeInTheDocument();
   });
 
   it("decline advances to the next step inside the same card", () => {
@@ -131,18 +131,21 @@ describe("SpecialOfferTakeover", () => {
   it("keeps the opt-out link inside the card footer", () => {
     renderTakeover();
     const optOut = screen.getByRole("button", {
-      name: /show offers again/i,
+      name: /show these offers again/i,
     });
     expect(optOut).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toContainElement(optOut);
   });
 
-  it("accept posts the plan to the checkout endpoint", async () => {
+  it("accept posts the selected plan to the checkout endpoint", async () => {
     const submit = vi
       .spyOn(HTMLFormElement.prototype, "submit")
       .mockImplementation(() => {});
     renderTakeover();
-    fireEvent.click(screen.getByRole("button", { name: /Starter/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Starter/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue with Starter — $5" })
+    );
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     expect(recordOfferEvent).toHaveBeenCalledWith(
       expect.objectContaining({

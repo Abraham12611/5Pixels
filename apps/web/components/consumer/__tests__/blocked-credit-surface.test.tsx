@@ -97,14 +97,15 @@ function renderSurface(segment: BlockedSegment, extra = {}) {
 }
 
 describe("BlockedCreditSurface", () => {
-  it("free_history: leads with weekly passes and monthlies", () => {
+  it("free_history: leads with 7-day passes and a separated Pro comparison link", () => {
     renderSurface("free_history");
     expect(screen.getByText("Starter")).toBeInTheDocument();
     expect(screen.getByText("Plus")).toBeInTheDocument();
     expect(screen.getByText("$5")).toBeInTheDocument();
     expect(screen.getByText("$10")).toBeInTheDocument();
+    expect(screen.getByText("Choose how you create.")).toBeInTheDocument();
     expect(
-      screen.getByText("You need credits to generate")
+      screen.getByRole("button", { name: /Explore Pro plans/i })
     ).toBeInTheDocument();
   });
 
@@ -114,16 +115,19 @@ describe("BlockedCreditSurface", () => {
     expect(submit).toBeDisabled();
     fireEvent.click(screen.getByText("Plus"));
     expect(
-      screen.getByRole("button", { name: /Continue/ })
+      screen.getByRole("button", { name: "Continue with Plus — $10" })
     ).toBeEnabled();
   });
 
   it("subscriber: shows only the top-up — never weekly plans", () => {
     renderSurface("subscriber", { activePlanName: "Creator" });
-    expect(screen.getByText(/out of credits/i)).toBeInTheDocument();
+    expect(screen.getByText("Keep creating.")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /buy for \$10/i })
+      screen.getByRole("radio", { name: /1,000 credits/i })
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continue — $10" })
+    ).toBeEnabled();
     expect(screen.queryByText("Starter")).not.toBeInTheDocument();
     expect(screen.queryByText("Choose a plan")).not.toBeInTheDocument();
   });
@@ -140,11 +144,14 @@ describe("BlockedCreditSurface", () => {
     );
   });
 
-  it("weekly_buyer: reframes as 'Get another week', no trial wording", () => {
+  it("weekly_buyer: reframes as 'Ready for another week?', no trial wording", () => {
     renderSurface("weekly_buyer");
-    expect(screen.getByText("Get another week")).toBeInTheDocument();
+    expect(screen.getByText("Ready for another week?")).toBeInTheDocument();
     expect(screen.getByText(/doesn.t renew/i)).toBeInTheDocument();
     expect(screen.queryByText(/trial/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continue with Plus — $10" })
+    ).toBeEnabled();
   });
 
   it("lapsed: preselects the last plan for one-click restart", () => {
