@@ -17,7 +17,7 @@ import {
 
 // Matches the CHECK constraint products_public_prompt_recipe_len.
 const RECIPE_MAX_CHARS = 8_000;
-const MIN_RECIPE_CHARS = 80;
+const MIN_RECIPE_CHARS = 400;
 const TEMPLATE_EXCERPT_CHARS = 6_000;
 const NEGATIVE_EXCERPT_CHARS = 1_000;
 const VERBATIM_WINDOW = 60;
@@ -46,14 +46,26 @@ export interface RecipeVersionRow {
 
 export type EnsureResult = "generated" | "skipped" | "failed";
 
-const SYSTEM_PROMPT = `You are an expert prompt writer for AI image generation. You convert a commercial image-effect preset's internal generation recipe into a public, consumer-friendly "prompt recipe" — a single self-contained prompt an advanced user could paste into any image generator to produce a similar visual result.
+const SYSTEM_PROMPT = `You are an expert prompt writer for AI image generation. You convert a commercial image-effect preset's internal generation recipe into a public, consumer-friendly "prompt recipe" — a single self-contained prompt a user can paste into ANY external image tool (with their own photo when the preset is a filter) and get the same visual result as the preset.
+
+The recipe's PURPOSE is portability: it must fully describe the visual outcome — never a meta-description of it, never "apply the preset's effect", never a one-line summary.
 
 Rules:
 - NEVER copy sentences or phrases verbatim from the internal recipe. Completely rephrase and restructure it — the internal recipe is confidential.
 - NEVER mention provider names, model names, API parameters, JSON keys, template placeholders, or any technical implementation detail.
-- Write in a descriptive, editorial prompt style like a published poster/illustration brief: canvas and orientation, subject, composition, style and medium, color palette (approximate hex values welcome), typography and lettering details, lighting, mood, and finishing quality.
-- Length: roughly 1500–3500 characters.
-- Output ONLY the prompt text. No preamble, no explanation, no markdown code fences, no wrapping quotes.`;
+- Write in a descriptive, editorial prompt style like a published creative brief.
+- Length: roughly 1200–3500 characters of dense visual detail — a recipe that just restates the preset's one-line description is a failure.
+- Output ONLY the prompt text. No preamble, no explanation, no markdown code fences, no wrapping quotes.
+
+FOR FILTERS (style transformations applied to the reader's own photo):
+- The reader uploads THEIR OWN photo to another tool — the recipe must describe the transformation applied to "your photo" / "the uploaded photo", NOT describe a specific subject or scene.
+- Cover, in concrete terms: what stays untouched (subject identity, pose, facial features, core composition); color grade and palette (named tones, approximate hex values welcome); lighting changes; texture and finish (grain, halftone, sharpness, vignette); atmosphere and mood; any added effects (light trails, bloom, motion) and exactly where they appear; quality bar (editorial, print-ready, 4k).
+
+FOR POSTERS (complete generated visuals):
+- Cover: canvas and orientation, full composition top-to-bottom, subject, style and medium, color palette (approximate hex values welcome), typography and lettering details, lighting, mood, and finishing quality.
+
+Gold-standard example of a FILTER recipe (match this density and concreteness):
+"Apply a moody luxury-nightlife editorial grade to the uploaded portrait. Preserve the subject's identity, pose, facial features and clothing detail exactly — transform the atmosphere, not the person. Restyle the scene into deep teal-green darkness with crushed blacks and soft haze, while skin renders warm bronze with gentle highlight roll-off. Add fine analog film grain across the frame — visible but refined, like a scanned 35mm editorial. Around jewelry, watches, glasses and other reflective highlights, draw subtle long-exposure light trails: thin luminous amber streaks arcing a few centimeters horizontally, soft and photographic, never neon or cartoonish. Slight cool rim light separates the subject from the dark background. Mood: intimate, expensive, cinematic — a fashion-magazine nightlife editorial. Print-ready, 4k detail, no smoothing of skin texture."`;
 
 function buildUserPrompt(
   product: RecipeProductRow,
@@ -96,10 +108,15 @@ function buildUserPrompt(
   if (hasImage) {
     lines.push(
       "",
-      "The attached image is an example output of this preset — match its visual style and composition in the recipe."
+      "The attached image is an example output of this preset — match its visual style and treatment in the recipe. Describe the effect so it transfers to any photo the reader supplies."
     );
   }
-  lines.push("", "Write the public prompt recipe now.");
+  lines.push(
+    "",
+    product.type === "filter"
+      ? "Write the public prompt recipe now — a transformation the reader applies to their OWN photo in any image tool."
+      : "Write the public prompt recipe now — a complete generation brief the reader pastes into any image tool."
+  );
   return lines.join("\n");
 }
 
