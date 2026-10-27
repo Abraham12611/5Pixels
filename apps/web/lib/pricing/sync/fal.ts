@@ -43,8 +43,37 @@ const ENDPOINTS_PER_CALL = 50;
  */
 const RENEWAL_FRACTION = 0.5;
 const SNAPSHOT_SOURCE = "pricing-sync";
+/**
+ * The feed throttles hard after a couple of rapid requests — a sync that
+ * fires >10 batches back-to-back otherwise starves the later ones, which
+ * is exactly where the defined endpoints sorted (see the request notes
+ * inside runFalPricingSync). Requests are spaced and 429s retried.
+ */
+const INTER_REQUEST_MS = 1_500;
+const MAX_429_RETRIES = 3;
+const RETRY_429_BASE_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 20_000;
+/**
+ * Discovery-refresh budget: the defined-endpoint phase above must finish
+ * even when the sweep is slow or throttled, so the coarse batches stop
+ * claiming wall-clock once the budget is spent. Missed rows just stay on
+ * their previous last_seen until the next run.
+ */
+const COARSE_FETCH_BUDGET_MS = 120_000;
 
 export class PricingSyncFatal extends Error {}
+
+function retryDelayMs(res: Response, depth: number): number {
+  const raw = res.headers?.get?.("retry-after");
+  const secs = raw ? Number(raw) : NaN;
+  if (Number.isFinite(secs) && secs >= 0) {
+    return Math.min(secs * 1000, MAX_RETRY_DELAY_MS);
+  }
+  return Math.min(RETRY_429_BASE_MS * 2 ** depth, MAX_RETRY_DELAY_MS);
+}
+
+const defaultSleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** One normalized record from GET /v1/models/pricing. */
 export interface FalPriceRecord {
@@ -63,6 +92,8 @@ export interface FalPricingSyncDeps {
   key?: string;
   /** Definition registry override for tests. */
   definitions?: readonly FalPricingDefinition[];
+  /** Sleep override for tests — real timers otherwise. */
+  sleepImpl?: (ms: number) => Promise<void>;
 }
 
 export interface FalPricingSyncReport {
@@ -82,6 +113,10 @@ export interface FalPricingSyncReport {
    */
   renewalWriteFailures: string[];
   unsupported: { endpointId: string; reason: string }[];
+  /** Coarse rows flipped to is_active=false after a confirmed solo 404. */
+  deactivated: string[];
+  /** Discovery endpoints left unfetched when the time budget ran out. */
+  coarseSkipped: number;
   alertsRaised: string[];
 }
 
@@ -384,6 +419,8 @@ export async function runFalPricingSync(
     unchanged: 0,
     renewalWriteFailures: [],
     unsupported: [],
+    deactivated: [],
+    coarseSkipped: 0,
     alertsRaised: [],
   };
 
@@ -421,53 +458,90 @@ export async function runFalPricingSync(
   // only defined endpoints ever produce quotable snapshots.
   const { data: coarseRows } = await client
     .from("provider_model_pricing")
-    .select("endpoint_id")
+    .select("endpoint_id, metadata")
     .eq("provider", "fal")
     .eq("is_active", true);
-  const endpointSet = new Set<string>(definitions.map((d) => d.endpointId));
+  const definedIds = new Set(definitions.map((d) => d.endpointId));
+  const endpointSet = new Set<string>(definedIds);
   for (const r of (coarseRows ?? []) as { endpoint_id: string }[]) {
     endpointSet.add(r.endpoint_id);
   }
-  const endpoints = [...endpointSet].sort();
 
   const feed = new Map<string, FalPriceRecord>();
   const fetchFailed = new Set<string>();
-  for (let i = 0; i < endpoints.length; i += ENDPOINTS_PER_CALL) {
-    const batch = endpoints.slice(i, i + ENDPOINTS_PER_CALL);
+  const sleep = deps.sleepImpl ?? defaultSleep;
+  let calls = 0;
+
+  /**
+   * One pricing-feed request for `ids`, with three failure mitigations:
+   *
+   *  - 429: honor Retry-After / exponential backoff and retry — without
+   *    this, back-to-back batches always starve the later ones;
+   *  - any other failure with more than one id: split and retry — a
+   *    single delisted endpoint returns 404 for the WHOLE batch request,
+   *    which used to mark all 50 ids it rode with as failed;
+   *  - a confirmed solo 404 deactivates the coarse row so a delisted id
+   *    stops poisoning every future batch it lands in.
+   */
+  const request = async (ids: string[], depth: number): Promise<void> => {
+    if (calls++ > 0) await sleep(INTER_REQUEST_MS);
     const url = new URL(PRICING_API);
-    for (const id of batch) url.searchParams.append("endpoint_id", id);
+    for (const id of ids) url.searchParams.append("endpoint_id", id);
+    let res: Response | null;
     try {
-      const res = await fetchImpl(url.toString(), {
+      res = await fetchImpl(url.toString(), {
         headers: { Authorization: `Key ${key}` },
       });
-      if (!res.ok) {
-        batch.forEach((id) => fetchFailed.add(id));
-        continue;
-      }
+    } catch {
+      res = null;
+    }
+
+    if (res?.ok) {
       for (const rec of parsePricingFeed(await res.json())) {
         feed.set(rec.endpointId, rec);
         report.feedRecords++;
       }
-    } catch {
-      batch.forEach((id) => fetchFailed.add(id));
+      return;
     }
-  }
 
-  if (feed.size === 0) {
-    await raiseAlert(
-      client,
-      "critical",
-      "fal_pricing_sync_failed",
-      "Fal pricing sync fetched zero usable price records — feed is down or returned an unparseable body",
-      { endpoints: endpoints.length },
-      raised
-    );
-    report.alertsRaised.push("fal_pricing_sync_failed");
-    throw new PricingSyncFatal("fal pricing feed returned no usable records");
-  }
-  report.fetchFailedEndpoints = fetchFailed.size;
+    // Sustained throttling: retry, then give up on the whole group —
+    // bisecting a 429 would multiply requests into an already-hot limit.
+    if (res?.status === 429) {
+      if (depth < MAX_429_RETRIES) {
+        await sleep(retryDelayMs(res, depth));
+        return request(ids, depth + 1);
+      }
+      ids.forEach((id) => fetchFailed.add(id));
+      return;
+    }
 
-  await refreshCoarseFeed(client, [...feed.values()], nowIso, report);
+    if (ids.length > 1) {
+      const mid = Math.ceil(ids.length / 2);
+      await request(ids.slice(0, mid), 0);
+      await request(ids.slice(mid), 0);
+      return;
+    }
+
+    const id = ids[0]!;
+    fetchFailed.add(id);
+    if (res?.status === 404 && !definedIds.has(id)) {
+      const { error } = await client
+        .from("provider_model_pricing")
+        .update({ is_active: false })
+        .eq("provider", "fal")
+        .eq("endpoint_id", id)
+        .eq("is_active", true);
+      if (!error) report.deactivated.push(id);
+    }
+  };
+
+  // Verified definitions ride their own request and go FIRST: quotable
+  // snapshots must never depend on the discovery sweep's health — both
+  // failure modes above used to live in the coarse batches the defined
+  // endpoints sorted into. The snapshot writes below complete before the
+  // coarse sweep starts, so a slow or throttled discovery run (or a
+  // function timeout mid-sweep) can never starve route quotability.
+  await request([...definedIds].sort(), 0);
 
   // Per-definition snapshot write. Every outcome is a fresh immutable row
   // (or a dedupe skip) — never an UPDATE of history.
@@ -637,6 +711,52 @@ export async function runFalPricingSync(
       report.alertsRaised.push(`${def.endpointId}:unquotable`);
     }
   }
+
+  // Phase 2 — coarse discovery refresh. Best-effort and time-bounded:
+  // everything that affects quotability has already been persisted above.
+  // Least-recently-seen first so a capped sweep rotates coverage across
+  // runs instead of always starving the alphabetical tail.
+  const lastSeen = new Map<string, number>();
+  for (const r of (coarseRows ?? []) as {
+    endpoint_id: string;
+    metadata: Record<string, unknown> | null;
+  }[]) {
+    const seen = Date.parse(
+      (r.metadata?.last_seen_at as string | undefined) ?? ""
+    );
+    lastSeen.set(r.endpoint_id, Number.isFinite(seen) ? seen : 0);
+  }
+  const coarseOnly = [...endpointSet]
+    .filter((e) => !definedIds.has(e))
+    .sort(
+      (a, b) =>
+        (lastSeen.get(a) ?? 0) - (lastSeen.get(b) ?? 0) ||
+        a.localeCompare(b)
+    );
+  const sweepStart = Date.now();
+  for (let i = 0; i < coarseOnly.length; i += ENDPOINTS_PER_CALL) {
+    if (Date.now() - sweepStart > COARSE_FETCH_BUDGET_MS) {
+      report.coarseSkipped = coarseOnly.length - i;
+      break;
+    }
+    await request(coarseOnly.slice(i, i + ENDPOINTS_PER_CALL), 0);
+  }
+
+  if (feed.size === 0) {
+    await raiseAlert(
+      client,
+      "critical",
+      "fal_pricing_sync_failed",
+      "Fal pricing sync fetched zero usable price records — feed is down or returned an unparseable body",
+      { endpoints: endpointSet.size },
+      raised
+    );
+    report.alertsRaised.push("fal_pricing_sync_failed");
+    throw new PricingSyncFatal("fal pricing feed returned no usable records");
+  }
+  report.fetchFailedEndpoints = fetchFailed.size;
+
+  await refreshCoarseFeed(client, [...feed.values()], nowIso, report);
 
   // A run that couldn't persist NEW pricing isn't successful — the feed
   // answered, we knew the price moved, and the stored state stayed stale.
