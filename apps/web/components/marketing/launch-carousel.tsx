@@ -57,7 +57,7 @@ export function LaunchCarousel({ cards }: { cards: LaunchCarouselCard[] }) {
     const track = trackRef.current;
     if (!track) return;
     const card = track.firstElementChild;
-    const step = card ? card.clientWidth + 16 : 320;
+    const step = card ? card.clientWidth + 20 : 400;
     track.scrollBy({
       left: direction * step,
       behavior: prefersReducedMotion() ? "auto" : "smooth",
@@ -71,7 +71,7 @@ export function LaunchCarousel({ cards }: { cards: LaunchCarouselCard[] }) {
   return (
     <section
       aria-label="Launches and featured presets"
-      className="relative pt-6 md:pt-10"
+      className="group/carousel relative pt-3 md:pt-5"
     >
       <div
         ref={trackRef}
@@ -79,7 +79,7 @@ export function LaunchCarousel({ cards }: { cards: LaunchCarouselCard[] }) {
         role="region"
         aria-roledescription="carousel"
         aria-label="Launch carousel — scroll horizontally"
-        className="scrollbar-none flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 sm:px-6 lg:px-10"
+        className="scrollbar-none flex snap-x snap-mandatory gap-5 overflow-x-auto px-4 sm:px-6 lg:px-10"
       >
         {deck.map((card, i) => (
           <Link
@@ -88,53 +88,56 @@ export function LaunchCarousel({ cards }: { cards: LaunchCarouselCard[] }) {
             prefetch={false}
             aria-hidden={i >= cards.length && i < cards.length * 2 ? undefined : true}
             tabIndex={i >= cards.length && i < cards.length * 2 ? 0 : -1}
-            className="group bg-charcoal-850 border-cream-100/10 hover:border-lime-500/40 focus-visible:outline-lime-400 relative w-[19rem] shrink-0 snap-start overflow-hidden rounded-2xl border focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-[24rem] md:w-[27rem]"
+            className="group focus-visible:outline-lime-400 relative grid w-[19.5rem] shrink-0 snap-start grid-flow-row gap-3 rounded-xl transition active:brightness-75 focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-[25rem] xl:w-[32rem]"
           >
-            <div className="relative aspect-[4/3] overflow-hidden md:aspect-[16/10]">
+            <figure
+              className="bg-charcoal-850 relative overflow-hidden rounded-xl"
+              style={{ aspectRatio: "16 / 9" }}
+            >
               {card.imageUrl ? (
                 <Image
                   src={card.imageUrl}
                   alt={card.imageAlt}
                   fill
-                  sizes="(max-width: 640px) 304px, (max-width: 768px) 384px, 432px"
-                  className="object-cover transition duration-500 group-hover:scale-105"
+                  sizes="(max-width: 640px) 312px, (max-width: 1280px) 400px, 512px"
+                  className="object-cover transition duration-500 group-hover:scale-[1.03]"
                 />
               ) : (
                 <div className="from-charcoal-800 to-ink-950 h-full w-full bg-gradient-to-br" />
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
-              <div className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 p-4 md:p-5">
-                <span className="text-lime-400 text-[10px] font-bold tracking-[0.18em] uppercase">
-                  {card.eyebrow}
-                </span>
-                <span className="text-cream-50 text-xl font-bold tracking-tight md:text-2xl">
-                  {card.title}
-                </span>
-                <span className="text-cream-100/80 line-clamp-2 text-sm">
-                  {card.tagline}
-                </span>
-              </div>
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[-0.5px_-0.5px_1px_0_rgba(255,255,255,0.14)_inset,0.8px_0.5px_0.5px_0_rgba(27,27,27,0.2)_inset]"
+              />
+            </figure>
+            <div className="grid grid-rows-2 text-left">
+              <h3 className="text-cream-50 truncate text-sm font-bold tracking-tight uppercase transition group-hover:text-[#D1FE17] md:text-base">
+                {card.title}
+              </h3>
+              <p className="text-text-secondary truncate text-xs xl:text-sm">
+                {card.tagline}
+              </p>
             </div>
           </Link>
         ))}
       </div>
 
-      {/* Edge fades */}
+      {/* Subtle edge fades */}
       <div
         aria-hidden
-        className="from-ink-950 pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r to-transparent sm:w-16"
+        className="from-ink-950/70 pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r to-transparent sm:w-10"
       />
       <div
         aria-hidden
-        className="from-ink-950 pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l to-transparent sm:w-16"
+        className="from-ink-950/70 pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l to-transparent sm:w-10"
       />
 
-      {/* Arrows — pointer scrolling works everywhere; buttons help desktop. */}
+      {/* Arrows — revealed on hover over the carousel, centered on the 16:9 media frame */}
       <button
         type="button"
         onClick={() => scrollByCard(-1)}
         aria-label="Scroll launches backward"
-        className="bg-ink-950/80 text-cream-50 hover:bg-ink-900 hover:text-lime-400 focus-visible:outline-lime-400 absolute top-1/2 left-6 hidden -translate-y-1/2 items-center justify-center rounded-full p-2.5 backdrop-blur-sm focus-visible:outline-2 md:flex lg:left-12"
+        className="bg-ink-950/80 text-cream-50 hover:bg-ink-900 focus-visible:outline-lime-400 absolute top-[40%] left-6 hidden -translate-y-1/2 items-center justify-center rounded-full border border-white/10 p-2.5 opacity-0 backdrop-blur-md transition-opacity group-hover/carousel:opacity-100 hover:text-[#D1FE17] focus-visible:opacity-100 focus-visible:outline-2 md:flex lg:left-12"
       >
         <ArrowLeft size={18} weight="bold" />
       </button>
@@ -142,7 +145,7 @@ export function LaunchCarousel({ cards }: { cards: LaunchCarouselCard[] }) {
         type="button"
         onClick={() => scrollByCard(1)}
         aria-label="Scroll launches forward"
-        className="bg-ink-950/80 text-cream-50 hover:bg-ink-900 hover:text-lime-400 focus-visible:outline-lime-400 absolute top-1/2 right-6 hidden -translate-y-1/2 items-center justify-center rounded-full p-2.5 backdrop-blur-sm focus-visible:outline-2 md:flex lg:right-12"
+        className="bg-ink-950/80 text-cream-50 hover:bg-ink-900 focus-visible:outline-lime-400 absolute top-[40%] right-6 hidden -translate-y-1/2 items-center justify-center rounded-full border border-white/10 p-2.5 opacity-0 backdrop-blur-md transition-opacity group-hover/carousel:opacity-100 hover:text-[#D1FE17] focus-visible:opacity-100 focus-visible:outline-2 md:flex lg:right-12"
       >
         <ArrowRight size={18} weight="bold" />
       </button>

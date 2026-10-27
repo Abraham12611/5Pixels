@@ -191,7 +191,7 @@ function PresetsPanel({
           <h2 className="text-text-secondary mb-3 text-sm font-medium">
             Start with these
           </h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <div className="columns-2 gap-2 sm:columns-3 [&>*]:mb-2 [&>*]:break-inside-avoid">
             {suggestions.map((product) => (
               <ProductCard
                 key={product.id}

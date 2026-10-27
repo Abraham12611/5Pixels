@@ -82,6 +82,14 @@ export function LibraryResultCard({
 
   const resultHref = `/app/results/${item.id}`;
 
+  // Media frame adapts to the result's true ratio — DB output dims first,
+  // then the loaded image's natural size as the fallback.
+  const [naturalAspect, setNaturalAspect] = useState<string | null>(null);
+  const aspect =
+    item.outputWidth && item.outputHeight
+      ? `${item.outputWidth} / ${item.outputHeight}`
+      : (naturalAspect ?? "4 / 5");
+
   // Long-press (touch only) enters selection mode; the trailing click is
   // swallowed so it doesn't navigate (11 §4.4).
   const pressTimer = useRef<number | null>(null);
@@ -127,6 +135,12 @@ export function LibraryResultCard({
       priority={priority}
       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
       className="object-cover"
+      onLoad={(e) => {
+        const { naturalWidth, naturalHeight } = e.currentTarget;
+        if (naturalWidth > 0 && naturalHeight > 0) {
+          setNaturalAspect(`${naturalWidth} / ${naturalHeight}`);
+        }
+      }}
     />
   ) : (
     <span className="text-text-muted absolute inset-0 grid place-items-center text-xs">
@@ -234,7 +248,8 @@ export function LibraryResultCard({
           aria-pressed={selected}
           aria-label={`${selected ? "Deselect" : "Select"} result made with ${item.productName}`}
           onClick={() => onToggleSelect?.(item.id)}
-          className="media-frame relative block aspect-[4/5] w-full bg-charcoal-800"
+          style={{ aspectRatio: aspect }}
+          className="media-frame relative block w-full bg-charcoal-800"
         >
           {mediaInner}
           <span
@@ -259,7 +274,8 @@ export function LibraryResultCard({
         <Link
           href={resultHref}
           prefetch={false}
-          className="media-frame relative block aspect-[4/5] bg-charcoal-800"
+          style={{ aspectRatio: aspect }}
+          className="media-frame relative block bg-charcoal-800"
           aria-label={`Open result made with ${item.productName}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
