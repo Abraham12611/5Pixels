@@ -41,17 +41,17 @@ interface PublishingSectionProps {
     productId: string,
     versionId: string,
     overrideReason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   rollback: (
     productId: string,
     targetVersionId: string,
     reason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   transitionStatus: (
     productId: string,
     newStatus: string,
     reason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export function PublishingSection({
