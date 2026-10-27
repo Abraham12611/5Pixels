@@ -27,7 +27,7 @@ const MAX_TOKENS = 2_400;
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
-interface RecipeProductRow {
+export interface RecipeProductRow {
   id: string;
   name: string;
   type: string;
@@ -39,7 +39,7 @@ interface RecipeProductRow {
   poster_asset_id: string | null;
 }
 
-interface RecipeVersionRow {
+export interface RecipeVersionRow {
   private_instruction_template: string | null;
   private_negative_instruction: string | null;
 }
@@ -142,7 +142,7 @@ export function sanitizeRecipe(raw: string): string | null {
   return text;
 }
 
-async function resolveImageUrl(
+export async function resolveImageUrl(
   supabase: ServiceClient,
   product: RecipeProductRow
 ): Promise<string | null> {
@@ -164,7 +164,7 @@ async function resolveImageUrl(
   return signed?.signedUrl ?? null;
 }
 
-async function generateRecipeText(
+export async function generateRecipeText(
   product: RecipeProductRow,
   version: RecipeVersionRow | null,
   imageUrl: string | null
