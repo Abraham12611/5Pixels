@@ -78,6 +78,8 @@ export interface PopupEntry {
 
 const noop = () => {};
 const asyncNoop = async () => {};
+// Simulate successful admin actions in the inert popup inspector; never write.
+const asyncSuccessNoop = async () => ({ ok: true as const });
 
 /** `open`-controlled surfaces — mount open, allow dismiss + reopen. */
 function Mountable({
@@ -792,7 +794,7 @@ export const POPUP_REGISTRY: PopupEntry[] = [
             { id: "v2", version_number: 2, state: "active", published_at: new Date().toISOString() },
             { id: "v1", version_number: 1, state: "superseded", published_at: null },
           ]}
-          action={asyncNoop}
+          action={asyncSuccessNoop}
         />
       </TriggerMount>
     ),
@@ -807,7 +809,7 @@ export const POPUP_REGISTRY: PopupEntry[] = [
         <ProductActions
           productId="pv-product"
           status="scheduled"
-          action={asyncNoop}
+          action={asyncSuccessNoop}
         />
       </TriggerMount>
     ),
