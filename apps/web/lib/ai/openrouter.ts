@@ -3,18 +3,35 @@
  * public-prompt-recipe generator; `OPENROUTER_API_KEY` must never reach
  * the client bundle.
  *
- * Free-tier models are best-effort: callers should chain
- * `PROMPT_RECIPE_MODELS` and tolerate failures (rate limits, model
- * downtime) by trying the next entry.
+ * Callers should chain `PROMPT_RECIPE_MODELS` and tolerate failures by
+ * trying the next entry. Free-tier models are attempted first — they're
+ * best-effort and rate-limited — then cheap paid fallbacks kick in, so a
+ * free-tier outage never leaves a preset without a recipe.
  */
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const REQUEST_TIMEOUT_MS = 30_000;
 
-export const PROMPT_RECIPE_MODELS = [
+export const PROMPT_RECIPE_FREE_MODELS = [
   "minimax/minimax-m3.1-flash:free",
   "nvidia/nemotron-3.5-lightning:free",
   "google/gemma-4-26b-a4b-it:free",
+] as const;
+
+// Cheap paid fallbacks, tried only after every free model fails — they
+// bill against the OpenRouter key's balance.
+export const PROMPT_RECIPE_PAID_MODELS = [
+  "qwen/qwen3.8-omni-flash",
+  "deepseek/deepseek-v4.1-flash:batch",
+  "meta/muse-spark-1.3-contributor",
+  "qwen/qwen3.8-flash",
+  "z-ai/glm-5.3-flash",
+  "z-ai/glm-flash-latest",
+] as const;
+
+export const PROMPT_RECIPE_MODELS = [
+  ...PROMPT_RECIPE_FREE_MODELS,
+  ...PROMPT_RECIPE_PAID_MODELS,
 ] as const;
 
 export type MessageContentPart =
