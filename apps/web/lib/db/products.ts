@@ -32,6 +32,7 @@ import {
   stalePublishConflict,
   type VersionRef,
 } from "@/lib/admin/version-selection";
+import { schedulePromptRecipe } from "@/lib/prompt-recipe/schedule";
 
 const REFERENCE_ASSET_ROLES = [
   "style_reference",
@@ -289,6 +290,9 @@ export async function createProduct(input: ProductCreateInput) {
     after: product,
   });
 
+  // No-op for drafts — the ensure guard only fills published products.
+  schedulePromptRecipe(product.id);
+
   return product;
 }
 
@@ -363,147 +367,180 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
 
   if (error) throw error;
 
+  schedulePromptRecipe(id);
+
   return { id };
+}
+
+/** Result envelope for lifecycle server actions. Expected failures
+ *  (gate blocks, RPC errors) come back as data — thrown errors are
+ *  redacted to a digest in production server actions, so the admin UI
+ *  would only ever show "Minified React error #441" instead of the real
+ *  reason. */
+export type AdminActionResult<T = undefined> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
+function adminError(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 export async function publishProductVersion(
   productId: string,
   versionId: string,
   overrideReason?: string
-) {
-  await requireAdminOrOwner();
-  const input = publishProductVersionSchema.parse({
-    productId,
-    versionId,
-    overrideReason,
-  });
+): Promise<AdminActionResult> {
+  try {
+    await requireAdminOrOwner();
+    const input = publishProductVersionSchema.parse({
+      productId,
+      versionId,
+      overrideReason,
+    });
 
-  const supabase = await createClient();
+    const supabase = await createClient();
 
-  // Server-side publish gate (#177): family consistency, verified route
-  // capability, and read-only quotability checks mirror the frontend gates —
-  // the RPC cannot be reached with an unpublishable recipe, even by a
-  // direct request. Read-only; creates no quote rows.
-  const product = await getProductById(input.productId);
-  const version = Array.isArray(product.product_versions)
-    ? product.product_versions.find(
-        (v: { id: string; state?: string }) => v.id === input.versionId
-      )
-    : null;
-  if (!version) {
-    throw new Error("Cannot publish: version not found on this product.");
-  }
+    // Server-side publish gate (#177): family consistency, verified route
+    // capability, and read-only quotability checks mirror the frontend gates —
+    // the RPC cannot be reached with an unpublishable recipe, even by a
+    // direct request. Read-only; creates no quote rows.
+    const product = await getProductById(input.productId);
+    const version = Array.isArray(product.product_versions)
+      ? product.product_versions.find(
+          (v: { id: string; state?: string }) => v.id === input.versionId
+        )
+      : null;
+    if (!version) {
+      throw new Error("Cannot publish: version not found on this product.");
+    }
 
-  // Stale-draft conflict (#251): a version older than the live one must be
-  // resolved through discard/rebase — never silently published over it. The
-  // RPC enforces the same block for direct requests.
-  const staleConflict = stalePublishConflict(
-    version as VersionRef,
-    (product.product_versions ?? []) as VersionRef[]
-  );
-  if (staleConflict) throw new Error(staleConflict);
-
-  const parent = product.parent_preset_id
-    ? await getFamilyParentRow(supabase, product.parent_preset_id)
-    : null;
-  const familyErrors = validateFamilyAssignment({
-    productId: input.productId,
-    type: product.type,
-    parentPresetId: product.parent_preset_id,
-    hasChildren: false,
-    parent,
-  });
-  if (familyErrors.length > 0) {
-    throw new Error(`Cannot publish: ${familyErrors.join(" ")}`);
-  }
-  // A family-dependent variant is only reachable through its parent — refuse
-  // to publish it into an orphaned state where no customer can reach it.
-  if (
-    product.parent_preset_id &&
-    !product.standalone_discoverable &&
-    parent &&
-    parent.public_status !== "active"
-  ) {
-    throw new Error(
-      "Cannot publish: this variant is only shown with its parent, which is not published. Publish the parent first or enable standalone discovery."
+    // Stale-draft conflict (#251): a version older than the live one must be
+    // resolved through discard/rebase — never silently published over it. The
+    // RPC enforces the same block for direct requests.
+    const staleConflict = stalePublishConflict(
+      version as VersionRef,
+      (product.product_versions ?? []) as VersionRef[]
     );
+    if (staleConflict) throw new Error(staleConflict);
+
+    const parent = product.parent_preset_id
+      ? await getFamilyParentRow(supabase, product.parent_preset_id)
+      : null;
+    const familyErrors = validateFamilyAssignment({
+      productId: input.productId,
+      type: product.type,
+      parentPresetId: product.parent_preset_id,
+      hasChildren: false,
+      parent,
+    });
+    if (familyErrors.length > 0) {
+      throw new Error(`Cannot publish: ${familyErrors.join(" ")}`);
+    }
+    // A family-dependent variant is only reachable through its parent — refuse
+    // to publish it into an orphaned state where no customer can reach it.
+    if (
+      product.parent_preset_id &&
+      !product.standalone_discoverable &&
+      parent &&
+      parent.public_status !== "active"
+    ) {
+      throw new Error(
+        "Cannot publish: this variant is only shown with its parent, which is not published. Publish the parent first or enable standalone discovery."
+      );
+    }
+
+    const capability = versionRowToCapability(version);
+    const capabilityErrors = validateCapabilityForRoute({
+      capability,
+      routeCapability: getRouteCapability(
+        version.provider_strategy?.primary_provider,
+        version.provider_strategy?.primary_model
+      ),
+      endpoint: getProviderEndpoint(
+        version.provider_strategy as ProviderStrategy
+      ),
+      adminReferenceCount: await getAdminReferenceCount(
+        supabase,
+        input.productId
+      ),
+    });
+    if (capabilityErrors.length > 0) {
+      throw new Error(`Cannot publish: ${capabilityErrors.join(" ")}`);
+    }
+
+    // Release readiness (#177): admins may prepare drafts, but a preset must
+    // not publish capabilities the backend cannot execute.
+    // - Multi-image: gated on the server-side release flag
+    //   (PRESET_MULTI_INPUT_ENABLED) — OFF until #193 ships the provider
+    //   pipeline + DB migration and release QA enables it. The
+    //   create_generation RPC keeps rejecting >1 inputs regardless.
+    // - Custom prompts: require the release flag (and the protected
+    //   release_gates DB row, enforced inside the RPC) — merchant
+    //   approval is recorded in #173; what remains is enabling the
+    //   protected switches for this environment.
+    if (
+      (capability.input_mode === "multi" || capability.input_max_images > 1) &&
+      !isMultiInputReleased()
+    ) {
+      throw new Error(
+        "Cannot publish: multi-image inputs are gated off until the provider pipeline ships (#193) and PRESET_MULTI_INPUT_ENABLED is enabled."
+      );
+    }
+    if (capability.prompt_override_enabled && !isUserPromptReleased()) {
+      throw new Error(
+        "Cannot publish: custom prompting has not been released in this environment — publication requires the protected server/database switches (PRESET_USER_PROMPT_ENABLED + release_gates)."
+      );
+    }
+
+    await assertVersionQuotable(createServiceClient(), {
+      provider_strategy: version.provider_strategy,
+      model_config: version.model_config,
+      output_sizes: version.output_sizes,
+    });
+
+    const { error } = await supabase.rpc("publish_product_version", {
+      p_product_id: input.productId,
+      p_version_id: input.versionId,
+      p_override_reason: input.overrideReason ?? null,
+    });
+
+    if (error) throw error;
+
+    // Just published — fill the public recipe if it's still empty.
+    schedulePromptRecipe(input.productId);
+    return { ok: true, data: undefined };
+  } catch (err) {
+    return { ok: false, error: adminError(err, "Publish failed.") };
   }
-
-  const capability = versionRowToCapability(version);
-  const capabilityErrors = validateCapabilityForRoute({
-    capability,
-    routeCapability: getRouteCapability(
-      version.provider_strategy?.primary_provider,
-      version.provider_strategy?.primary_model
-    ),
-    endpoint: getProviderEndpoint(
-      version.provider_strategy as ProviderStrategy
-    ),
-    adminReferenceCount: await getAdminReferenceCount(supabase, input.productId),
-  });
-  if (capabilityErrors.length > 0) {
-    throw new Error(`Cannot publish: ${capabilityErrors.join(" ")}`);
-  }
-
-  // Release readiness (#177): admins may prepare drafts, but a preset must
-  // not publish capabilities the backend cannot execute.
-  // - Multi-image: gated on the server-side release flag
-  //   (PRESET_MULTI_INPUT_ENABLED) — OFF until #193 ships the provider
-  //   pipeline + DB migration and release QA enables it. The
-  //   create_generation RPC keeps rejecting >1 inputs regardless.
-  // - Custom prompts: require the release flag (and the protected
-  //   release_gates DB row, enforced inside the RPC) — merchant
-  //   approval is recorded in #173; what remains is enabling the
-  //   protected switches for this environment.
-  if (
-    (capability.input_mode === "multi" || capability.input_max_images > 1) &&
-    !isMultiInputReleased()
-  ) {
-    throw new Error(
-      "Cannot publish: multi-image inputs are gated off until the provider pipeline ships (#193) and PRESET_MULTI_INPUT_ENABLED is enabled."
-    );
-  }
-  if (capability.prompt_override_enabled && !isUserPromptReleased()) {
-    throw new Error(
-      "Cannot publish: custom prompting has not been released in this environment — publication requires the protected server/database switches (PRESET_USER_PROMPT_ENABLED + release_gates)."
-    );
-  }
-
-  await assertVersionQuotable(createServiceClient(), {
-    provider_strategy: version.provider_strategy,
-    model_config: version.model_config,
-    output_sizes: version.output_sizes,
-  });
-
-  const { error } = await supabase.rpc("publish_product_version", {
-    p_product_id: input.productId,
-    p_version_id: input.versionId,
-    p_override_reason: input.overrideReason ?? null,
-  });
-
-  if (error) throw error;
 }
 
 export async function rollbackProductVersion(
   productId: string,
   targetVersionId: string,
   reason?: string
-) {
-  await requireAdminOrOwner();
-  const input = rollbackProductVersionSchema.parse({
-    productId,
-    targetVersionId,
-    reason,
-  });
+): Promise<AdminActionResult> {
+  try {
+    await requireAdminOrOwner();
+    const input = rollbackProductVersionSchema.parse({
+      productId,
+      targetVersionId,
+      reason,
+    });
 
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("rollback_product_version", {
-    p_product_id: input.productId,
-    p_target_version_id: input.targetVersionId,
-    p_reason: input.reason ?? null,
-  });
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("rollback_product_version", {
+      p_product_id: input.productId,
+      p_target_version_id: input.targetVersionId,
+      p_reason: input.reason ?? null,
+    });
 
-  if (error) throw error;
+    if (error) throw error;
+
+    schedulePromptRecipe(input.productId);
+    return { ok: true, data: undefined };
+  } catch (err) {
+    return { ok: false, error: adminError(err, "Rollback failed.") };
+  }
 }
 
 /**
@@ -515,40 +552,60 @@ export async function rollbackProductVersion(
 export async function resolveStaleVersions(
   productId: string,
   recreate: boolean
-) {
-  await requireAdminOrOwner();
-  const input = resolveStaleVersionsSchema.parse({ productId, recreate });
+): Promise<AdminActionResult<string | null>> {
+  try {
+    await requireAdminOrOwner();
+    const input = resolveStaleVersionsSchema.parse({ productId, recreate });
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("admin_resolve_stale_versions", {
-    p_product_id: input.productId,
-    p_create_draft: input.recreate,
-  });
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc(
+      "admin_resolve_stale_versions",
+      {
+        p_product_id: input.productId,
+        p_create_draft: input.recreate,
+      }
+    );
 
-  if (error) throw error;
-  return (data ?? null) as string | null;
+    if (error) throw error;
+    return { ok: true, data: (data ?? null) as string | null };
+  } catch (err) {
+    return {
+      ok: false,
+      error: adminError(err, "Could not resolve stale drafts."),
+    };
+  }
 }
 
 export async function transitionProductStatus(
   productId: string,
   newStatus: string,
   reason?: string
-) {
-  await requireAdminOrOwner();
-  const input = productStatusTransitionSchema.parse({
-    productId,
-    newStatus,
-    reason,
-  });
+): Promise<AdminActionResult> {
+  try {
+    await requireAdminOrOwner();
+    const input = productStatusTransitionSchema.parse({
+      productId,
+      newStatus,
+      reason,
+    });
 
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("transition_product_status", {
-    p_product_id: input.productId,
-    p_new_status: input.newStatus,
-    p_reason: input.reason ?? null,
-  });
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("transition_product_status", {
+      p_product_id: input.productId,
+      p_new_status: input.newStatus,
+      p_reason: input.reason ?? null,
+    });
 
-  if (error) throw error;
+    if (error) throw error;
+
+    schedulePromptRecipe(input.productId);
+    return { ok: true, data: undefined };
+  } catch (err) {
+    return {
+      ok: false,
+      error: adminError(err, "Status change failed."),
+    };
+  }
 }
 
 export async function duplicateProduct(id: string) {
