@@ -32,6 +32,7 @@ import {
   stalePublishConflict,
   type VersionRef,
 } from "@/lib/admin/version-selection";
+import { schedulePromptRecipe } from "@/lib/prompt-recipe/schedule";
 
 const REFERENCE_ASSET_ROLES = [
   "style_reference",
@@ -289,6 +290,9 @@ export async function createProduct(input: ProductCreateInput) {
     after: product,
   });
 
+  // No-op for drafts — the ensure guard only fills published products.
+  schedulePromptRecipe(product.id);
+
   return product;
 }
 
@@ -362,6 +366,8 @@ export async function updateProduct(id: string, input: ProductCreateInput) {
   });
 
   if (error) throw error;
+
+  schedulePromptRecipe(id);
 
   return { id };
 }
@@ -482,6 +488,9 @@ export async function publishProductVersion(
   });
 
   if (error) throw error;
+
+  // Just published — fill the public recipe if it's still empty.
+  schedulePromptRecipe(input.productId);
 }
 
 export async function rollbackProductVersion(
@@ -504,6 +513,8 @@ export async function rollbackProductVersion(
   });
 
   if (error) throw error;
+
+  schedulePromptRecipe(input.productId);
 }
 
 /**
@@ -549,6 +560,8 @@ export async function transitionProductStatus(
   });
 
   if (error) throw error;
+
+  schedulePromptRecipe(input.productId);
 }
 
 export async function duplicateProduct(id: string) {
