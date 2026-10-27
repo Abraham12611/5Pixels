@@ -8,18 +8,18 @@ import {
 } from "@/lib/ai/openrouter";
 
 /**
- * Auto-generated `products.public_prompt_recipe` — a consumer-friendly
- * paraphrase of the preset's private generation recipe, written only when
- * the column is empty and the product is published. The private recipe is
- * the model's *input*, never its output: generated text is rejected when
- * it contains a verbatim window of the source recipe.
+ * Auto-generated `products.public_prompt_recipe` — a consumer-friendly,
+ * portable prompt a reader can paste into any image tool to reproduce
+ * the preset's effect, written only when the column is empty and the
+ * product is published. The model sees only the public marketing copy
+ * (name, type, descriptions) plus the example output image — the private
+ * recipe never enters its context, and generated text is still rejected
+ * if it happens to contain a verbatim window of it.
  */
 
 // Matches the CHECK constraint products_public_prompt_recipe_len.
 const RECIPE_MAX_CHARS = 8_000;
 const MIN_RECIPE_CHARS = 400;
-const TEMPLATE_EXCERPT_CHARS = 6_000;
-const NEGATIVE_EXCERPT_CHARS = 1_000;
 const VERBATIM_WINDOW = 60;
 const VERBATIM_STEP = 20;
 const IMAGE_URL_TTL_SECONDS = 600;
@@ -58,8 +58,8 @@ Rules:
 - Output ONLY the prompt text. No preamble, no explanation, no markdown code fences, no wrapping quotes.
 
 FOR FILTERS (style transformations applied to the reader's own photo):
-- The reader uploads THEIR OWN photo to another tool — the recipe must describe the transformation applied to "your photo" / "the uploaded photo", NOT describe a specific subject or scene.
-- Cover, in concrete terms: what stays untouched (subject identity, pose, facial features, core composition); color grade and palette (named tones, approximate hex values welcome); lighting changes; texture and finish (grain, halftone, sharpness, vignette); atmosphere and mood; any added effects (light trails, bloom, motion) and exactly where they appear; quality bar (editorial, print-ready, 4k).
+- The reader uploads THEIR OWN photo to another tool — the recipe must describe the transformation applied to "your photo" / "the uploaded photo" / "the original image". NEVER prescribe the subject, pose, wardrobe, framing, or scene — you don't know what their photo contains. Do not describe the example image's contents; describe only what the effect DOES to any image.
+- Structure: open with a one-line directive ("Edit the image to recreate ..."), then a preservation instruction ("preserve the original image's subject, identity, pose, composition and important details"), then concrete treatment paragraphs covering: color grade and palette (named tones, approximate hex values welcome); lighting; texture and finish (grain, halation, sharpness, vignette); any added effects (light trails, bloom, motion) and exactly where/how they appear; subject sharpness vs. effect softness; atmosphere and mood; quality bar. Close with a short "Avoid:" list of the effect's failure modes (cartoonish versions of the effect, distortion, artifacts).
 
 FOR POSTERS (complete generated visuals):
 - Cover: canvas and orientation, full composition top-to-bottom, subject, style and medium, color palette (approximate hex values welcome), typography and lettering details, lighting, mood, and finishing quality.
@@ -69,18 +69,8 @@ Gold-standard example of a FILTER recipe (match this density and concreteness):
 
 function buildUserPrompt(
   product: RecipeProductRow,
-  version: RecipeVersionRow | null,
   hasImage: boolean
 ): string {
-  const template = (version?.private_instruction_template ?? "").slice(
-    0,
-    TEMPLATE_EXCERPT_CHARS
-  );
-  const negative = (version?.private_negative_instruction ?? "").slice(
-    0,
-    NEGATIVE_EXCERPT_CHARS
-  );
-
   const lines = [
     `Preset name: ${product.name}`,
     `Preset type: ${product.type} (filter = style transformation applied to a photo; poster = complete AI visual with designed text/layout)`,
@@ -91,24 +81,10 @@ function buildUserPrompt(
   if (product.long_description) {
     lines.push(`Long description: ${product.long_description}`);
   }
-  if (template.trim()) {
-    lines.push(
-      "",
-      "Internal generation recipe (confidential — paraphrase, never quote):",
-      template
-    );
-  }
-  if (negative.trim()) {
-    lines.push(
-      "",
-      "Elements the result must avoid (internal negative instructions — express as positive guidance, never quote):",
-      negative
-    );
-  }
   if (hasImage) {
     lines.push(
       "",
-      "The attached image is an example output of this preset — match its visual style and treatment in the recipe. Describe the effect so it transfers to any photo the reader supplies."
+      "The attached image is an example output of this preset — a reference for the grade, palette and effect ONLY. Do not describe its subject, pose, wardrobe or framing; describe the treatment so it transfers to any photo the reader supplies."
     );
   }
   lines.push(
@@ -186,7 +162,7 @@ export async function generateRecipeText(
   version: RecipeVersionRow | null,
   imageUrl: string | null
 ): Promise<string | null> {
-  const userText = buildUserPrompt(product, version, Boolean(imageUrl));
+  const userText = buildUserPrompt(product, Boolean(imageUrl));
 
   // Pass 1: models that can consume the example image. Pass 2: text-only
   // fallback when every vision attempt failed.
