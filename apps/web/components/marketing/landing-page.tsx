@@ -5,6 +5,7 @@ import { CtaGrid } from "./cta-grid";
 import { PresetShelf } from "./preset-shelf";
 import { PromoBanner } from "./promo-banner";
 import { BrowseGrid } from "./browse-grid";
+import { PresetQuickViewHost } from "@/components/consumer/preset-quick-view";
 import {
   publicAssetUrl,
   selectCatalogMediaAsset,
@@ -21,9 +22,16 @@ import type { SearchPreset } from "@/lib/search";
 
 function resolveCardMedia(
   products: PublicProductSummary[],
-  slug: string
+  slug: string,
+  overrideUrl?: string
 ): { imageUrl: string | null; imageAlt: string } {
   const product = products.find((p) => p.slug === slug);
+  if (overrideUrl) {
+    return {
+      imageUrl: overrideUrl,
+      imageAlt: product ? `Artwork for ${product.name}` : "Featured launch artwork",
+    };
+  }
   const asset = product
     ? selectCatalogMediaAsset(product.public_assets, "hero")
     : null;
@@ -52,7 +60,7 @@ export function LandingPage({
 }) {
   const launchCards: LaunchCarouselCard[] = LAUNCH_CARDS.map((card) => ({
     ...card,
-    ...resolveCardMedia(products, card.presetSlug),
+    ...resolveCardMedia(products, card.presetSlug, card.imageUrl),
   }));
 
   const modelSections = resolveModelSections(products);
@@ -60,7 +68,7 @@ export function LandingPage({
   const promos = PROMO_BANNERS.map(({ afterSection, banner }) => ({
     afterSection,
     banner,
-    ...resolveCardMedia(products, banner.presetSlug ?? ""),
+    ...resolveCardMedia(products, banner.presetSlug ?? "", banner.imageUrl),
   }));
 
   return (
@@ -72,47 +80,52 @@ export function LandingPage({
         promoLabel={promoLabel}
       />
 
-      <main className="flex-1 pb-16">
-        <LaunchCarousel cards={launchCards} />
-        <CtaGrid isAuthenticated={isAuthenticated} tiles={LANDING_TILES} />
+      <PresetQuickViewHost isAuthenticated={isAuthenticated} returnPath="/">
+        <main className="flex-1 pb-16">
+          <LaunchCarousel cards={launchCards} />
+          <CtaGrid isAuthenticated={isAuthenticated} tiles={LANDING_TILES} />
 
-        {modelSections.map((section, i) => (
-          <div key={section.line.slug}>
-            <PresetShelf
-              id={`model-${section.line.slug}`}
-              title={section.line.name}
-              tagline={section.line.tagline}
-              products={section.products}
-              viewAllHref={section.line.presetsHref}
-              viewAllLabel={`View all of ${section.line.name}`}
-              isAuthenticated={isAuthenticated}
-            />
-            {promos
-              .filter((p) => p.afterSection === i)
-              .map((p) => (
-                <PromoBanner
-                  key={p.banner.id}
-                  banner={p.banner}
-                  imageUrl={p.imageUrl}
-                  imageAlt={p.imageAlt}
-                />
-              ))}
-          </div>
-        ))}
+          {modelSections.map((section, i) => (
+            <div key={section.line.slug}>
+              <PresetShelf
+                id={`model-${section.line.slug}`}
+                title={section.line.name}
+                tagline={section.line.tagline}
+                products={section.products}
+                viewAllHref={section.line.presetsHref}
+                viewAllLabel={`View all of ${section.line.name}`}
+                startHref={`/presets/${section.line.ctaPresetSlug}`}
+                learnMoreHref={section.line.pageHref}
+                isAuthenticated={isAuthenticated}
+              />
+              {promos
+                .filter((p) => p.afterSection === i)
+                .map((p) => (
+                  <PromoBanner
+                    key={p.banner.id}
+                    banner={p.banner}
+                    imageUrl={p.imageUrl}
+                    imageAlt={p.imageAlt}
+                  />
+                ))}
+            </div>
+          ))}
 
-        <PresetShelf
-          id="latest-drops"
-          title="Latest drops"
-          tagline="Fresh presets as they ship — before they join a collection."
-          products={latestProducts}
-          viewAllHref="/explore?sort=newest"
-          viewAllLabel="View all presets"
-          isAuthenticated={isAuthenticated}
-          clipHeight="max-h-[40rem]"
-        />
+          <PresetShelf
+            id="latest-drops"
+            title="Latest drops"
+            tagline="Fresh presets as they ship — across every engine and format."
+            products={latestProducts}
+            viewAllHref="/explore?sort=newest"
+            viewAllLabel="View all presets"
+            startHref="/explore"
+            isAuthenticated={isAuthenticated}
+            clipHeight="max-h-[44rem]"
+          />
 
-        <BrowseGrid links={BROWSE_LINKS} />
-      </main>
+          <BrowseGrid links={BROWSE_LINKS} />
+        </main>
+      </PresetQuickViewHost>
 
       <MarketingFooter isAuthenticated={isAuthenticated} />
     </div>

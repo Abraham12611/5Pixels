@@ -89,7 +89,7 @@ export function RelatedPresetsSection({
               View all
             </Link>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="columns-2 gap-2 sm:columns-3 lg:columns-4 [&>*]:mb-2 [&>*]:break-inside-avoid">
             {cards}
           </div>
         </section>

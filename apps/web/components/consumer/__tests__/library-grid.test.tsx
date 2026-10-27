@@ -42,11 +42,12 @@ describe("LibraryGrid", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("uses a uniform grid, not masonry", () => {
+  it("uses aspect-natural masonry columns, not a uniform grid", () => {
     const { container } = render(<LibraryGrid items={makeItems(2)} />);
     const grid = container.querySelector("[aria-label='Library results']");
-    expect(grid?.className).toContain("grid-cols-2");
-    expect(grid?.className).not.toContain("columns-");
+    expect(grid?.className).toContain("columns-2");
+    expect(grid?.className).toContain("break-inside-avoid");
+    expect(grid?.className).not.toContain("grid-cols-");
   });
 
   it("Select enters selection mode with a count header and bulk bar", () => {

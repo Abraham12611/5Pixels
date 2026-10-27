@@ -3,10 +3,11 @@ import {
   isImageMimeType,
   isMotionMimeType,
   isVideoMimeType,
+  resolveProductAspectRatio,
   selectCatalogMediaAsset,
   reconcilePrimaryCatalogMedia,
 } from "@/lib/catalog/media";
-import type { PublicProductAsset } from "@/types/catalog";
+import type { PublicProductAsset, PublicProductSummary } from "@/types/catalog";
 
 function asset(role: string, mimeType: string): PublicProductAsset {
   return {
@@ -75,6 +76,81 @@ describe("mime type helpers", () => {
     expect(isMotionMimeType("image/gif")).toBe(true);
     expect(isMotionMimeType("video/webm")).toBe(true);
     expect(isMotionMimeType("image/png")).toBe(false);
+  });
+});
+
+describe("resolveProductAspectRatio", () => {
+  const base = {
+    type: "filter" as const,
+    output_sizes: [],
+    metadata: null,
+  };
+
+  function dimsAsset(
+    role: string,
+    width: number | null,
+    height: number | null
+  ): PublicProductAsset {
+    const a = asset(role, "image/jpeg");
+    a.width = width;
+    a.height = height;
+    return a;
+  }
+
+  it("uses the primary asset's stored dimensions", () => {
+    const product = {
+      ...base,
+      public_assets: [dimsAsset("poster", 768, 1376)],
+    } as Pick<PublicProductSummary, "public_assets" | "metadata" | "output_sizes" | "type">;
+    expect(resolveProductAspectRatio(product, product.public_assets[0])).toBe(
+      "768 / 1376"
+    );
+  });
+
+  it("rejects corrupt dimensions and falls back to a valid sibling asset", () => {
+    const product = {
+      ...base,
+      public_assets: [
+        dimsAsset("poster", 101123846, 134877194),
+        dimsAsset("hero", 896, 1200),
+      ],
+    } as Pick<PublicProductSummary, "public_assets" | "metadata" | "output_sizes" | "type">;
+    expect(
+      resolveProductAspectRatio(product, product.public_assets[0])
+    ).toBe("896 / 1200");
+  });
+
+  it("reads poster_config aspect_ratio when no asset dims exist", () => {
+    const product = {
+      ...base,
+      type: "poster" as const,
+      public_assets: [dimsAsset("poster", null, null)],
+      metadata: { poster_config: { aspect_ratio: "9:16" } },
+    } as Pick<PublicProductSummary, "public_assets" | "metadata" | "output_sizes" | "type">;
+    expect(resolveProductAspectRatio(product, null)).toBe("9 / 16");
+  });
+
+  it("reads the default output size when metadata is empty", () => {
+    const product = {
+      ...base,
+      public_assets: [],
+      output_sizes: [
+        { id: "s1", label: "Portrait", width: 1080, height: 1350, is_default: true },
+      ],
+    } as unknown as Pick<PublicProductSummary, "public_assets" | "metadata" | "output_sizes" | "type">;
+    expect(resolveProductAspectRatio(product, null)).toBe("1080 / 1350");
+  });
+
+  it("defaults posters to 9/16 and filters to 3/4 when nothing resolves", () => {
+    expect(
+      resolveProductAspectRatio(
+        { ...base, type: "poster", public_assets: [] },
+        null
+      )
+    ).toBe("9 / 16");
+    expect(
+      resolveProductAspectRatio({ ...base, public_assets: [] }, null)
+    ).toBe("3 / 4");
   });
 });
 

@@ -59,17 +59,25 @@ export const MODEL_LINES: ModelLine[] = [
   {
     slug: "nano-banana-2",
     name: "Nano Banana 2",
-    tagline: "Our flagship engine — sharper detail, truer likeness, faster.",
+    tagline:
+      "4K editorial transformations and typographic posters with razor-sharp identity lock.",
     description:
-      "Nano Banana 2 powers most of the 5Pixels catalog. It holds skin texture and facial identity across dramatic restyles, so filters land as magazine-grade transformations instead of obvious AI output.",
+      "Nano Banana 2 powers the flagship 5Pixels catalog. It preserves facial structure, skin micro-texture, and lighting continuity across dramatic restyles — from neon light-trail campaigns and translucent X-ray street frames to print-ready posters.",
     presetSlugs: [
-      "cover-star",
-      "creative-headshot",
-      "editorial-profile",
-      "founder-portrait",
-      "ink-portrait",
       "loud-yellow",
+      "dream-aura",
+      "cover-star",
+      "motion-trail-luxe",
+      "creative-headshot",
+      "x-ray-street",
+      "editorial-profile",
+      "crayon-chibi-overlay",
+      "founder-portrait",
+      "retro-cafe-print",
+      "ink-portrait",
+      "social-sketch-cutout",
       "manga-cutout",
+      "sumi-e-scene",
       "modern-professional",
       "studio-standard",
     ],
@@ -101,7 +109,7 @@ export const MODEL_LINES: ModelLine[] = [
         },
         {
           q: "Which presets run on Nano Banana 2?",
-          a: "Most of the catalog — portrait, editorial, manga, and poster presets. Every card in the grid on this page is powered by it.",
+          a: "Most of the catalog — portrait, editorial, manga, street, and poster presets. Every card in the grid on this page is powered by it.",
         },
         {
           q: "How do I try it?",
@@ -117,11 +125,12 @@ export const MODEL_LINES: ModelLine[] = [
   {
     slug: "nano-banana",
     name: "Nano Banana",
-    tagline: "The original 5Pixels engine — bold, stylized transformations.",
+    tagline:
+      "Bold stylized redraws — widescreen manga frames, ink-wash worlds, and cinema stills.",
     description:
-      "Nano Banana is where 5Pixels started. It leans into stylization: ink, manga, and cinematic looks that redraw your photo rather than retouch it.",
-    presetSlugs: ["cinematic-still", "retro-slam-manga"],
-    ctaPresetSlug: "cinematic-still",
+      "Nano Banana is where 5Pixels started. It leans into full-frame stylization: high-contrast slam manga panels, hand-drawn sketch worlds, and anamorphic film stills that redraw your photo from the ground up.",
+    presetSlugs: ["retro-slam-manga", "cinematic-still", "sketch-world"],
+    ctaPresetSlug: "retro-slam-manga",
     presetsHref: "/models/nano-banana/presets",
     pageHref: "/models/nano-banana",
     page: {
@@ -140,11 +149,11 @@ export const MODEL_LINES: ModelLine[] = [
       faq: [
         {
           q: "What is Nano Banana?",
-          a: "The original 5Pixels engine — tuned for bold, stylized transformations like manga cutouts and cinematic stills.",
+          a: "The original 5Pixels engine — tuned for bold, stylized transformations like manga cutouts, sketch worlds, and cinematic stills.",
         },
         {
           q: "Which presets run on Nano Banana?",
-          a: "The stylized classics in the grid on this page — cinematic and manga looks that redraw your photo.",
+          a: "The stylized classics in the grid on this page — cinematic, sketch, and manga looks that redraw your photo.",
         },
         {
           q: "How do I try it?",
