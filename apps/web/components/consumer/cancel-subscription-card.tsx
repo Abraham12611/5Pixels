@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { recordOfferEvent } from "@/lib/offers/actions";
 import { claimRetentionCredits } from "@/lib/billing/retention";
+import { useUiReview } from "@/lib/ui-review/context";
 
 const REASONS = [
   "It costs too much",
@@ -50,6 +51,7 @@ export function CancelSubscriptionCard({
   const [granted, setGranted] = useState(0);
   const portalFormRef = useRef<HTMLFormElement>(null);
   const impressionSent = useRef(false);
+  const uiReview = useUiReview();
 
   // cancel_flow_shown — once per open, reset on close.
   useEffect(() => {
@@ -57,7 +59,7 @@ export function CancelSubscriptionCard({
       impressionSent.current = false;
       return;
     }
-    if (impressionSent.current) return;
+    if (impressionSent.current || uiReview) return;
     impressionSent.current = true;
     void recordOfferEvent({
       surface: "paywall",
@@ -69,7 +71,7 @@ export function CancelSubscriptionCard({
   }, [open]);
 
   function close() {
-    if (phase === "ask") {
+    if (phase === "ask" && !uiReview) {
       void recordOfferEvent({
         surface: "paywall",
         event: "dismiss",
@@ -85,7 +87,10 @@ export function CancelSubscriptionCard({
   async function keepPlan() {
     setBusy(true);
     setError(null);
-    const res = await claimRetentionCredits();
+    // Preview mounts never grant real credits — simulate the success phase.
+    const res = uiReview
+      ? { ok: true as const, credits, already: false }
+      : await claimRetentionCredits();
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -93,6 +98,7 @@ export function CancelSubscriptionCard({
     }
     setGranted(res.credits);
     setPhase("success");
+    if (uiReview) return;
     void recordOfferEvent({
       surface: "paywall",
       event: "accept",
@@ -103,6 +109,12 @@ export function CancelSubscriptionCard({
 
   async function continueToCancel() {
     setBusy(true);
+    if (uiReview) {
+      // No portal navigation in the inspector — close like a finished cancel.
+      setBusy(false);
+      setOpen(false);
+      return;
+    }
     await recordOfferEvent({
       surface: "paywall",
       event: "decline",

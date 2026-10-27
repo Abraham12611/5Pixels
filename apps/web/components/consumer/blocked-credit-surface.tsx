@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import type { OfferAssignment } from "@/lib/offers/engine";
 import type { PlanForPurchase } from "@/lib/db/plans";
 import type { BlockedSegment, ResumePlan } from "@/lib/billing/segments";
+import { useUiReview } from "@/lib/ui-review/context";
 
 interface TopUpInfo {
   packs: CreditPack[];
@@ -76,6 +77,8 @@ export function BlockedCreditSurface({
   isReferred?: boolean;
   referralCode?: string;
 }) {
+  // Inert in the admin popup inspector — no analytics, no checkout submit.
+  const uiReview = useUiReview();
   // Sheet tier below lg — this surface's content is denser than the shared
   // sm breakpoint's sheets, so it keeps its own (wider) query.
   const isNarrow = useMediaQuery("(max-width: 1023px)");
@@ -111,6 +114,7 @@ export function BlockedCreditSurface({
     event: Parameters<typeof recordOfferEvent>[0]["event"],
     meta?: Record<string, unknown>
   ) {
+    if (uiReview) return Promise.resolve({ ok: true });
     return recordOfferEvent({
       campaignId: offer?.campaignId,
       variant: offer?.variant,
@@ -128,7 +132,7 @@ export function BlockedCreditSurface({
       impressionSent.current = false;
       return;
     }
-    if (impressionSent.current) return;
+    if (impressionSent.current || uiReview) return;
     impressionSent.current = true;
     void recordOfferEvent({
       campaignId: offer?.campaignId,
@@ -182,6 +186,7 @@ export function BlockedCreditSurface({
       fire("checkout_started", { plan_id: planId }),
     ]);
     if (planInputRef.current) planInputRef.current.value = planId;
+    if (uiReview) return;
     checkoutFormRef.current?.submit();
   }
 

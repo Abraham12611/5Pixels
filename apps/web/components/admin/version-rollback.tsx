@@ -30,7 +30,7 @@ interface VersionRollbackProps {
     productId: string,
     targetVersionId: string,
     reason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export function VersionRollback({
@@ -62,17 +62,21 @@ export function VersionRollback({
     setError(undefined);
     startTransition(async () => {
       try {
-        await action(productId, selectedVersionId, reason.trim() || undefined);
+        const result = await action(
+          productId,
+          selectedVersionId,
+          reason.trim() || undefined
+        );
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
         setConfirmOpen(false);
         setSelectedVersionId(undefined);
         setReason("");
         router.refresh();
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Rollback failed. Please try again."
-        );
+      } catch {
+        setError("Rollback failed. Please try again.");
       }
     });
   };
