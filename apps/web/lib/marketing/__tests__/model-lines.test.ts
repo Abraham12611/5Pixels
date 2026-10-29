@@ -6,6 +6,7 @@ import {
   type ModelLine,
 } from "../model-lines";
 import type { PublicProductSummary } from "@/types/catalog";
+import { LAUNCH_CARDS, LANDING_TILES } from "../landing-content";
 
 function makeProduct(slug: string): PublicProductSummary {
   return {
@@ -52,6 +53,33 @@ describe("MODEL_LINES config", () => {
       expect(line.pageHref).toMatch(/^\//);
     }
   });
+
+  it("maps pageHref/presetsHref to the canonical /models routes", () => {
+    for (const line of MODEL_LINES) {
+      expect(line.pageHref).toBe(`/models/${line.slug}`);
+      expect(line.presetsHref).toBe(`/models/${line.slug}/presets`);
+    }
+  });
+
+  it("feature + hero image slugs resolve to presets in the line", () => {
+    for (const line of MODEL_LINES) {
+      const hero = line.page.heroPresetSlug ?? line.ctaPresetSlug;
+      expect(line.presetSlugs).toContain(hero);
+      for (const feature of line.page.features) {
+        expect(line.presetSlugs).toContain(feature.presetSlug);
+      }
+    }
+  });
+
+  it("landing content /models/* hrefs point at real model lines", () => {
+    const slugs = new Set(MODEL_LINES.map((l) => l.slug));
+    for (const item of [...LAUNCH_CARDS, ...LANDING_TILES]) {
+      const match = item.href.match(/^\/models\/([^/?]+)/);
+      if (match) {
+        expect(slugs.has(match[1]), `${item.href}`).toBe(true);
+      }
+    }
+  });
 });
 
 describe("resolveModelSection", () => {
@@ -64,6 +92,7 @@ describe("resolveModelSection", () => {
     ctaPresetSlug: "a",
     presetsHref: "/explore",
     pageHref: "/explore",
+    page: { features: [], faq: [] },
   };
   const catalog = [makeProduct("a"), makeProduct("b"), makeProduct("c")];
 
