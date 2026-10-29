@@ -5,7 +5,9 @@ export type MediaKind = "card" | "hero";
 
 /** Public catalog assets live in public buckets — build the object URL directly. */
 export function publicAssetUrl(bucket: string, storageKey: string): string {
-  return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey}`;
+  // A leading slash in storage_key produces a // path segment Storage 400s
+  // on — normalize rather than emit a broken card URL.
+  return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey.replace(/^\/+/, "")}`;
 }
 
 const CARD_ROLE_ORDER: string[] = [
