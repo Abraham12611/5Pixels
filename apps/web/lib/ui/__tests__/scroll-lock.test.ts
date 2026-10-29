@@ -60,3 +60,31 @@ describe("scroll lock", () => {
     expect(activeScrollLocks()).toBe(0);
   });
 });
+
+describe("route-change release", () => {
+  it("does not restore the old offset when the lock releases on a new route", () => {
+    const scrollTo = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+
+    lockBodyScroll();
+    // Simulate an in-sheet link navigation: the router changes the
+    // pathname before the overlay's unmount releases the lock.
+    window.history.pushState({}, "", "/presets/motion-trail-luxe");
+    unlockBodyScroll();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    window.history.pushState({}, "", "/");
+  });
+
+  it("restores the offset when the lock releases on the same route", () => {
+    const scrollTo = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => {});
+
+    lockBodyScroll();
+    unlockBodyScroll();
+
+    expect(scrollTo).toHaveBeenCalled();
+  });
+});
