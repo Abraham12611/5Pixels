@@ -39,7 +39,16 @@ export function useOverlayHistory(open: boolean, onClose: () => void) {
       window.removeEventListener("popstate", handlePopState);
       if (pushedRef.current) {
         pushedRef.current = false;
-        window.history.back();
+        // Only pop when the top entry is still the marker we pushed. An
+        // in-overlay link navigation replaces history.state first — popping
+        // then would swallow the new page and bounce the user back.
+        const state = window.history.state as Record<
+          string,
+          unknown
+        > | null;
+        if (state && state[MARKER] === id) {
+          window.history.back();
+        }
       }
     };
   }, [open]);
