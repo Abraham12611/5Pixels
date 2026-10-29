@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AuthModal, type AuthModalPreset } from "@/components/auth/auth-modal";
 import { toggleFavorite } from "@/app/actions/favorites";
+import { useUiReview } from "@/lib/ui-review/context";
 
 interface FavoriteButtonProps {
   productId: string;
@@ -28,6 +29,7 @@ export function FavoriteButton({
   preset,
   onToggled,
 }: FavoriteButtonProps) {
+  const uiReview = useUiReview();
   const [isFavorite, setIsFavorite] = useState(initialIsFavorite);
   const [error, setError] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -69,7 +71,10 @@ export function FavoriteButton({
     setIsFavorite(next);
 
     startTransition(async () => {
-      const result = await toggleFavorite(productId, next);
+      // Inspector mount — fake product ids would only fail server-side.
+      const result = uiReview
+        ? { success: true }
+        : await toggleFavorite(productId, next);
       if (!result.success) {
         setIsFavorite(!next);
         setError(result.error ?? "Could not update favorite.");

@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { recordOfferEvent } from "@/lib/offers/actions";
 import { claimRetentionCredits } from "@/lib/billing/retention";
+import { useUiReview } from "@/lib/ui-review/context";
 
 const REASONS = [
   "It costs too much",
@@ -50,6 +51,7 @@ export function CancelSubscriptionCard({
   const [granted, setGranted] = useState(0);
   const portalFormRef = useRef<HTMLFormElement>(null);
   const impressionSent = useRef(false);
+  const uiReview = useUiReview();
 
   // cancel_flow_shown — once per open, reset on close.
   useEffect(() => {
@@ -57,7 +59,7 @@ export function CancelSubscriptionCard({
       impressionSent.current = false;
       return;
     }
-    if (impressionSent.current) return;
+    if (impressionSent.current || uiReview) return;
     impressionSent.current = true;
     void recordOfferEvent({
       surface: "paywall",
@@ -69,7 +71,7 @@ export function CancelSubscriptionCard({
   }, [open]);
 
   function close() {
-    if (phase === "ask") {
+    if (phase === "ask" && !uiReview) {
       void recordOfferEvent({
         surface: "paywall",
         event: "dismiss",
@@ -85,7 +87,10 @@ export function CancelSubscriptionCard({
   async function keepPlan() {
     setBusy(true);
     setError(null);
-    const res = await claimRetentionCredits();
+    // Preview mounts never grant real credits — simulate the success phase.
+    const res = uiReview
+      ? { ok: true as const, credits, already: false }
+      : await claimRetentionCredits();
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
@@ -93,6 +98,7 @@ export function CancelSubscriptionCard({
     }
     setGranted(res.credits);
     setPhase("success");
+    if (uiReview) return;
     void recordOfferEvent({
       surface: "paywall",
       event: "accept",
@@ -103,6 +109,12 @@ export function CancelSubscriptionCard({
 
   async function continueToCancel() {
     setBusy(true);
+    if (uiReview) {
+      // No portal navigation in the inspector — close like a finished cancel.
+      setBusy(false);
+      setOpen(false);
+      return;
+    }
     await recordOfferEvent({
       surface: "paywall",
       event: "decline",
@@ -200,12 +212,9 @@ export function CancelSubscriptionCard({
                 </div>
               </fieldset>
 
-              {/* Retention offer — Medium-style lime coupon card */}
-              <div className="border-lime-500/30 bg-lime-500/[0.06] relative mt-5 overflow-hidden rounded-[12px] border p-4">
-                <span
-                  aria-hidden="true"
-                  className="bg-lime-500/50 absolute inset-x-0 top-0 h-px"
-                />
+              {/* Retention offer — lime coupon card (dashed edge = coupon,
+                  the one brightly-accented block in the dialog) */}
+              <div className="border-lime-500/50 bg-lime-500/[0.07] relative mt-5 rounded-xl border border-dashed p-4">
                 <p className="text-cream-50 flex items-center gap-1.5 text-sm font-semibold">
                   <Sparkle size={14} weight="fill" className="text-lime-400" />
                   Stay and get {credits.toLocaleString()} free credits
@@ -222,7 +231,7 @@ export function CancelSubscriptionCard({
                 </p>
               )}
 
-              <div className="mt-5 flex flex-col gap-2.5">
+              <div className="mt-5 flex flex-col items-center gap-3">
                 <Button
                   type="button"
                   variant="brand"
@@ -232,15 +241,14 @@ export function CancelSubscriptionCard({
                 >
                   Keep my plan — get {credits.toLocaleString()} credits
                 </Button>
-                <Button
+                <button
                   type="button"
-                  variant="ghost"
-                  className="w-full"
                   disabled={busy}
                   onClick={continueToCancel}
+                  className="text-text-muted hover:text-cream-100 text-sm transition-colors disabled:opacity-50"
                 >
                   Continue to cancel
-                </Button>
+                </button>
               </div>
             </>
           )}

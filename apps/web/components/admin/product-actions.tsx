@@ -30,7 +30,7 @@ interface ProductActionsProps {
     productId: string,
     newStatus: string,
     reason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 const ACTIONS: Record<
@@ -68,16 +68,20 @@ export function ProductActions({
     setError(undefined);
     startTransition(async () => {
       try {
-        await action(productId, newStatus, reason.trim() || undefined);
+        const result = await action(
+          productId,
+          newStatus,
+          reason.trim() || undefined
+        );
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
         setConfirmOpen(false);
         setReason("");
         router.refresh();
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Action failed. Please try again."
-        );
+      } catch {
+        setError("Action failed. Please try again.");
       }
     });
   };

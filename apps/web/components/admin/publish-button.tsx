@@ -34,7 +34,7 @@ interface PublishButtonProps {
     productId: string,
     versionId: string,
     overrideReason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 export function PublishButton({
@@ -94,21 +94,24 @@ export function PublishButton({
     setState({ status: "checking", failures: gateFailures });
     startTransition(async () => {
       try {
-        await action(
+        // Expected failures arrive as {ok:false,error} — thrown errors
+        // would be digest-redacted in production and unreadable here.
+        const result = await action(
           productId,
           versionId,
           canOverride ? trimmedReason : undefined
         );
+        if (!result.ok) {
+          setState({ status: "error", message: result.error });
+          return;
+        }
         setState({ status: "success" });
         setOverrideReason("");
         router.refresh();
-      } catch (err) {
+      } catch {
         setState({
           status: "error",
-          message:
-            err instanceof Error
-              ? err.message
-              : "Publish failed. Please try again.",
+          message: "Publish failed. Please try again.",
         });
       }
     });

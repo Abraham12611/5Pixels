@@ -106,7 +106,7 @@ export function Dialog({
     <div
       ref={overlayRef}
       role="presentation"
-      className="bg-ink-950/80 animate-overlay-in fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="bg-ink-950/80 animate-overlay-in fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === overlayRef.current) {
           onOpenChange(false);

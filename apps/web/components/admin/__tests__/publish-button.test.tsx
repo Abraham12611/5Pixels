@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PublishButton } from "../publish-button";
 import type { PublishGateFailure } from "@/lib/validation/publish-gates";
 
@@ -20,7 +20,7 @@ const OVERRIDABLE_FAILURE: PublishGateFailure = {
   field: "poster_asset_id",
 };
 
-const noop = vi.fn().mockResolvedValue(undefined);
+const noop = vi.fn().mockResolvedValue({ ok: true });
 
 describe("PublishButton — protected release gates", () => {
   it("does not offer owner override when a release gate blocks", () => {
@@ -110,5 +110,48 @@ describe("PublishButton — protected release gates", () => {
     expect(
       screen.getByRole("button", { name: /publish version/i })
     ).toBeDisabled();
+  });
+
+  it("surfaces the server's failure message instead of a generic error", async () => {
+    const action = vi.fn().mockResolvedValue({
+      ok: false,
+      error: "Cannot publish: version not found on this product.",
+    });
+    render(
+      <PublishButton
+        productId="prod-1"
+        versionId="ver-1"
+        gateFailures={[]}
+        action={action}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /publish version/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/version not found on this product/i)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("falls back to a generic message when the action throws", async () => {
+    const action = vi.fn().mockRejectedValue(new Error("redacted"));
+    render(
+      <PublishButton
+        productId="prod-1"
+        versionId="ver-1"
+        gateFailures={[]}
+        action={action}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /publish version/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/publish failed\. please try again/i)
+      ).toBeInTheDocument();
+    });
   });
 });

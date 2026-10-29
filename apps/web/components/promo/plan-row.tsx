@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, CaretDown } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import type { OfferBadgeTone } from "./offer-badge";
+import { OfferBadge, type OfferBadgeTone } from "./offer-badge";
 import { PriceChip } from "./price-chip";
 
 export interface PlanRowBullet {
@@ -26,8 +26,9 @@ const BULLET_ICONS: Record<
 /**
  * Radio-selectable plan row — the ladder unit used in the Special Offer
  * takeover and BlockedCreditSurface. One plan per row: name + cadence line left,
- * PriceChip right, radio far-left. Selected = accent border + filled radio +
- * tinted surface. Deeper detail behind `Learn more`.
+ * PriceChip right, radio far-left. Selected = lime ring + filled radio +
+ * elevated surface. A `headerTab` rides the top-right corner as an
+ * overlapping chip (Opal/Revolut pattern). Deeper detail behind `Learn more`.
  */
 export function PlanRow({
   name,
@@ -38,7 +39,7 @@ export function PlanRow({
   bullets,
   moreBullets,
   headerTab,
-  headerTone = "promo",
+  headerTone = "lime",
   selected,
   onSelect,
   dimmed = false,
@@ -63,67 +64,55 @@ export function PlanRow({
   return (
     <div
       className={cn(
-        "relative rounded-2xl transition-all",
-        headerTab && "pt-5",
-        dimmed && "opacity-75"
+        "relative transition-all",
+        dimmed && !selected && "opacity-80"
       )}
     >
-      {headerTab && (
-        <span className="absolute inset-x-0 top-0 z-10 flex justify-center">
-          <span
-            className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-t-2xl py-1.5 text-[11px] font-bold uppercase tracking-wide",
-              headerTone === "promo" && "bg-promo text-cream-50",
-              headerTone === "lime" && "bg-lime-500 text-ink-950",
-              headerTone === "neutral" &&
-                "bg-charcoal-700 text-cream-100"
-            )}
-          >
-            {headerTab}
-          </span>
-        </span>
-      )}
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
         className={cn(
-          "flex w-full items-start gap-3 border p-4 text-left transition-colors",
-          headerTab ? "rounded-b-2xl rounded-t-none" : "rounded-2xl",
+          "flex w-full items-start gap-3.5 rounded-2xl border p-4 text-left transition-all",
           selected
-            ? "border-promo bg-charcoal-850"
-            : "border-cream-100/10 bg-charcoal-850/60 hover:border-cream-100/25",
-          dimmed && "bg-charcoal-850/40"
+            ? "border-lime-400 bg-lime-500/[0.06] ring-1 ring-lime-400/25"
+            : "border-cream-100/10 bg-charcoal-800/60 hover:border-cream-100/25"
         )}
       >
         <span
           aria-hidden
           className={cn(
-            "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+            "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors",
             selected
-              ? "border-lime-500 bg-lime-500 text-ink-950"
-              : "border-cream-100/25"
+              ? "border-lime-400 bg-lime-400 text-ink-950"
+              : "border-cream-100/25 bg-charcoal-900/50"
           )}
         >
           {selected && <Check size={12} weight="bold" />}
         </span>
 
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="flex flex-wrap items-center gap-2">
             <span className="text-cream-50 font-display text-lg font-bold leading-tight">
               {name}
             </span>
-            {anchorCents !== undefined && anchorCents > priceCents && (
-              <span className="text-text-muted text-xs line-through">
-                ${(anchorCents / 100).toFixed(0)}
-              </span>
+            {headerTab && (
+              <OfferBadge
+                tone={headerTone}
+                className={cn(
+                  headerTone === "lime" &&
+                    "border-lime-400/30 bg-lime-400/15 text-lime-300 border"
+                )}
+              >
+                {headerTab}
+              </OfferBadge>
             )}
           </span>
           <span className="text-text-secondary mt-0.5 block text-xs">
             {cadence}
           </span>
 
-          <span className="mt-3 block space-y-1.5">
+          <span className="mt-2.5 block space-y-1">
             {[...bullets, ...(expanded ? (moreBullets ?? []) : [])].map(
               (b, i) => (
                 <span
@@ -156,7 +145,7 @@ export function PlanRow({
                   setExpanded((v) => !v);
                 }
               }}
-              className="text-text-muted hover:text-cream-100 mt-3 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
+              className="text-text-muted hover:text-cream-100 mt-2.5 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
             >
               {expanded ? "Show less" : "Learn more"}
               <CaretDown

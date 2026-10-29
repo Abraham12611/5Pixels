@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CreditTopUp } from "../credit-top-up";
 
 const packs = [
@@ -24,32 +24,44 @@ describe("CreditTopUp", () => {
     render(<CreditTopUp {...props} />);
     expect(screen.getByText("606 credits")).toBeInTheDocument();
     expect(screen.getByText("6,060 credits")).toBeInTheDocument();
+    // $50 pack = 3,030 credits / 5 = 606 looks
+    expect(screen.getByText("≈ 606 looks")).toBeInTheDocument();
+  });
+
+  it("preselects the popular pack and updates the single CTA on selection", () => {
+    render(<CreditTopUp {...props} />);
+    const cta = screen.getByRole("button", { name: "Continue — $50" });
+    expect(cta).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("radio", { name: /606 credits/i }));
     expect(
-      screen.getByRole("button", { name: /buy for \$50/i })
-    ).toBeInTheDocument();
-    // $50 pack = 3,030 credits / 5 = 606 transformations
-    expect(
-      screen.getByText("≈ up to 606 transformations")
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: "Continue — $10" })
+    ).toBeEnabled();
   });
 
   it("posts only the pack plan_id — no amount field exists", () => {
     const { container } = render(<CreditTopUp {...props} />);
     const forms = container.querySelectorAll("form");
-    expect(forms).toHaveLength(4);
-    for (const form of forms) {
-      expect(form.querySelector('input[name="amount"]')).toBeNull();
-      expect(
-        form.querySelector('input[name="plan_id"]')
-      ).toBeInTheDocument();
-    }
+    expect(forms).toHaveLength(1);
+    const form = forms[0]!;
+    expect(form.querySelector('input[name="amount"]')).toBeNull();
+    expect(form.querySelector('input[name="plan_id"]')).toBeInTheDocument();
     // No custom-amount input anywhere.
     expect(screen.queryByLabelText(/any amount/i)).toBeNull();
   });
 
+  it("writes the selected pack's plan_id into the post", () => {
+    const { container } = render(<CreditTopUp {...props} />);
+    fireEvent.click(screen.getByRole("radio", { name: /606 credits/i }));
+    const input = container.querySelector<HTMLInputElement>(
+      'input[name="plan_id"]'
+    );
+    expect(input?.value).toBe("pack-1000");
+  });
+
   it("omits the ≈N claim when nothing is quotable", () => {
     render(<CreditTopUp packs={packs} creditsPerTransformation={null} />);
-    expect(screen.queryByText(/≈ up to/)).toBeNull();
+    expect(screen.queryByText(/≈/)).toBeNull();
     expect(screen.getByText("606 credits")).toBeInTheDocument();
   });
 
@@ -57,11 +69,14 @@ describe("CreditTopUp", () => {
     render(
       <CreditTopUp
         {...props}
-        packs={[{ ...packs[0], checkoutReady: false }]}
+        packs={[{ ...packs[0]!, checkoutReady: false }]}
       />
     );
+    const card = screen.getByRole("radio", { name: /606 credits/i });
+    expect(card).toBeDisabled();
+    fireEvent.click(card);
     expect(
-      screen.getByRole("button", { name: /coming soon/i })
+      screen.getByRole("button", { name: "Choose a credit pack" })
     ).toBeDisabled();
   });
 
