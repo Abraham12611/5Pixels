@@ -118,6 +118,7 @@ const deps = (fetchImpl: typeof fetch, extra = {}) => ({
   now: NOW,
   key: "test-key",
   definitions: [FLAT, TIERED],
+  sleepImpl: () => Promise.resolve(),
   ...extra,
 });
 
@@ -516,11 +517,11 @@ describe("runFalPricingSync", () => {
     expect(open.metadata.last_seen_at).toBe(NOW.toISOString());
   });
 
-  it("skips endpoints whose fetch batch failed without stamping state", async () => {
+  it("skips a defined endpoint whose solo fetch failed without stamping state", async () => {
     const client = makeClient();
-    // >50 endpoints force two pricing batches; failing the batch that
-    // carries the definitions must leave those endpoints untouched while
-    // the coarse batch still syncs.
+    // >50 endpoints force multiple coarse batches; the defined endpoints
+    // ride their own dedicated request — a solo failure on FLAT must not
+    // touch TIERED or the coarse sweep.
     client.seed(
       "provider_model_pricing",
       Array.from({ length: 60 }, (_, i) => ({
@@ -552,23 +553,157 @@ describe("runFalPricingSync", () => {
       client as never,
       deps(failDefsBatch)
     );
-    // Both defs rode the failed batch → no snapshot rows at all (not even
-    // unsupported) — we don't stamp a state we didn't observe.
-    expect(snapshots(client)).toHaveLength(0);
-    // The whole second batch (10 coarse + 2 defined) failed.
-    expect(report.fetchFailedEndpoints).toBe(12);
-    // The coarse batch still refreshed discovery rows.
-    expect(report.feedRecords).toBe(50);
-    // …and each defined endpoint raised an immediate refresh alert rather
-    // than going quiet until the previous snapshot expires.
+    // Only the failing id is skipped — the bisect isolated it; TIERED's
+    // probe succeeded and produced a snapshot.
+    expect(snapshots(client)).toHaveLength(1);
+    expect(snapshots(client)[0]!.endpoint_id).toBe(TIERED.endpointId);
+    expect(report.fetchFailedEndpoints).toBe(1);
+    // 60 coarse ids + TIERED's solo probe.
+    expect(report.feedRecords).toBe(61);
+    // …and the failed defined endpoint raised an immediate refresh alert
+    // rather than going quiet until the previous snapshot expires.
     const refreshAlerts = alerts(client).filter(
       (a) => a.rule === "pricing_refresh_failed"
     );
-    expect(refreshAlerts).toHaveLength(2);
-    expect(refreshAlerts.map((a) => a.details.endpoint_id).sort()).toEqual(
-      [FLAT.endpointId, TIERED.endpointId].sort()
-    );
+    expect(refreshAlerts).toHaveLength(1);
+    expect(refreshAlerts[0]!.details.endpoint_id).toBe(FLAT.endpointId);
     expect(refreshAlerts[0]!.severity).toBe("warning");
+  });
+
+  it("keeps defined endpoints quotable when the coarse sweep fails", async () => {
+    const client = makeClient();
+    // The regression that starved every route: the coarse batches fail
+    // (429/404/5xx — all exercised identically here) while the dedicated
+    // defined-endpoint request still succeeds.
+    client.seed(
+      "provider_model_pricing",
+      Array.from({ length: 60 }, (_, i) => ({
+        id: `pm-${i}`,
+        provider: "fal",
+        endpoint_id: `fal-ai/coarse-${String(i).padStart(2, "0")}`,
+        unit_price: 0.01,
+        unit: "images",
+        currency: "USD",
+        is_active: true,
+        metadata: {},
+      }))
+    );
+    const coarseDown = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const wanted = new Set(url.searchParams.getAll("endpoint_id"));
+      if ([...wanted].some((id) => id.includes("coarse-"))) {
+        return { ok: false, status: 429 } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          prices: [...wanted].map((id) => priceRow(id, 0.01)),
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const report = await runFalPricingSync(
+      client as never,
+      deps(coarseDown)
+    );
+    // Both defined endpoints still got fresh quotable snapshots.
+    expect(snapshots(client)).toHaveLength(2);
+    expect(report.unsupported).toEqual([]);
+    expect(
+      alerts(client).filter((a) => a.rule === "pricing_route_unquotable")
+    ).toHaveLength(0);
+  });
+
+  it("isolates a delisted endpoint's 404 instead of failing its batch", async () => {
+    const client = makeClient();
+    // One dead coarse id returns 404 for the whole request — the bisect
+    // must isolate it so the other 49 ids still refresh, then deactivate
+    // the dead row so it stops poisoning future runs.
+    client.seed(
+      "provider_model_pricing",
+      [
+        {
+          id: "pm-dead",
+          provider: "fal",
+          endpoint_id: "fal-ai/chain-of-zoom",
+          unit_price: 0.025,
+          unit: "images",
+          currency: "USD",
+          is_active: true,
+          metadata: {},
+        },
+        {
+          id: "pm-live",
+          provider: "fal",
+          endpoint_id: "fal-ai/live-model",
+          unit_price: 0.01,
+          unit: "images",
+          currency: "USD",
+          is_active: true,
+          metadata: {},
+        },
+      ]
+    );
+    const poisoned = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const wanted = new Set(url.searchParams.getAll("endpoint_id"));
+      if (wanted.has("fal-ai/chain-of-zoom")) {
+        return { ok: false, status: 404 } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          prices: [...wanted].map((id) => priceRow(id, 0.01)),
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const report = await runFalPricingSync(client as never, deps(poisoned));
+
+    const deadRow = client
+      .table("provider_model_pricing")
+      .find((r) => r.endpoint_id === "fal-ai/chain-of-zoom")!;
+    expect(deadRow.is_active).toBe(false);
+    expect(report.deactivated).toEqual(["fal-ai/chain-of-zoom"]);
+    // The healthy neighbour still refreshed its discovery row.
+    const live = client
+      .table("provider_model_pricing")
+      .find((r) => r.endpoint_id === "fal-ai/live-model")!;
+    expect(live.metadata.last_seen_at).toBe(NOW.toISOString());
+  });
+
+  it("retries a 429 batch after backoff instead of failing its ids", async () => {
+    const client = makeClient();
+    let calls = 0;
+    const throttled = vi.fn(async (input: RequestInfo | URL) => {
+      calls++;
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 429,
+          headers: { get: () => "1" },
+        } as unknown as Response;
+      }
+      const url = new URL(String(input));
+      const wanted = new Set(url.searchParams.getAll("endpoint_id"));
+      return {
+        ok: true,
+        json: async () => ({
+          prices: [...wanted].map((id) => priceRow(id, 0.01)),
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const slept: number[] = [];
+    const report = await runFalPricingSync(
+      client as never,
+      deps(throttled, { sleepImpl: (ms: number) => { slept.push(ms); return Promise.resolve(); } })
+    );
+
+    expect(calls).toBe(2);
+    expect(slept).toContain(1000); // Retry-After: 1s honored
+    expect(report.feedRecords).toBe(2);
+    expect(snapshots(client)).toHaveLength(2);
   });
 
   it("changed-content insert failure is critical + fails the run", async () => {

@@ -18,6 +18,7 @@ import {
   recordOnboardingEvent,
 } from "@/lib/onboarding/actions";
 import { claimReferralCode } from "@/lib/referrals/actions";
+import { useUiReview } from "@/lib/ui-review/context";
 import { REFEREE_SIGNUP_BONUS } from "@/lib/referrals/reward-amounts";
 import { normalizeReferralCode } from "@/lib/referrals/codes";
 import { signOut } from "@/app/actions/auth";
@@ -81,6 +82,7 @@ export function OnboardingFlow({
   next: string;
 }) {
   const router = useRouter();
+  const uiReview = useUiReview();
   const [stepIndex, setStepIndex] = useState(0);
   const [busy, setBusy] = useState(false);
 
@@ -122,10 +124,10 @@ export function OnboardingFlow({
 
   useEffect(() => {
     headingRef.current?.focus();
-    if (step !== "welcome") {
+    if (step !== "welcome" && !uiReview) {
       recordOnboardingEvent("impression", { step }).catch(() => {});
     }
-  }, [step]);
+  }, [step, uiReview]);
 
   // Debounced live availability check (Gizmo pattern — inline, not
   // submit). The visible state is derived at render: an empty field is
@@ -148,6 +150,11 @@ export function OnboardingFlow({
   useEffect(() => {
     if (step !== "username" || trimmedUsername.length === 0) return;
     const t = setTimeout(() => {
+      // Inspector mount — fake availability, no availability RPC.
+      if (uiReview) {
+        setUsernameCheck({ value: trimmedUsername, available: true });
+        return;
+      }
       checkUsername(trimmedUsername)
         .then((r) =>
           setUsernameCheck({ value: trimmedUsername, available: r.available, error: r.error })
@@ -155,10 +162,19 @@ export function OnboardingFlow({
         .catch(() => setUsernameCheck({ value: trimmedUsername, available: false }));
     }, 350);
     return () => clearTimeout(t);
-  }, [trimmedUsername, step]);
+  }, [trimmedUsername, step, uiReview]);
 
   function go(to: number) {
     setStepIndex(Math.max(0, Math.min(to, steps.length - 1)));
+  }
+
+  /** Analytics — suppressed inside the admin popup inspector. */
+  function track(
+    event: Parameters<typeof recordOnboardingEvent>[0],
+    meta: Parameters<typeof recordOnboardingEvent>[1]
+  ) {
+    if (uiReview) return;
+    recordOnboardingEvent(event, meta).catch(() => {});
   }
 
   /** Single-select: selection beat (~300ms) then auto-advance. */
@@ -169,7 +185,7 @@ export function OnboardingFlow({
 
   function skip(id: StepId) {
     setSkipped((s) => [...s, id]);
-    recordOnboardingEvent("dismiss", { step: id }).catch(() => {});
+    track("dismiss", { step: id });
     go(stepIndex + 1);
   }
 
@@ -182,27 +198,31 @@ export function OnboardingFlow({
     }
     setCodeState("submitting");
     setCodeError(null);
-    const res = await claimReferralCode(normalized);
+    // Inspector mount — never claim a code against the admin's account.
+    const res = uiReview
+      ? { ok: true as const, referrerName: "Preview User" }
+      : await claimReferralCode(normalized);
     if (res.ok) {
       setCodeState("applied");
       setClaimedBy(res.referrerName ?? "Your friend");
-      recordOnboardingEvent("accept", {
-        step: "code",
-        code_valid: true,
-      }).catch(() => {});
+      track("accept", { step: "code", code_valid: true });
     } else {
       setCodeState("invalid");
       setCodeError(res.error ?? "That code didn't work — try again.");
-      recordOnboardingEvent("decline", {
-        step: "code",
-        code_valid: false,
-      }).catch(() => {});
+      track("decline", { step: "code", code_valid: false });
     }
   }
 
   async function finish() {
     setBusy(true);
     setDoneError(null);
+    if (uiReview) {
+      // Inspector mount — stay on the done step instead of mutating the
+      // admin's profile / redirecting.
+      setBusy(false);
+      setDoneError("Preview only — onboarding completion is disabled.");
+      return;
+    }
     const res = await completeOnboarding({
       username,
       goal,
@@ -216,11 +236,11 @@ export function OnboardingFlow({
       setDoneError(res.error ?? "Couldn't save — try again.");
       return;
     }
-    recordOnboardingEvent("accept", {
+    track("accept", {
       step: "done",
       duration_s: Math.round((Date.now() - startedAt) / 1000),
       skipped_count: skipped.length,
-    }).catch(() => {});
+    });
     router.push(next || "/app");
   }
 

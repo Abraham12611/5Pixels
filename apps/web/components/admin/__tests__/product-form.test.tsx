@@ -6,6 +6,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
+const recipeMock = vi.fn();
+vi.mock("@/lib/prompt-recipe/actions", () => ({
+  generatePromptRecipeDraft: (input: unknown) => recipeMock(input),
+}));
+
 beforeAll(() => {
   window.ResizeObserver ??= class {
     observe() {}
@@ -433,4 +438,67 @@ describe("ProductForm — incomplete-preset save handling (#233)", () => {
       "Kept despite failure"
     );
   }, 30_000);
+});
+
+describe("Generate with AI — public prompt recipe", () => {
+  it("fills the field from the form's current values", async () => {
+    recipeMock.mockReset();
+    recipeMock.mockResolvedValue({
+      ok: true,
+      recipe: "Generated consumer-friendly recipe text.",
+    });
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={BASE_DATA}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /generate with ai/i })
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(/public prompt recipe/i)
+      ).toHaveValue("Generated consumer-friendly recipe text.")
+    );
+    expect(recipeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Chrome Portrait",
+        type: "filter",
+        private_instruction_template:
+          "Turn this photo into chrome editorial art.",
+      })
+    );
+    // Generated text goes through the normal save flow — field is dirty.
+    await screen.findByText(/unsaved changes/i);
+  });
+
+  it("surfaces the action error without touching the field", async () => {
+    recipeMock.mockReset();
+    recipeMock.mockResolvedValue({
+      ok: false,
+      error: "OPENROUTER_API_KEY is not configured.",
+    });
+    render(
+      <ProductForm
+        type="filter"
+        categories={[]}
+        modelCatalog={[]}
+        initialData={BASE_DATA}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /generate with ai/i })
+    );
+
+    await screen.findByText("OPENROUTER_API_KEY is not configured.");
+    expect(screen.getByLabelText(/public prompt recipe/i)).toHaveValue("");
+  });
 });

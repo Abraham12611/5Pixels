@@ -93,8 +93,14 @@ const ASSET = {
 const GOOD_RECIPE =
   "Vertical poster, pure white paper background with subtle grain. " +
   "Massive arched bold italic display wordmark in deep midnight-blue " +
-  "across the top. Centered illustrated portrait with confident smirk. " +
-  "Palette: crimson red, midnight blue, silver chrome.";
+  "across the top, letterforms beveled with a thin silver keyline. " +
+  "Centered illustrated portrait with confident smirk, cel-shaded " +
+  "half-tone shading and a sharp inked outline. Palette: crimson red " +
+  "accent blocks, midnight blue, silver chrome, warm off-white. " +
+  "Bottom band: release title in condensed caps, star ratings and " +
+  "small tagline strips. Lighting: clean flat studio wash with a " +
+  "single cool rim light. Mood: bold, playful 90s print energy. " +
+  "Finish: crisp vector-like edges with fine offset-print grain.";
 
 beforeEach(() => {
   chatMock.mockReset();
@@ -201,10 +207,23 @@ describe("ensurePromptRecipe", () => {
     expect(second.model).toBe("nvidia/nemotron-3.5-lightning:free");
   });
 
+  it("escalates to paid fallbacks only after every free model fails", async () => {
+    chatMock.mockImplementation((args: { model: string }) =>
+      args.model.endsWith(":free")
+        ? Promise.reject(new Error("OpenRouter request failed with 429"))
+        : Promise.resolve(GOOD_RECIPE)
+    );
+    expect(await ensurePromptRecipe("prod-1")).toBe("generated");
+    // 3 free-model vision attempts failed, then first paid model won.
+    expect(chatMock).toHaveBeenCalledTimes(4);
+    const fourth = chatMock.mock.calls[3]![0] as { model: string };
+    expect(fourth.model).toBe("qwen/qwen3.8-omni-flash");
+  });
+
   it("rejects output that leaks the private recipe verbatim", async () => {
     chatMock
       .mockResolvedValueOnce(
-        "Result: " + VERSION.private_instruction_template
+        `${GOOD_RECIPE} ${VERSION.private_instruction_template}`
       )
       .mockResolvedValue(GOOD_RECIPE);
     expect(await ensurePromptRecipe("prod-1")).toBe("generated");
@@ -226,8 +245,9 @@ describe("ensurePromptRecipe", () => {
       return Promise.resolve(GOOD_RECIPE);
     });
     expect(await ensurePromptRecipe("prod-1")).toBe("generated");
-    // 3 vision attempts failed, then first text-only attempt succeeded.
-    expect(chatMock).toHaveBeenCalledTimes(4);
+    // 9 vision attempts (3 free + 6 paid) failed, then the first
+    // text-only attempt succeeded.
+    expect(chatMock).toHaveBeenCalledTimes(10);
   });
 
   it("works without an image when the product has no hero/poster asset", async () => {

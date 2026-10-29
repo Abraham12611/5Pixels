@@ -2,16 +2,16 @@ import { cn } from "@/lib/utils";
 import { formatPrice } from "@/lib/format";
 
 /**
- * Right-aligned price block used inside PlanRow and plan cards:
- * optional strikethrough anchor on top, big number, cadence caption
- * (`per month`, `one-time`). Selected state inverts to accent fill.
+ * Right-aligned typographic price block used inside PlanRow and plan cards:
+ * optional strikethrough anchor on top, serif display price, and quiet
+ * cadence caption (`per month`, `one-time`). Restrains lime so it never
+ * competes with the modal's single primary CTA button.
  */
 export function PriceChip({
   priceCents,
   anchorCents,
   caption,
   selected,
-  tone = "neutral",
   className,
 }: {
   priceCents: number;
@@ -25,36 +25,24 @@ export function PriceChip({
   return (
     <span
       className={cn(
-        "flex min-w-20 flex-col items-center justify-center rounded-xl px-3 py-2 text-center transition-colors",
-        selected
-          ? tone === "lime"
-            ? "bg-lime-500 text-ink-950"
-            : "bg-cream-50 text-ink-950"
-          : "bg-charcoal-800 text-cream-50",
+        "flex min-w-16 flex-col items-end justify-center text-right transition-colors",
         className
       )}
     >
       {anchorCents !== undefined && anchorCents > priceCents && (
-        <span
-          className={cn(
-            "text-[11px] line-through",
-            selected ? "text-ink-950/60" : "text-text-muted"
-          )}
-        >
+        <span className="text-text-muted text-[11px] line-through tabular-nums">
           {formatPrice(anchorCents)}
         </span>
       )}
-      <span className="font-display text-xl font-bold leading-none">
-        {formatPrice(priceCents)}
-      </span>
       <span
         className={cn(
-          "mt-0.5 text-[10px]",
-          selected ? "text-ink-950/70" : "text-text-muted"
+          "font-display text-2xl font-bold leading-none tabular-nums",
+          selected ? "text-cream-50" : "text-cream-100"
         )}
       >
-        {caption}
+        {formatPrice(priceCents)}
       </span>
+      <span className="text-text-muted mt-1 text-[11px]">{caption}</span>
     </span>
   );
 }
