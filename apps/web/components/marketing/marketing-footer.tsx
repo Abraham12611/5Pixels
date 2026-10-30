@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   InstagramLogo,
   XLogo,
   YoutubeLogo,
 } from "@phosphor-icons/react/dist/ssr";
+import { cn } from "@/lib/utils";
 import { LogoMark } from "@/components/logo-mark";
 import { AuthModalLink } from "@/components/auth/auth-modal-link";
 import { CookieSettingsButton } from "@/components/consent/cookie-settings-button";
@@ -52,8 +54,15 @@ const footerLinks = {
 };
 
 export function MarketingFooter({ isAuthenticated }: MarketingFooterProps) {
+  const pathname = usePathname();
+  // The preset detail view is a fullscreen lightbox on desktop — the footer
+  // is unreachable there. Mobile renders it as a scrolling page, so the
+  // footer must be hidden below md to match.
+  const onPresetDetail = pathname?.startsWith("/presets/");
   return (
-    <footer className="bg-lime-500 text-ink-950">
+    <footer
+      className={cn("bg-lime-500 text-ink-950", onPresetDetail && "hidden md:block")}
+    >
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:py-20">
         <div className="grid gap-12 lg:grid-cols-6">
           <div className="lg:col-span-3">

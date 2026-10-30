@@ -9,10 +9,12 @@ export type MediaKind = "card" | "hero";
 
 /** Public catalog assets live in public buckets — build the object URL directly. */
 export function publicAssetUrl(bucket: string, storageKey: string): string {
-  if (storageKey.startsWith("/") || storageKey.startsWith("https://")) {
+  // Local marketing artwork is served by Next.js, not Supabase Storage.
+  // HTTPS asset URLs are already absolute. Only normalize Storage object keys.
+  if (storageKey.startsWith("/marketing/") || storageKey.startsWith("https://")) {
     return storageKey;
   }
-  return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey}`;
+  return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey.replace(/^\/+/, "")}`;
 }
 
 function validDims(
