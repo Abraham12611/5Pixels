@@ -8,6 +8,7 @@ import {
   isImageMimeType,
   isVideoMimeType,
   publicAssetUrl,
+  resolveProductAspectRatio,
   selectCatalogMediaAsset,
 } from "@/lib/catalog/media";
 import type { PublicProductSummary } from "@/types/catalog";
@@ -39,6 +40,10 @@ export function ProductVideoCard({
   priority = false,
 }: ProductVideoCardProps) {
   const mediaAsset = selectCatalogMediaAsset(product.public_assets, "card");
+  const initialAspect = resolveProductAspectRatio(product, mediaAsset);
+  const [naturalAspect, setNaturalAspect] = useState<string | null>(null);
+  const aspect = naturalAspect ?? initialAspect;
+
   const [isHovered, setIsHovered] = useState(false);
   const [isInView, setIsInView] = useState(false);
   const prefersReducedMotion = useSyncExternalStore(
@@ -78,8 +83,9 @@ export function ProductVideoCard({
   return (
     <article
       ref={containerRef}
+      style={{ aspectRatio: aspect }}
       className={cn(
-        "group border-cream-100/10 bg-charcoal-850 relative flex flex-col overflow-hidden rounded-2xl border transition hover:border-lime-500/30 hover:shadow-lg",
+        "group/explore-card bg-charcoal-850 relative isolate min-w-0 w-full shrink-0 break-inside-avoid overflow-hidden rounded-xl ring-1 ring-white/8 transition hover:ring-lime-500/40 hover:shadow-lg",
         className
       )}
       onMouseEnter={() => setIsHovered(true)}
@@ -90,7 +96,7 @@ export function ProductVideoCard({
     >
       <Link
         href={`/presets/${product.slug}`}
-        className="bg-charcoal-800 relative block aspect-[4/5] overflow-hidden"
+        className="bg-charcoal-800 absolute inset-0 block overflow-hidden"
         prefetch={false}
       >
         <div className="relative h-full w-full">
@@ -102,9 +108,15 @@ export function ProductVideoCard({
               muted
               playsInline
               preload="metadata"
+              onLoadedMetadata={(e) => {
+                const { videoWidth, videoHeight } = e.currentTarget;
+                if (videoWidth > 0 && videoHeight > 0) {
+                  setNaturalAspect(`${videoWidth} / ${videoHeight}`);
+                }
+              }}
               className={cn(
                 "h-full w-full object-cover transition duration-500",
-                shouldPlay ? "scale-105" : "scale-100"
+                shouldPlay ? "scale-[1.03]" : "scale-100"
               )}
               aria-label={`Preview for ${product.name}`}
             />
@@ -113,45 +125,46 @@ export function ProductVideoCard({
               src={publicAssetUrl(mediaAsset.bucket, mediaAsset.storage_key)}
               alt={`Preview for ${product.name}`}
               fill
-              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+              className="h-full w-full object-cover transition duration-500 group-hover/explore-card:scale-[1.03]"
               priority={priority}
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               unoptimized={mediaAsset.mime_type === "image/gif"}
+              onLoad={(e) => {
+                const { naturalWidth, naturalHeight } = e.currentTarget;
+                if (naturalWidth > 0 && naturalHeight > 0) {
+                  setNaturalAspect(`${naturalWidth} / ${naturalHeight}`);
+                }
+              }}
             />
           ) : (
             <div className="bg-charcoal-800 flex h-full w-full items-center justify-center" />
           )}
         </div>
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between p-3">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/45 via-transparent to-black/75"
+        />
+        <div className="absolute inset-x-2.5 top-2.5 flex items-start justify-between">
           {product.category_name ? (
-            <span className="bg-ink-950/70 text-cream-50 rounded-full px-2.5 py-1 text-xs font-medium backdrop-blur-sm">
+            <span className="bg-black/35 text-cream-50 rounded-full px-2.5 py-0.5 text-[11px] font-medium backdrop-blur-md">
               {product.category_name}
             </span>
           ) : null}
         </div>
-      </Link>
-
-      <div className="flex flex-1 flex-col justify-between p-4">
-        <div>
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-cream-50 font-semibold">
-              <Link
-                href={`/presets/${product.slug}`}
-                className="hover:text-lime-400 focus:outline-none"
-                prefetch={false}
-              >
-                {product.name}
-              </Link>
+        <div className="absolute inset-x-2.5 bottom-2.5 flex items-end justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-cream-50 truncate text-xs font-semibold drop-shadow-sm sm:text-sm">
+              {product.name}
             </h3>
+            {product.short_description && (
+              <p className="sr-only">{product.short_description}</p>
+            )}
           </div>
-          <p className="text-text-secondary mt-1 line-clamp-2 text-sm">
-            {product.short_description}
-          </p>
+          <span className="text-cream-100/75 shrink-0 text-[10px] font-medium tracking-wider uppercase">
+            {product.type}
+          </span>
         </div>
-        <div className="text-text-muted mt-3 flex items-center gap-2 text-xs">
-          <span className="capitalize">{product.type}</span>
-        </div>
-      </div>
+      </Link>
     </article>
   );
 }

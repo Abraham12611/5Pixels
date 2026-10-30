@@ -43,6 +43,9 @@ interface HoverPreviewMediaProps {
   sizes?: string;
   priority?: boolean;
   className?: string;
+  /** Reports the loaded media's natural `W / H` ratio so cards whose asset
+   *  row had missing dimensions still snap to their true aspect ratio. */
+  onNaturalRatio?: (ratio: string) => void;
 }
 
 /**
@@ -58,6 +61,7 @@ export function HoverPreviewMedia({
   sizes,
   priority,
   className,
+  onNaturalRatio,
 }: HoverPreviewMediaProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +113,8 @@ export function HoverPreviewMedia({
     return () => observer.disconnect();
   }, [showVideo, coarsePointer, play, stop]);
 
+  const stillUrl = still ? publicUrl(still) : null;
+
   return (
     <div
       ref={wrapRef}
@@ -122,15 +128,23 @@ export function HoverPreviewMedia({
       onFocusCapture={play}
       onBlurCapture={stop}
     >
-      {still ? (
+      {still && stillUrl ? (
         <Image
-          src={publicUrl(still)}
+          src={stillUrl}
           alt={alt}
           fill
-          className="media-frame object-cover"
+          className="media-frame object-cover transition-transform duration-500 group-hover/explore-card:scale-[1.02]"
           priority={priority}
           sizes={sizes}
-          unoptimized={still.mime_type === "image/gif"}
+          unoptimized={
+            still.mime_type === "image/gif" || stillUrl.startsWith("https://media.flora.ai/")
+          }
+          onLoad={(e) => {
+            const { naturalWidth, naturalHeight } = e.currentTarget;
+            if (naturalWidth > 0 && naturalHeight > 0) {
+              onNaturalRatio?.(`${naturalWidth} / ${naturalHeight}`);
+            }
+          }}
         />
       ) : (
         <div
@@ -149,6 +163,13 @@ export function HoverPreviewMedia({
           preload="metadata"
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 data-[playing=true]:opacity-100"
+          onLoadedMetadata={(e) => {
+            if (still) return;
+            const { videoWidth, videoHeight } = e.currentTarget;
+            if (videoWidth > 0 && videoHeight > 0) {
+              onNaturalRatio?.(`${videoWidth} / ${videoHeight}`);
+            }
+          }}
           onPlaying={(e) =>
             e.currentTarget.setAttribute("data-playing", "true")
           }

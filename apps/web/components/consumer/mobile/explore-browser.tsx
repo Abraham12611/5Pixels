@@ -371,7 +371,7 @@ export function ExploreMobileBrowser({
 
           <section
             aria-label="Catalog presets"
-            className="columns-2 gap-4 pt-4 [&>*]:mb-4 [&>*]:break-inside-avoid"
+            className="columns-2 gap-2 pt-4 [&>*]:mb-2 [&>*]:break-inside-avoid"
           >
             {items.map((product, index) => (
               <ProductCard

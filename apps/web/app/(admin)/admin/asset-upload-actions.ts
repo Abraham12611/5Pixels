@@ -55,11 +55,22 @@ export async function finalizeAdminAssetUpload(
     .list(directory, { limit: 2, search: filename });
   const object = objects?.find((item) => item.name === filename);
   const metadata = object?.metadata as
-    { mimetype?: unknown; size?: unknown } | undefined;
+    | { mimetype?: unknown; size?: unknown; width?: unknown; height?: unknown }
+    | undefined;
   const mimeType =
     typeof metadata?.mimetype === "string" ? metadata.mimetype : "";
   const bytes =
     typeof metadata?.size === "number" ? metadata.size : Number(metadata?.size);
+  const rawWidth = Number(metadata?.width);
+  const rawHeight = Number(metadata?.height);
+  const width =
+    Number.isFinite(rawWidth) && rawWidth > 0 && rawWidth <= 20000
+      ? Math.round(rawWidth)
+      : null;
+  const height =
+    Number.isFinite(rawHeight) && rawHeight > 0 && rawHeight <= 20000
+      ? Math.round(rawHeight)
+      : null;
 
   if (objectError || !object || !Number.isSafeInteger(bytes)) {
     throw new Error("Uploaded object could not be verified");
@@ -76,6 +87,8 @@ export async function finalizeAdminAssetUpload(
       media_type: mimeType.startsWith("video/") ? "video" : "image",
       mime_type: mimeType,
       bytes,
+      width,
+      height,
       visibility: "public",
       source_type: role,
     })

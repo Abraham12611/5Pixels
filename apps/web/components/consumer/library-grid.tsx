@@ -405,10 +405,11 @@ export function LibraryGrid({ items: initialItems }: { items: LibraryItem[] }) {
         </EmptyPanel>
       ) : (
         <>
-          {/* Uniform owned-content grid — 4:5, 10px gutters (11 §4.2) */}
+          {/* Aspect-natural masonry — each result keeps its true output
+              ratio; tight 10px gutters (11 §4.2) */}
           <section
             aria-label="Library results"
-            className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-4"
+            className="columns-2 gap-2.5 md:columns-3 xl:columns-4 [&>*]:mb-2.5 [&>*]:break-inside-avoid"
           >
             {visible.map((item, index) => (
               <LibraryResultCard

@@ -5,7 +5,7 @@ import { ProductVideoCard } from "@/components/marketing/product-video-card";
 export default async function CategoriesPage() {
   const [categories, { data: allProducts }] = await Promise.all([
     getActiveCategories(),
-    getPublicProducts(),
+    getPublicProducts(undefined, undefined, undefined, undefined, "featured", 1, 96),
   ]);
 
   const productsByCategory = new Map<string, typeof allProducts>();
@@ -17,7 +17,7 @@ export default async function CategoriesPage() {
   }
 
   return (
-    <main className="flex flex-1 flex-col px-4 py-10 sm:px-6 lg:py-16">
+    <main className="flex flex-1 flex-col px-4 py-10 sm:px-6 lg:px-10 lg:py-16">
       <div className="mx-auto w-full max-w-7xl">
         <h1 className="text-cream-50 text-3xl font-bold sm:text-4xl">
           Categories
@@ -31,13 +31,13 @@ export default async function CategoriesPage() {
             const products = productsByCategory.get(category.slug) ?? [];
             return (
               <section key={category.slug}>
-                <div className="mb-5 flex items-center justify-between">
-                  <h2 className="text-cream-50 text-2xl font-semibold">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-cream-50 text-xl font-bold tracking-tight uppercase md:text-2xl">
                     {category.name}
                   </h2>
                   <Link
                     href={`/explore?category=${category.slug}`}
-                    className="text-lime-400 text-sm font-medium hover:underline"
+                    className="text-[#D1FE17] text-sm font-semibold hover:underline"
                   >
                     View all
                   </Link>
@@ -47,8 +47,8 @@ export default async function CategoriesPage() {
                     No presets in this category yet.
                   </p>
                 ) : (
-                  <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                    {products.slice(0, 4).map((product, index) => (
+                  <div className="columns-2 gap-2 md:columns-3 lg:columns-4 [&>*]:mb-2 [&>*]:break-inside-avoid">
+                    {products.slice(0, 8).map((product, index) => (
                       <ProductVideoCard
                         key={product.id}
                         product={product}
