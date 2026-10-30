@@ -7,6 +7,7 @@
  */
 let locks = 0;
 let scrollY = 0;
+let lockedPathname = "";
 let previous: {
   overflow: string;
   position: string;
@@ -20,6 +21,7 @@ export function lockBodyScroll(): void {
 
   const { body } = document;
   scrollY = window.scrollY;
+  lockedPathname = window.location.pathname;
   previous = {
     overflow: body.style.overflow,
     position: body.style.position,
@@ -45,7 +47,12 @@ export function unlockBodyScroll(): void {
   body.style.width = previous?.width ?? "";
   previous = null;
 
-  window.scrollTo(0, scrollY);
+  // The lock may release because an overlay link navigated to a new route —
+  // restoring the old offset there would land the new page scrolled to the
+  // feed's position. The router owns scroll on a different pathname.
+  if (window.location.pathname === lockedPathname) {
+    window.scrollTo(0, scrollY);
+  }
 }
 
 /** Test helper: number of outstanding locks. */
