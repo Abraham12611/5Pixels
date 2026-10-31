@@ -10,6 +10,7 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import { productCreateSchema, type ProductCreateInput } from "@5pixels/shared";
 import type { z } from "zod";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +48,7 @@ import {
   type FormErrorItem,
 } from "./form-error-summary";
 import { UnsavedChangesGuard } from "./unsaved-changes-guard";
+import { generatePromptRecipeDraft } from "@/lib/prompt-recipe/actions";
 import type { ParentCandidate } from "@/lib/validation/preset-family";
 import type { ProviderModelOption } from "@/lib/db/provider-catalog";
 
@@ -153,6 +155,8 @@ export function ProductForm({
   const [submitError, setSubmitError] = useState<string>();
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [errorItems, setErrorItems] = useState<FormErrorItem[]>([]);
+  const [recipeGenerating, setRecipeGenerating] = useState(false);
+  const [recipeError, setRecipeError] = useState<string>();
   const defaultValues = useMemo<ProductCreateInput>(
     () => ({
       type,
@@ -373,6 +377,48 @@ export function ProductForm({
     });
   };
 
+  // Manual recipe generation — fills the field from the form's current
+  // values (drafts included); nothing persists until Save.
+  const handleGenerateRecipe = async () => {
+    const existing = getValues("public_prompt_recipe");
+    if (
+      existing?.trim() &&
+      !window.confirm("Replace the existing recipe text?")
+    ) {
+      return;
+    }
+    setRecipeGenerating(true);
+    setRecipeError(undefined);
+    try {
+      const values = getValues();
+      const result = await generatePromptRecipeDraft({
+        name: values.name ?? "",
+        type,
+        short_description: values.short_description,
+        long_description: values.long_description,
+        private_instruction_template:
+          values.version?.private_instruction_template,
+        private_negative_instruction:
+          values.version?.private_negative_instruction,
+        hero_asset_id: values.hero_asset_id,
+        poster_asset_id: values.poster_asset_id,
+      });
+      if (result.ok) {
+        setValue("public_prompt_recipe", result.recipe, {
+          shouldDirty: true,
+        });
+      } else {
+        setRecipeError(result.error);
+      }
+    } catch (err) {
+      setRecipeError(
+        err instanceof Error ? err.message : "Recipe generation failed."
+      );
+    } finally {
+      setRecipeGenerating(false);
+    }
+  };
+
   const title = type === "filter" ? "Filter" : "Poster";
   // True once a product exists — loaded, or created by a save that stayed
   // mounted because in-flight edits remained.
@@ -517,9 +563,20 @@ export function ProductForm({
               </div>
 
               <div className="mt-6">
-                <Label htmlFor="public_prompt_recipe">
-                  Public prompt recipe
-                </Label>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="public_prompt_recipe">
+                    Public prompt recipe
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={recipeGenerating}
+                    onClick={handleGenerateRecipe}
+                  >
+                    {recipeGenerating ? "Generating…" : "Generate with AI"}
+                  </Button>
+                </div>
                 <Textarea
                   id="public_prompt_recipe"
                   {...register("public_prompt_recipe")}
@@ -527,11 +584,16 @@ export function ProductForm({
                   rows={5}
                   placeholder="Write the steps/creative prompt a reader could reuse — public editorial copy only."
                 />
+                {recipeError && (
+                  <p className="text-error mt-1.5 text-xs">{recipeError}</p>
+                )}
                 <p className="text-text-muted mt-1.5 text-xs">
                   Optional. Shown in articles as a prefilled prompt recipe
                   readers can copy. This is public editorial copy — never
                   paste the real generation prompt or any private
-                  instructions here.
+                  instructions here. Auto-generated for published presets —
+                  Generate fills it now from this form&apos;s current values
+                  (review before saving).
                 </p>
               </div>
             </section>

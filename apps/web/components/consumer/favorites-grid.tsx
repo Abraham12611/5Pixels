@@ -59,7 +59,7 @@ export function FavoritesGrid({
     >
       <section
         aria-label="Favorite presets"
-        className="columns-2 gap-5 md:columns-3 xl:columns-4"
+        className="columns-2 gap-2 md:columns-3 xl:columns-4"
       >
         {favorites.map(({ product, isAvailable }) => {
           if (removedIds.has(product.id)) return null;
@@ -68,7 +68,7 @@ export function FavoritesGrid({
           // as a standalone look.
           const attribution = familyAttribution(product);
           return isAvailable ? (
-            <div key={product.id} className="mb-5 break-inside-avoid">
+            <div key={product.id} className="mb-2 break-inside-avoid">
               <ProductCard
                 product={product}
                 isAuthenticated

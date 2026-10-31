@@ -1,11 +1,98 @@
 import { supabaseUrl } from "@/lib/supabase/env";
-import type { PublicProductAsset } from "@/types/catalog";
+import type {
+  OutputSizeOption,
+  PublicProductAsset,
+  PublicProductSummary,
+} from "@/types/catalog";
 
 export type MediaKind = "card" | "hero";
 
 /** Public catalog assets live in public buckets — build the object URL directly. */
 export function publicAssetUrl(bucket: string, storageKey: string): string {
-  return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey}`;
+  // Local marketing artwork is served by Next.js, not Supabase Storage.
+  // HTTPS asset URLs are already absolute. Only normalize Storage object keys.
+  if (storageKey.startsWith("/marketing/") || storageKey.startsWith("https://")) {
+    return storageKey;
+  }
+  return `${supabaseUrl()}/storage/v1/object/public/${bucket}/${storageKey.replace(/^\/+/, "")}`;
+}
+
+function validDims(
+  width: number | null | undefined,
+  height: number | null | undefined
+): string | null {
+  if (
+    typeof width === "number" &&
+    typeof height === "number" &&
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0 &&
+    width <= 20000 &&
+    height <= 20000
+  ) {
+    return `${width} / ${height}`;
+  }
+  return null;
+}
+
+function parseAspectString(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  const colon = /^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/.exec(trimmed);
+  if (colon) {
+    const w = Number(colon[1]);
+    const h = Number(colon[2]);
+    if (w > 0 && h > 0) return `${w} / ${h}`;
+  }
+  if (trimmed === "portrait") return "9 / 16";
+  if (trimmed === "landscape") return "16 / 9";
+  if (trimmed === "square") return "1 / 1";
+  return null;
+}
+
+/**
+ * Resolve the natural CSS `aspect-ratio` string (`"W / H"`) for a preset card
+ * from its primary hero/poster asset, any sibling public asset with dimensions,
+ * poster_config/metadata hints, or its default output_sizes entry.
+ */
+export function resolveProductAspectRatio(
+  product: Pick<
+    PublicProductSummary,
+    "public_assets" | "metadata" | "output_sizes" | "type"
+  >,
+  primaryAsset?: PublicProductAsset | null
+): string {
+  const fromPrimary = validDims(primaryAsset?.width, primaryAsset?.height);
+  if (fromPrimary) return fromPrimary;
+
+  for (const role of ["poster", "hero", "preview_video", "preview_gif", "example_result"]) {
+    const asset = product.public_assets?.find((a) => a.role === role);
+    const ratio = validDims(asset?.width, asset?.height);
+    if (ratio) return ratio;
+  }
+
+  for (const asset of product.public_assets ?? []) {
+    const ratio = validDims(asset.width, asset.height);
+    if (ratio) return ratio;
+  }
+
+  const meta = (product.metadata ?? {}) as Record<string, unknown>;
+  const posterConfig = (meta.poster_config ?? {}) as Record<string, unknown>;
+  const fromMeta =
+    parseAspectString(posterConfig.aspect_ratio) ??
+    parseAspectString(meta.aspect_ratio) ??
+    parseAspectString(posterConfig.layout_template);
+  if (fromMeta) return fromMeta;
+
+  const sizes: OutputSizeOption[] = Array.isArray(product.output_sizes)
+    ? product.output_sizes
+    : [];
+  const defaultSize = sizes.find((s) => s.is_default) ?? sizes[0];
+  const fromSize = validDims(defaultSize?.width, defaultSize?.height);
+  if (fromSize) return fromSize;
+
+  return product.type === "poster" ? "9 / 16" : "3 / 4";
 }
 
 const CARD_ROLE_ORDER: string[] = [

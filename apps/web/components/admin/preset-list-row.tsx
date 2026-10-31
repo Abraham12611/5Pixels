@@ -23,7 +23,7 @@ interface PresetListRowProps {
     productId: string,
     newStatus: string,
     reason?: string
-  ) => Promise<void>;
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   duplicateAction: (id: string) => Promise<unknown>;
 }
 

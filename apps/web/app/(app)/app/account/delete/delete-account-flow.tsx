@@ -6,6 +6,7 @@ import { DownloadSimple, Warning } from "@phosphor-icons/react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { deleteAccount } from "@/lib/db/account";
+import { useUiReview } from "@/lib/ui-review/context";
 import type { ActivePlan } from "@/lib/billing/entitlements";
 
 function formatDate(iso: string): string {
@@ -32,10 +33,18 @@ export function DeleteAccountFlow({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const uiReview = useUiReview();
+
   const handleDelete = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+    if (uiReview) {
+      // Inspector mount — never delete the admin's own account.
+      setError("Preview only — deletion is disabled in the popup inspector.");
+      setLoading(false);
+      return;
+    }
     const result = await deleteAccount(confirmation);
     if (result.error) {
       setError(result.error);

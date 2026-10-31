@@ -270,11 +270,8 @@ export default async function ExplorePage({
             <>
               <section
                 aria-label="Catalog presets"
-                className={
-                  products.length <= 4
-                    ? "grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-2"
-                    : "columns-2 gap-5 md:columns-3 xl:columns-4 [&>*]:mb-5 [&>*]:break-inside-avoid"
-                }
+                data-explore-masonry=""
+                className="columns-2 gap-2 md:columns-3 lg:columns-4 [&>*]:mb-2 [&>*]:break-inside-avoid"
               >
                 {products.map((product, index) => (
                   <ProductCard

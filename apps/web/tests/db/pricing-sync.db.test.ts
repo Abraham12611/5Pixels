@@ -85,6 +85,7 @@ function sync(client: SupabaseClient, extra: Record<string, unknown> = {}) {
     now: new Date(),
     key: "test-key",
     definitions: [DB_FLAT, DB_TIERED],
+    sleepImpl: () => Promise.resolve(),
     ...extra,
   });
 }
@@ -151,6 +152,7 @@ describe("pricing sync against real schema", () => {
       now: new Date(),
       key: "test-key",
       definitions: [staleDef],
+      sleepImpl: () => Promise.resolve(),
     });
     const { data: snaps } = await client
       .from("provider_pricing_snapshots")
@@ -189,6 +191,7 @@ describe("pricing sync against real schema", () => {
       now: new Date(),
       key: "test-key",
       definitions: [suspended],
+      sleepImpl: () => Promise.resolve(),
     });
     await withDb(async (pg) => {
       const { rows } = await pg.query(

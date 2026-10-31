@@ -206,6 +206,13 @@ function SheetFooter({ item }: { item: QuickSheetPreset }) {
             <ArrowRight className="ml-1.5 h-4 w-4" weight="bold" />
           </Link>
         </Button>
+        <Link
+          href={`/presets/${item.slug}`}
+          className="text-text-secondary hover:text-cream-50 flex items-center justify-center gap-1 py-1 text-[13px] font-medium transition-colors"
+        >
+          View full details
+          <ArrowRight className="h-3.5 w-3.5" weight="bold" />
+        </Link>
       </div>
     );
   }

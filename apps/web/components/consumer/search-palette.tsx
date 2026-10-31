@@ -50,7 +50,7 @@ const SCOPES: { key: SearchScope; label: string }[] = [
   { key: "library", label: "Library" },
 ];
 
-/** Representative icon per category slug — mirrors category-faq.tsx. */
+/** Representative icon per category slug. */
 const CATEGORY_ICON: Record<string, Icon> = {
   portraits: User,
   professional: Briefcase,

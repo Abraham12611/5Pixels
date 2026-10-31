@@ -15,6 +15,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useIsNarrow } from "@/lib/ui/use-media-query";
+import { useUiReview } from "@/lib/ui-review/context";
 
 const SHARE_PRIVACY_TEXT =
   "Anyone with the link can view this result. Your account and other creations stay private.";
@@ -44,6 +45,7 @@ export function ShareDialog({
   onDownloadInstead?: () => void;
 }) {
   const isNarrow = useIsNarrow();
+  const uiReview = useUiReview();
   const [shareUrl, setShareUrl] = useState<string | null>(
     initialShareId
       ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${initialShareId}`
@@ -58,7 +60,11 @@ export function ShareDialog({
   const setPublicLink = async (enabled: boolean) => {
     setLoading(true);
     if (enabled) {
-      const result = await createPublicShare(generationId);
+      // Inspector mount — a fake id would only fail server-side anyway; fake
+      // the success path so the link UI is inspectable.
+      const result = uiReview
+        ? { shareUrl: `${window.location.origin}/s/preview` }
+        : await createPublicShare(generationId);
       setLoading(false);
       if (result) {
         setShareUrl(result.shareUrl);
@@ -67,7 +73,7 @@ export function ShareDialog({
         toast.error("Couldn't create a share link. Try again.");
       }
     } else {
-      const ok = await disablePublicShare(generationId);
+      const ok = uiReview ? true : await disablePublicShare(generationId);
       setLoading(false);
       if (ok) {
         setShareUrl(null);
